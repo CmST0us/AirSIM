@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-24",
+  "profile": "airsim-v2-r4.1",
+  "go": "go1.24.13",
+  "scope": "local isolated Compose milestone only",
+  "images": {
+    "airsim-r4-test-business:local": {
+      "local_image_id": "sha256:1eb588f5c07552f92735f4b91d6776c0f89cffd4a28dd94bb8d413019ff88a52",
+      "architecture": "arm64",
+      "os": "linux"
+    },
+    "airsim-r4-test-business:amd64": {
+      "local_image_id": "sha256:b05c45b2d12ab697dc2738a6752486db194bfcc1789e84f6299a719032fa72a3",
+      "architecture": "amd64",
+      "os": "linux"
+    }
+  },
+  "image_id_note": "Local Docker IDs are not registry index/child digests or ECS runtime IDs. Controller verifies archive and destination IDs separately.",
+  "build_input_files_sha256": {
+    "cmd/airsim-admin/main.go": "b4bdb9ed3c0d4baa633941d6df05ef9f1b14c022e72dbb0b5fc0d5f4a938f080",
+    "cmd/airsim-media/main.go": "dfb47bf4802105be7102fec69cb3dea2536ec3d35d4787f3e1df2137c986028d",
+    "cmd/airsim-migrate/main.go": "4016a87184bf1dc697973fdf0e1363200e6a865f891f2af294a2ea7b753a8df0",
+    "cmd/airsim-server/main.go": "da63b21b383e4cbd842930415d6b8e32ccd2daca35c4886a385f9dcdfde5a888",
+    "cmd/airsim-test-setup/main.go": "c2e67d816850acfd7b60a762b2ca24a17dc3058ca836f367b2d12c1033a68e26",
+    "deploy/compose/Dockerfile": "b3f4de42753571eb8917ca1a2e48499d380ced3a3b4ed13bdd611b39bfb663d9",
+    "deploy/compose/images.lock": "b7eb5b20ea5049f91330544de30362b86cc08c68432062c5a887760ed07e2d68",
+    "go.mod": "14cdeb44c44e16be1465dcbaf62157b96c5300acb99a9c989f8751b17e48e56d",
+    "go.sum": "19e8cdeab3ef6bd561918e975f98c5b964f32bde1a1fdf52b2cd4b78f6203d3a",
+    "integration/stack_test.go": "77f5bfa3f25d03371add3d403f6d452a1df896ec3b22abc98a75cde9070bb8fa",
+    "internal/admin/admin.go": "ae19858e03bd6f12e4947fb9c703c1f6e10f3a3e9b02f63e260577e47ed32152",
+    "internal/control/audio_model.go": "15cac8ca122c5c9c41891c7bbf8fb52852034528bf52c39cfbfc69925f779e05",
+    "internal/control/client.go": "3d709dad4d824898fa7bdbcac4be4662aa3b7ca16fe6a80815e5c0eb58e84889",
+    "internal/control/media.go": "ba6a8e232fd050a5eec900b8a2f2ffaab9b195285ba02a31545db18693273ee6",
+    "internal/control/media_test.go": "3c794c094cc6082c5b65b449b41cf772bbd5470c6232ff58ed470bb671cf70cb",
+    "internal/control/model.go": "e534c67cfe1d2cfe52c6757ce0a2d0753cd111fe176772b6a64d603697ede5a9",
+    "internal/control/receipt.go": "b943bbff97155505bc23f5f603a92d3cbb8ad44208d2f311f695dc03a3a92099",
+    "internal/control/server.go": "15871c16b8087885b5491958d3bf9402b9568ba949dde8af87d494f0e0de83a9",
+    "internal/media/server.go": "6697c4906b58d90315cff4ab1be805f1150ff65799682693e2057cd648976619",
+    "internal/media/server_test.go": "d918e718e493a3b5eb50f2aa7925a70544bfaa26df50bc6ca0d8b24b8fa613c8",
+    "internal/runtime/runtime.go": "4bd042bd1ea260a4fd2dab37f2c5a8aa27d1caa366fd05b960dcc5347531851b",
+    "internal/store/store.go": "90175748d968b9bdcda4a275d8ad8e24d83ec9c4aef73cc33eaa3da251c0bfcc",
+    "internal/wire/json.go": "3bd1ab2f531b0724ddefa93b81416e7bc99bd2a24cc7590cb961aa74d0be9af3",
+    "internal/wire/json_test.go": "487bfbd8961fc4940179bd14423ea108704a0d218b6bf0e2eba0b0e1abaf6cca",
+    "migrations/001_initial.sql": "47dab7a15ace47e9785006d4c70dadf72ffb9454bf653f0498c215f9c32623bb",
+    "migrations/schema.go": "213b8f353555af8d641774e16d08e728be1937e3d1c812a2216b485529715f0d"
+  },
+  "combined_input_sha256": "392999d315fb5ef779e06d8388f780a62f085a6f9dc21048006eccb4bf74e955",
+  "verification": {
+    "go_race": true,
+    "go_vet": true,
+    "real_compose_tls_integration": true,
+    "accepted_receipt_and_reservation_tests": true,
+    "media_restart_and_stale_ticket": true,
+    "live_certificate_expiry": true,
+    "database_restore_all_seven_tables_equal": true,
+    "compose_2_26_1_config": true,
+    "shared_and_separate_media_caddy_adapt": true,
+    "production_volume_uid_65532_write": true
+  },
+  "not_performed": [
+    "ECS business deployment",
+    "Cloudflare operations",
+    "physical module operations",
+    "real call/SMS/audio content acceptance",
+    "git staging/commit/push"
+  ]
+}

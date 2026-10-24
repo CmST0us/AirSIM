@@ -1,0 +1,164 @@
+name: ${AIRSIM_PROJECT:?explicit production project required}
+x-business: &business
+  image: ${AIRSIM_BUSINESS_IMAGE:?immutable business image reference required}
+  pull_policy: never
+  build:
+    context: ../..
+    dockerfile: deploy/compose/Dockerfile
+  user: "65532:65532"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  mem_limit: 256m
+  tmpfs: ["/tmp:size=8m,mode=1777"]
+  restart: "no"
+x-database: &database
+  DATABASE_HOST: postgres
+  DATABASE_PASSWORD_FILE: /run/secrets/database-password
+services:
+  postgres:
+    restart: unless-stopped
+    image: ${AIRSIM_POSTGRES_IMAGE:-postgres:17.11-alpine3.24@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb}
+    pull_policy: never
+    environment:
+      POSTGRES_DB: airsim
+      POSTGRES_USER: airsim
+      POSTGRES_PASSWORD_FILE: /run/secrets/database-password
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ${AIRSIM_SECRET_DIR:?set external secrets directory}/database-password:/run/secrets/database-password:ro
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U airsim -d airsim"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    mem_limit: 256m
+    pids_limit: 128
+  migrate:
+    <<: *business
+    entrypoint: [/bin/airsim-migrate]
+    environment: *database
+    volumes:
+      - ${AIRSIM_SECRET_DIR}/database-password:/run/secrets/database-password:ro
+    networks: [database]
+    depends_on:
+      postgres: {condition: service_healthy}
+  admin:
+    <<: *business
+    profiles: [tools]
+    entrypoint: [/bin/airsim-admin]
+    environment:
+      <<: *database
+      AIRSIM_SERVER_ID: ${AIRSIM_SERVER_ID:-}
+      AIRSIM_API_ORIGIN: ${AIRSIM_API_ORIGIN:?}
+      AIRSIM_DEVICE_ORIGIN: ${AIRSIM_DEVICE_ORIGIN:?}
+      AIRSIM_MEDIA_ORIGIN: ${AIRSIM_MEDIA_ORIGIN:?}
+    volumes:
+      - ${AIRSIM_SECRET_DIR}:/protected
+      - ${AIRSIM_SECRET_DIR}/database-password:/run/secrets/database-password:ro
+    networks: [database]
+    depends_on:
+      postgres: {condition: service_healthy}
+  control:
+    <<: *business
+    restart: unless-stopped
+    environment:
+      <<: *database
+      AIRSIM_API_ORIGIN: ${AIRSIM_API_ORIGIN:?}
+      AIRSIM_DEVICE_ORIGIN: ${AIRSIM_DEVICE_ORIGIN:?}
+      AIRSIM_MEDIA_ORIGIN: ${AIRSIM_MEDIA_ORIGIN:?}
+      EDGE_TOKEN_FILE: /run/secrets/edge-token
+      MEDIA_TOKEN_FILE: /run/secrets/media-token
+      COMMAND_HMAC_FILE: /run/secrets/command-hmac
+      DEVICE_CA_FILE: /run/secrets/device-ca.pem
+    volumes:
+      - ${AIRSIM_SECRET_DIR}/database-password:/run/secrets/database-password:ro
+      - ${AIRSIM_SECRET_DIR}/identity/device-ca.pem:/run/secrets/device-ca.pem:ro
+      - ${AIRSIM_SECRET_DIR}/identity/edge-token:/run/secrets/edge-token:ro
+      - ${AIRSIM_SECRET_DIR}/identity/media-token:/run/secrets/media-token:ro
+      - ${AIRSIM_SECRET_DIR}/identity/command-hmac:/run/secrets/command-hmac:ro
+    networks: [database, control, media]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, /bin/airsim-server, healthcheck]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  media:
+    <<: *business
+    restart: unless-stopped
+    entrypoint: [/bin/airsim-media]
+    environment:
+      MEDIA_TOKEN_FILE: /run/secrets/media-token
+    volumes:
+      - ${AIRSIM_SECRET_DIR}/identity/media-token:/run/secrets/media-token:ro
+    networks: [media]
+    depends_on:
+      control: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, /bin/airsim-media, healthcheck]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  edge-storage-init:
+    image: ${AIRSIM_CADDY_IMAGE:-caddy:2.11.7@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489}
+    pull_policy: never
+    user: "0:0"
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - 'chown -R 65532:65532 /data /config; chmod 0700 /data /config; test "$$(stat -c %u:%g:%a /data)" = 65532:65532:700; test "$$(stat -c %u:%g:%a /config)" = 65532:65532:700'
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 16
+    mem_limit: 32m
+    restart: "no"
+    volumes:
+      - tls-state:/data
+      - edge-config:/config
+  edge:
+    restart: unless-stopped
+    cap_add: [NET_BIND_SERVICE]
+    image: ${AIRSIM_CADDY_IMAGE:-caddy:2.11.7@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489}
+    pull_policy: never
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    pids_limit: 64
+    mem_limit: 128m
+    ports: ["80:8080", "443:8443"]
+    volumes:
+      - ${AIRSIM_SECRET_DIR}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${AIRSIM_SECRET_DIR}/identity/device-ca.pem:/run/secrets/device-ca.pem:ro
+      - ${AIRSIM_SECRET_DIR}/identity/edge-token:/run/secrets/edge-token:ro
+      - ${AIRSIM_SECRET_DIR}/tls:/run/tls:ro
+      - tls-state:/data
+      - edge-config:/config
+    environment:
+      AIRSIM_API_HOST: ${AIRSIM_API_HOST:?}
+    healthcheck:
+      test: [CMD-SHELL, 'curl --noproxy "*" --fail --silent --resolve "$${AIRSIM_API_HOST}:8443:127.0.0.1" "https://$${AIRSIM_API_HOST}:8443/healthz" >/dev/null']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [ingress, control, media]
+    depends_on:
+      edge-storage-init: {condition: service_completed_successfully}
+      control: {condition: service_healthy}
+      media: {condition: service_healthy}
+networks:
+  ingress: {}
+  database: {internal: true}
+  control: {internal: true}
+  media: {internal: true}
+volumes:
+  database:
+  tls-state:
+  edge-config:

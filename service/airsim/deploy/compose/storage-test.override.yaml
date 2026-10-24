@@ -1,0 +1,6 @@
+# Used only for permission checks under project airsim-r4-test; not a production input.
+volumes:
+  tls-state:
+    name: airsim-r4-test-permission-tls
+  edge-config:
+    name: airsim-r4-test-permission-config
