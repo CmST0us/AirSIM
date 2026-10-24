@@ -874,7 +874,11 @@
       "last_connected_at": "2026-10-24T09:49:55.004034788Z",
       "last_error": "",
       "certificate_expires_at": "2026-11-23T09:29:52Z"
-    }
+    },
+    "test_client_revoked": true,
+    "revoked_client_http": 401,
+    "temporary_network_probe_removed": true,
+    "recorded_at": "2026-10-24T09:52:38.519005+00:00"
   },
   "user_feedback": [
     {
