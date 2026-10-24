@@ -26,3 +26,19 @@ M1已完成：独立配置/Keychain、严格JSON、HTTPS限额与拒绝跳转、
 M2已完成：模拟器83/83测试，主控实际验证已有安装v1迁移、v1/v2往返、无效JSON拒绝且不回退、干净安装先选择后启动。首次UI发现ActivityKit取消不返回导致切换卡死；修正为有界只读系统事件源和可结束的业务订阅，最终v2订阅为0。已有v1进程保留2个只读源，纯新装v2全为0，不声称系统observer全部销毁。快照与per-Activity悬挂账本均有界，达到16项时单独提示Live Activity观察需重启。假源24次往返、迟到事件、历史快照清理均覆盖。截图位于docs/evidence/r5。尚未验证实体机APNs、App云端通话/SMS或音频。
 
 M3已完成本地验证：独立WSS、固定20ms音频节拍、真实AVAudioEngine采集/播放、显式恢复与停止屏障；模拟器诊断提示/回声仅在内存中处理。最终98项测试为97通过、0失败、1项硬件XCTest显式跳过，生产提示语生成515帧/10.3秒非静音PCM。iOS26.5的两次真实引擎尝试均在RemoteIO初始化SIGABRT，未取得采集统计，不能归为AEC不支持；没有关闭语音处理或重启全局音频服务。改用独立iOS27.0模拟器后，前台3秒生产引擎探测通过：44.1kHz单声道、VoiceProcessing开启、采集145帧/播放136帧、引擎停止。此证据不代表AEC听感、云端音频或实体iPhone验收。主控开始M4，仍通过App正常导入短期配置和UI完成业务操作。
+
+## M4 模拟器 Keychain 构建修正（2026-10-24）
+
+首次有效配置导入在 Keychain 写入阶段失败。20:54:46.519 的 securityd 日志给出 SecItemUpdate 的 OSStatus=-34018（errSecMissingEntitlement）：Client has neither application-identifier nor keychain-access-groups entitlements。此前 CODE_SIGNING_ALLOWED=NO 的安装包只有 linker-signed ad-hoc 签名；生产存储将该状态转为通用 keychain 错误，未写入配置元数据。
+
+主控批准后，仅通过构建调用改用正常模拟器 ad-hoc 签名；项目 bundle ID、空 DEVELOPMENT_TEAM、实体机设置和 V2TokenStore 安全策略均未修改。XcodeBuildMCP 的 build_sim、test_sim、build_run_sim 使用相同 extraArgs：`["CODE_SIGNING_ALLOWED=YES", "CODE_SIGN_IDENTITY=-", "CODE_SIGNING_REQUIRED=YES"]`。会话为 AirSIM / Debug，工程 iOS/AirSIM.xcodeproj，DerivedData=/tmp/airsim-r5-deriveddata，目标 F4D9D82D-3467-4210-A30D-C1F5B9FC52E5（AirSIM R5 Audio 27.0）。后续此模拟器构建/测试继续使用这三个参数，不再禁用签名。
+
+构建成功，签名为正常 ad-hoc。注意模拟器的身份位于主可执行文件 `__TEXT,__entitlements`，单独 `codesign -d --entitlements -` 输出空字典不能据此断言身份缺失。Xcode 自动生成 application-identifier；没有手工设置开发团队或扩展 keychain-access-groups，默认应用身份已足够。
+
+新增 testRealKeychainRoundTripWithIsolatedAccount，使用独立随机 account 和内存中生成的测试 token，通过生产 V2KeychainTokenStore 完成 save/read/delete，并确认删除后读取失败。仅定向运行该测试（`-only-testing:AirSIMTests/CloudV2Tests/testRealKeychainRoundTripWithIsolatedAccount -parallel-testing-enabled NO`），结果 1/1 通过；defer 负责异常路径清理。未读取既有 token/config，未将测试 token 输出或落盘。随后以相同签名参数构建、安装、启动 F4D9D82D 模拟器，未操作 App UI、导入配置或触发通话；公网业务仍由主控继续验收。
+
+M4主控正常UI复测：签名修复后，通过文件选择器导入短期配置成功，不再出现Keychain错误；随后自动连接报transport且保持v2。截图：docs/evidence/r5/m4-config-import-network-blocked.jpg。公网入口出现环境阻塞：Mac和RM500带目标域名的TLS ClientHello后均被重置，Mac固定到正确公网IP后仍重现；ECS loopback及私网IP通过同一TLS入口读取discovery均200且身份/profile正确，4个Compose容器健康。Cloudflare两条A记录仍为预期ECS地址、DNS only。只采集TCP SYN/RST头摘要，未记录请求/语音内容。用户确认eric3u.cc尚未备案；域名接入/备案拦截为当前推断，未取得云厂商的拦截记录，不能将其写成已证实根因。阿里云排查参考：https://help.aliyun.com/en/icp-filing/basic-icp-service/support/web-site-suddenly-appeared-for-the-record-to-block-or-hang-and-so-on-and-so-forth 。
+
+另发现RM500系统uptime约14分钟、原Agent未运行；主控校验原R4 Agent/helper SHA256后恢复原启动参数，身份/config不变，新的boot/backend已记录，通话/SMS控制ready，因上述公网问题cloud仍discovery_failed。未增加自启动，未改DNS/TLS认证/防火墙/服务端业务。香港和新加坡区域均未发现现成ECS，已向用户询问后续部署资源方向，未购买或迁移服务器。
+
+本轮未发起App电话或短信，不能声称R5公网闭环通过。收尾无活动通话、媒体idle、无音频会话；App停止；短期client已撤销，通过ECS loopback的有效TLS入口核验401（不冒充公网401）。公网入口恢复后必须重新签发配置，继续App呼出、来电接听/拒接、SMS双向、提示/回声、媒体故障恢复及后台收尾验收。

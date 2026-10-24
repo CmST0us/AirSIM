@@ -12,7 +12,7 @@
     "M1_protocol": "passed",
     "M2_ui_and_version_isolation": "passed",
     "M3_audio": "local_verification_passed_cloud_acceptance_pending",
-    "M4_app_cloud_rm500_acceptance": "in_progress"
+    "M4_app_cloud_rm500_acceptance": "blocked_public_TLS_requires_usable_endpoint"
   },
   "verification": {
     "initial_simulator_build_and_launch": "passed",
@@ -132,6 +132,58 @@
       "duration_seconds": 10.3,
       "nonzero_pcm": true,
       "memory_only": true
+    },
+    "M4_preflight": {
+      "recorded_at": "2026-10-24T13:03:39.039376+00:00",
+      "ECS_compose": "4_containers_healthy",
+      "ECS_loopback_and_private_ip_discovery": "HTTP_200_expected_server_and_R4_profile",
+      "Mac_public_TLS": "connection_reset_after_ClientHello_including_direct_verified_host_resolution",
+      "RM500_public_TLS": "connection_reset_after_ClientHello",
+      "DNS": "Cloudflare_both_A_records_expected_ECS_IP_DNS_only",
+      "public_TCP": "SYN_received_on_ECS_and_SYN_ACK_sent_then_client_side_RST_seen_no_payload_saved",
+      "root_cause": "domain_access_or_filing_interception_suspected_not_confirmed_by_provider",
+      "user_confirmed_ICP_filing": false,
+      "available_alternative_instances_checked": {
+        "cn-hongkong": 0,
+        "ap-southeast-1": 0
+      },
+      "App_import": "passed_normal_UI_after_standard_simulator_ad_hoc_signing; auto_connect_transport_failure_no_v1_fallback",
+      "calls_or_SMS_attempted": false
+    },
+    "M4_RM500_restore": {
+      "reason": "module_uptime_approximately_14_minutes_and_Agent_not_running",
+      "binary": "same_R4_942b2777fcf2979e_SHA256_verified",
+      "helper": "same_R3_SHA256_verified",
+      "pid": 3971,
+      "ready": true,
+      "telephony_ready": true,
+      "messaging_ready": true,
+      "cloud_connected": false,
+      "cloud_error": "discovery_failed",
+      "agent_boot_id": "da2b8add-32a9-4c4d-8d1b-113808abf5a0",
+      "backend_epoch": "a3cf8b86-70df-42d9-85e2-4ba77e21dc78",
+      "persistent_config_unchanged": true,
+      "autostart_not_added": true
+    },
+    "M4_Keychain": {
+      "original_error": -34018,
+      "fix": "standard simulator ad hoc signing via build arguments only; project identities unchanged",
+      "real_isolated_account_test": {
+        "passed": 1,
+        "failed": 0
+      },
+      "normal_configuration_UI_import": "passed",
+      "evidence": "docs/evidence/r5/m4-config-import-network-blocked.jpg"
+    },
+    "M4_cleanup": {
+      "temporary_client_revoked": true,
+      "revocation_HTTP_status": 401,
+      "verification_path": "ECS loopback through TLS edge with correct hostname/certificate; public path unavailable",
+      "active_calls": 0,
+      "media_state": "idle",
+      "audio_session_active": false,
+      "simulator_App_stopped": true,
+      "public_cloud_calls_SMS_audio": "not_attempted"
     }
   },
   "pending": [
@@ -152,6 +204,7 @@
   "privacy": "No credentials, phone numbers, message contents or PCM are stored in this report.",
   "milestone_commits": {
     "M1": "d077fe2",
-    "M2": "ad22d81"
+    "M2": "ad22d81",
+    "M3": "1521fba"
   }
 }

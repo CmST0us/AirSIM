@@ -41,6 +41,17 @@ private final class V2TestTransport: V2HTTPTransport {
 }
 
 final class CloudV2Tests: XCTestCase {
+    func testRealKeychainRoundTripWithIsolatedAccount() throws {
+        let account = "r5-keychain-test-\(UUID().uuidString)"
+        let token = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()
+        let store = V2KeychainTokenStore()
+        defer { try? store.remove(account: account) }
+        try store.save(token, account: account)
+        XCTAssertTrue(try store.read(account: account) == token)
+        try store.remove(account: account)
+        XCTAssertThrowsError(try store.read(account: account))
+    }
+
     func testConfigurationStrictFieldsAndOrigin() throws {
         let config = try V2ConfigurationImport.parse(v2Data(v2Import()), now: v2Now)
         XCTAssertEqual(config.configuration.identity.apiOrigin, "https://example.invalid")
