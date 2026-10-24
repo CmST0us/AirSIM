@@ -878,16 +878,21 @@
     "test_client_revoked": true,
     "revoked_client_http": 401,
     "temporary_network_probe_removed": true,
-    "recorded_at": "2026-10-24T09:52:38.519005+00:00"
+    "recorded_at": "2026-10-24T09:52:38.519005+00:00",
+    "historical_only": true
   },
   "user_feedback": [
     {
       "applies_to": "first silent cloud call",
       "feedback": "没听到声音"
+    },
+    {
+      "applies_to": "45-second local audio diagnostic",
+      "feedback": "提示语和回声都清楚"
     }
   ],
   "pending": [
-    "45-second local-audio and simultaneous cloud transport isolation call; user availability question pending",
+    "Resolve call-time cellular uplink backlog, then repeat cloud audio acceptance",
     "75-second cloud prompt and self-echo confirmed by user",
     "cloud incoming answer/reject and DTMF hardware checks",
     "media fault/recovery real hardware checks"
@@ -897,5 +902,1812 @@
     "continuous call-time transport quality",
     "iOS or APNs completion",
     "carrier delivery report"
-  ]
+  ],
+  "call_time_isolation": {
+    "recorded_at": "2026-10-24T10:07:56.343500+00:00",
+    "local_audio_45s": {
+      "started_at": "2026-10-24T09:58:39.314557+00:00",
+      "active_at": "2026-10-24T09:58:45.825852+00:00",
+      "duration_s": 45.003,
+      "uplink_frames": 2250,
+      "downlink": {
+        "frames": 2250,
+        "samples": 360000,
+        "sequence_gaps": 0,
+        "rms": 2508.5,
+        "peak": 21780,
+        "span_s": 44.976,
+        "echo_frames": 880,
+        "echo_dropped": 1340,
+        "error": null,
+        "windows": [
+          {
+            "at_s": 5.02,
+            "rms": 411.0,
+            "peak": 3716,
+            "frames": 251
+          },
+          {
+            "at_s": 10.06,
+            "rms": 401.3,
+            "peak": 6028,
+            "frames": 252
+          },
+          {
+            "at_s": 15.06,
+            "rms": 892.3,
+            "peak": 13358,
+            "frames": 250
+          },
+          {
+            "at_s": 20.1,
+            "rms": 2022.9,
+            "peak": 16440,
+            "frames": 252
+          },
+          {
+            "at_s": 25.14,
+            "rms": 2434.4,
+            "peak": 17269,
+            "frames": 252
+          },
+          {
+            "at_s": 30.14,
+            "rms": 2366.8,
+            "peak": 19238,
+            "frames": 250
+          },
+          {
+            "at_s": 35.14,
+            "rms": 3523.4,
+            "peak": 18269,
+            "frames": 250
+          },
+          {
+            "at_s": 40.18,
+            "rms": 4001.7,
+            "peak": 21732,
+            "frames": 252
+          }
+        ]
+      },
+      "result": "media_loop_completed",
+      "hangup": {
+        "state": "accepted",
+        "result_code": ""
+      }
+    },
+    "user_feedback": {
+      "feedback": "提示语和回声都清楚",
+      "applies_to": "45-second local ADB audio diagnostic, not cloud audio acceptance"
+    },
+    "simultaneous_independent_transport": {
+      "session_id": "d06603be-029c-477e-bc87-521bb2b4bde4",
+      "probe_sha256": "5a5c1daa8108f9e568679b31fae44143c9420d40435bd59083c770f34ba8cc7d",
+      "synthetic_pcm": true,
+      "carrier_call_active": true,
+      "started_at": "2026-10-24T09:58:48.056727+00:00",
+      "client_receive": {
+        "frames": 54,
+        "gaps": 0,
+        "max_interval_ms": 1070.7,
+        "error": "TimeoutError"
+      },
+      "client_sent": 403,
+      "duration_s": 8.064,
+      "agent": {
+        "sent_frames": 402,
+        "received_frames": 401,
+        "gaps": 0,
+        "elapsed_ms": 8054,
+        "max_receive_interval_ms": 114,
+        "reason": "read"
+      },
+      "server": {
+        "exception": "HTTPError",
+        "samples": [
+          {
+            "state": "waiting",
+            "reason": "",
+            "frames": [
+              0,
+              0
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "waiting",
+            "reason": "",
+            "frames": [
+              0,
+              0
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              0,
+              5
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              1,
+              34
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              2,
+              66
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              4,
+              97
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              6,
+              127
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              14,
+              157
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              21,
+              187
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              28,
+              217
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              28,
+              244
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              36,
+              278
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              54,
+              308
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              54,
+              338
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              54,
+              369
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              54,
+              399
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    "local_audio_stopped_before_second_probe": {
+      "started_at": "2026-10-24T10:01:38.985913+00:00",
+      "active_at": "2026-10-24T10:01:45.499624+00:00",
+      "duration_s": 30.001,
+      "uplink_frames": 1500,
+      "downlink": {
+        "frames": 1500,
+        "samples": 240000,
+        "sequence_gaps": 0,
+        "rms": 4307.0,
+        "peak": 30202,
+        "span_s": 29.984,
+        "echo_frames": 0,
+        "echo_dropped": 1470,
+        "error": null,
+        "windows": [
+          {
+            "at_s": 5.02,
+            "rms": 2158.5,
+            "peak": 21470,
+            "frames": 251
+          },
+          {
+            "at_s": 10.06,
+            "rms": 4269.4,
+            "peak": 26723,
+            "frames": 252
+          },
+          {
+            "at_s": 15.1,
+            "rms": 3367.2,
+            "peak": 21922,
+            "frames": 252
+          },
+          {
+            "at_s": 20.1,
+            "rms": 4439.4,
+            "peak": 25484,
+            "frames": 250
+          },
+          {
+            "at_s": 25.1,
+            "rms": 5404.9,
+            "peak": 30202,
+            "frames": 250
+          }
+        ]
+      },
+      "result": "media_loop_completed",
+      "hangup": {
+        "state": "accepted",
+        "result_code": ""
+      }
+    },
+    "active_call_without_audio_transport": {
+      "local_audio_state": "closed",
+      "session_id": "2450aabf-67fc-412a-b15b-ffb75c1ee415",
+      "probe_sha256": "5a5c1daa8108f9e568679b31fae44143c9420d40435bd59083c770f34ba8cc7d",
+      "synthetic_pcm": true,
+      "carrier_call_active": true,
+      "started_at": "2026-10-24T10:02:18.674521+00:00",
+      "client_receive": {
+        "frames": 104,
+        "gaps": 0,
+        "max_interval_ms": 990.55,
+        "error": "TimeoutError"
+      },
+      "client_sent": 475,
+      "duration_s": 9.501,
+      "agent": {
+        "sent_frames": 545,
+        "received_frames": 475,
+        "gaps": 0,
+        "elapsed_ms": 10940,
+        "max_receive_interval_ms": 1513,
+        "reason": "read"
+      },
+      "server": {
+        "exception": "HTTPError",
+        "samples": [
+          {
+            "state": "waiting",
+            "reason": "",
+            "frames": [
+              0,
+              0
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              0,
+              4
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              1,
+              34
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              9,
+              65
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              18,
+              95
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              25,
+              125
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              28,
+              152
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              32,
+              186
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              46,
+              217
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              61,
+              247
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              72,
+              278
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              72,
+              308
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              89,
+              335
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              100,
+              368
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              104,
+              398
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              104,
+              429
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              104,
+              459
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          }
+        ]
+      },
+      "network_samples": [
+        {
+          "at": "2026-10-24T10:02:18.700003+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33550,
+              "state": "01",
+              "tx_bytes": 1478,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:02:19.751644+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 2627,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33550,
+              "state": "01",
+              "tx_bytes": 5070,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:02:20.809189+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 2835,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33550,
+              "state": "01",
+              "tx_bytes": 22620,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:02:21.865984+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 2835,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33550,
+              "state": "01",
+              "tx_bytes": 36910,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:02:22.924676+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 2835,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33550,
+              "state": "01",
+              "tx_bytes": 56180,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:02:23.962392+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 5254,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33550,
+              "state": "01",
+              "tx_bytes": 66660,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:02:25.017567+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 5254,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33550,
+              "state": "01",
+              "tx_bytes": 79940,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:02:26.073990+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 2835,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33550,
+              "state": "01",
+              "tx_bytes": 95010,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:02:27.128115+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 2835,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33550,
+              "state": "01",
+              "tx_bytes": 108680,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:02:28.187629+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 5254,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33550,
+              "state": "01",
+              "tx_bytes": 128960,
+              "rx_bytes": 0
+            }
+          ]
+        }
+      ]
+    },
+    "idle_recheck_transport": {
+      "local_audio_state": "closed",
+      "session_id": "a1145121-8831-4592-944b-37c4e6032202",
+      "probe_sha256": "5a5c1daa8108f9e568679b31fae44143c9420d40435bd59083c770f34ba8cc7d",
+      "synthetic_pcm": true,
+      "carrier_call_active": false,
+      "started_at": "2026-10-24T10:06:47.774914+00:00",
+      "client_receive": {
+        "frames": 965,
+        "gaps": 31,
+        "max_interval_ms": 1096.98
+      },
+      "client_sent": 1000,
+      "duration_s": 20.002,
+      "agent": {
+        "sent_frames": 999,
+        "received_frames": 999,
+        "gaps": 0,
+        "elapsed_ms": 20002,
+        "max_receive_interval_ms": 642,
+        "reason": "completed"
+      },
+      "server": {
+        "exception": "HTTPError",
+        "samples": [
+          {
+            "state": "waiting",
+            "reason": "",
+            "frames": [
+              0,
+              0
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              9,
+              13
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              40,
+              42
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              66,
+              74
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              96,
+              104
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              131,
+              134
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              161,
+              163
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              192,
+              195
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              216,
+              226
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              221,
+              256
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              221,
+              286
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              235,
+              317
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              243,
+              346
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              0,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              279,
+              373
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              5,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              404,
+              407
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              9,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              421,
+              435
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              9,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              461,
+              468
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              9,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              496,
+              498
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              11,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              525,
+              529
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              11,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              528,
+              557
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              11,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              539,
+              589
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              11,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              607,
+              619
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              13,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              647,
+              650
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              13,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              677,
+              681
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              13,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              709,
+              711
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              13,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              737,
+              740
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              13,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              766,
+              772
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              13,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              799,
+              802
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              13,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              829,
+              829
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              13,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              839,
+              863
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              13,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              862,
+              893
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              15,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              920,
+              923
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              31,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              945,
+              950
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              31,
+              0
+            ]
+          },
+          {
+            "state": "paired",
+            "reason": "",
+            "frames": [
+              981,
+              983
+            ],
+            "sequence_gaps": [
+              0,
+              0
+            ],
+            "dropped": [
+              31,
+              0
+            ]
+          }
+        ]
+      },
+      "network_samples": [
+        {
+          "at": "2026-10-24T10:06:47.811187+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1478,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:48.878747+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1560,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:49.944807+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 3120,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:51.007197+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1950,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:52.081082+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1560,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:53.141472+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 10530,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:54.201399+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 2637,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 30420,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:55.278025+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 2638,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 43060,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:56.349161+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1560,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:57.415874+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1950,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:58.493814+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1560,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:06:59.567738+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 2638,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 15600,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:07:00.635315+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 2846,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 4680,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:07:01.701644+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1560,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:07:02.771834+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1560,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:07:03.839357+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1950,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:07:04.903701+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1170,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:07:05.978698+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 208,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 10530,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:07:07.038813+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1560,
+              "rx_bytes": 0
+            }
+          ]
+        },
+        {
+          "at": "2026-10-24T10:07:08.111510+00:00",
+          "sockets": [
+            {
+              "port": 33546,
+              "state": "01",
+              "tx_bytes": 0,
+              "rx_bytes": 0
+            },
+            {
+              "port": 33552,
+              "state": "01",
+              "tx_bytes": 1170,
+              "rx_bytes": 0
+            }
+          ]
+        }
+      ]
+    },
+    "interpretation": "Call-time cellular uplink backlogs even with audio manager closed and standalone synthetic WSS process. Observed TCP transmit queue reaches 128960 bytes. Idle recheck completes 20s but has jitter and 31 dropped sequence frames. This isolates beyond PCM/helper and cloud bridge; it does not yet distinguish radio/carrier/firmware or explain the mechanism.",
+    "privacy": "No telephone numbers, message bodies, credentials or PCM recordings retained.",
+    "http_error_note": "Internal session polling can return 404 after peer close; preceding live samples are retained."
+  }
 }
