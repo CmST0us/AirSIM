@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-24",
+  "stage": "R5",
+  "target": "iOS AirSIM foreground v2 client",
+  "requested_test_platform": "simulator_first",
+  "simulator": {
+    "name": "iPhone 17 Pro",
+    "runtime": "iOS 26.5",
+    "udid": "E9D74168-796E-4675-9038-DCAF84F0BE87"
+  },
+  "milestones": {
+    "M1_protocol": "passed",
+    "M2_ui_and_version_isolation": "implementation_started",
+    "M3_audio": "specified_not_started",
+    "M4_app_cloud_rm500_acceptance": "not_started"
+  },
+  "verification": {
+    "initial_simulator_build_and_launch": "passed",
+    "initial_64_test_run": "passed_but_includes_concurrent_new_tests_not_a_pure_v1_baseline",
+    "legacy_tests_count": 47,
+    "M1_pre_review_tests": {
+      "passed": 67,
+      "failed": 0,
+      "new_tests": 20
+    },
+    "go_swift_asmp_vector": {
+      "go_version": "go1.24.13 darwin/arm64",
+      "bytes": 360,
+      "sha256": "12c0076f4b57b5fb63e4e3d79b33f1a05aead5b448724fddc7fcb06d97188dee",
+      "result": "exact_match"
+    },
+    "M1_review_tests": {
+      "passed": 68,
+      "failed": 0,
+      "skipped": 0,
+      "legacy_tests": 47,
+      "new_tests": 21,
+      "source": "XcodeBuildMCP test_sim summary; execution thread 01a16c33-ed7a-7b22-8203-7e4e37c69be1 turn 01a16dae-0827-79b0-a218-48e56165d5ea"
+    },
+    "M1_first_review_attempt": {
+      "result": "test runner startup stalled before tests",
+      "action": "cancelled only AirSIM xcodebuild PID 54637; serial rerun passed",
+      "not_a_test_assertion_failure": true
+    }
+  },
+  "pending": [
+    "M2 implementation and acceptance",
+    "M3 implementation and acceptance",
+    "App cloud calls",
+    "App SMS round trip",
+    "App audio content loop",
+    "App media failure recovery",
+    "temporary client revocation and final cleanup"
+  ],
+  "not_claimed": [
+    "physical iPhone audio",
+    "v2 APNs",
+    "background or terminated incoming calls",
+    "Watch v2",
+    "formal interactive login",
+    "long duration stability"
+  ],
+  "privacy": "No credentials, phone numbers, message contents or PCM are stored in this report."
+}
