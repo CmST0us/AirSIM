@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-10-24T10:50:46.473546+00:00",
-  "overall_status": "cloud_calls_sms_and_75s_duplex_content_passed_current_configuration_final_checks_pending",
+  "recorded_at": "2026-10-24T10:55:44.888150+00:00",
+  "overall_status": "cloud_calls_sms_75s_duplex_and_media_recovery_passed_current_configuration_incoming_reject_pending",
   "public_endpoints": {
     "api": "https://airsim.eric3u.cc",
     "device": "https://device.airsim.eric3u.cc",
@@ -3120,22 +3120,57 @@
     }
   ],
   "latest_cleanup": {
-    "cloud_hangup": "observed_disconnected",
-    "emergency_cleanup_required": false,
-    "public_media_delete_http": 204,
-    "ecs_internal_media_get_after_close": 404,
-    "local_audio_state": "closed",
-    "cloud_bridge_state": "closed",
-    "cloud_connected": true,
-    "four_ecs_containers_healthy": true,
-    "recorded_at": "2026-10-24T10:45:25.778507+00:00",
-    "test_client_installation_id": "779b974b-836a-46cd-a9da-22af86453389",
+    "recorded_at": "2026-10-24T10:55:44.888150+00:00",
+    "test_client_installation_id": "a10e5981-619b-4de9-8a8b-c2873992d724",
     "test_client_revoked": true,
     "revoked_client_http": 401,
-    "temporary_network_probe_removed": true,
     "all_calls_disconnected": true,
+    "local_audio_state": "closed",
+    "cloud_bridge": {
+      "session_id": "48255c49-694b-45fc-a166-c690cb5eaed5",
+      "state": "closed",
+      "reason": "media_closed",
+      "cloud_input_gaps": 11,
+      "local_input_gaps": 0,
+      "queue_drops": 58,
+      "zero_frames": 86
+    },
+    "cloud_connected": true,
     "connection_epoch": "f283d318-725a-47aa-add8-95ddb28004c2",
-    "next_human_test": "awaiting_user_availability_for_media_fault_recovery_and_incoming_reject"
+    "ecs": {
+      "containers": [
+        {
+          "name": "/airsim-v2-postgres-1",
+          "state": "running",
+          "health": "healthy",
+          "restart_count": 0
+        },
+        {
+          "name": "/airsim-v2-control-1",
+          "state": "running",
+          "health": "healthy",
+          "restart_count": 0
+        },
+        {
+          "name": "/airsim-v2-media-1",
+          "state": "running",
+          "health": "healthy",
+          "restart_count": 0
+        },
+        {
+          "name": "/airsim-v2-edge-1",
+          "state": "running",
+          "health": "healthy",
+          "restart_count": 0
+        }
+      ],
+      "media_session_http": {
+        "b2302a56-6300-4508-bd15-259843a0df54": 404,
+        "48255c49-694b-45fc-a166-c690cb5eaed5": 404
+      },
+      "recorded_at": "2026-10-24T10:51:05.504169+00:00"
+    },
+    "next_human_test": "Cloud reject listener ended without a new incoming call; a new bounded listener and client are required before next user callback."
   },
   "media_fault_recovery": {
     "mode": "fault",
@@ -3218,6 +3253,81 @@
     "fault_kind": "intentional abrupt client WSS socket shutdown during active managed call",
     "recovery_requires_new_session": true,
     "recovery_used_explicit_delete_before_new_session": false,
-    "user_recovered_prompt_feedback": "pending"
-  }
+    "user_recovered_prompt_feedback": "pending",
+    "final_local_audio": {
+      "available": true,
+      "implementation": "implemented",
+      "verification": "unverified",
+      "voice_ready": false,
+      "reason": "",
+      "session": {
+        "session_id": "a54ce7e1-9f91-44f5-a65d-da0110e17817",
+        "call_id": "fac8e981-21f3-40c7-8580-7e58be96d80e",
+        "agent_boot_id": "44f18471-80a0-495d-82d7-12a6bef7564c",
+        "backend_epoch": "e45b85c5-841a-45e2-a908-13f36da3ed33",
+        "state": "closed",
+        "reason": "requested_stop",
+        "created_at": "2026-10-24T10:49:49.537861948Z",
+        "closed_at": "2026-10-24T10:50:04.966475783Z",
+        "uplink_frames": 767,
+        "downlink_frames": 770,
+        "uplink_sequence_gaps": 0,
+        "downlink_sequence_gaps": 0,
+        "last_uplink": "2026-10-24T10:50:04.951928398Z",
+        "last_downlink": "2026-10-24T10:50:04.945236513Z",
+        "actual": {
+          "type": "ready",
+          "sample_rate": 8000,
+          "channels": 1,
+          "sample_format": "s16le",
+          "frame_samples": 160,
+          "capture": {
+            "sample_rate": 8000,
+            "period_size": 320,
+            "period_count": 2,
+            "buffer_frames": 640
+          },
+          "playback": {
+            "sample_rate": 16000,
+            "period_size": 320,
+            "period_count": 2,
+            "buffer_frames": 640
+          }
+        },
+        "helper_stats": {
+          "type": "stats",
+          "capture_samples": 121280,
+          "playback_samples": 242560,
+          "input_drops": 2,
+          "silence_samples": 2240,
+          "queue_peak": 2,
+          "elapsed_ms": 15177,
+          "capture_progress_ms": 15167,
+          "playback_progress_ms": 15159
+        }
+      }
+    },
+    "final_bridge": {
+      "session_id": "48255c49-694b-45fc-a166-c690cb5eaed5",
+      "state": "closed",
+      "reason": "media_closed",
+      "cloud_input_gaps": 11,
+      "local_input_gaps": 0,
+      "queue_drops": 58,
+      "zero_frames": 86
+    }
+  },
+  "incoming_reject_attempts": [
+    {
+      "mode": "reject",
+      "started_at": "2026-10-24T10:50:13.934537+00:00",
+      "business_transport": "public HTTPS/WSS",
+      "audio_storage": "bounded_memory_only",
+      "result": "error",
+      "error_type": "TimeoutError",
+      "error": "incoming_wait_timeout",
+      "media_cleanup": [],
+      "interpretation": "No incoming call observed within five minutes; no reject command was submitted. Not counted as a failed reject operation or a passed reject check."
+    }
+  ]
 }
