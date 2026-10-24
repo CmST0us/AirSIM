@@ -278,13 +278,84 @@
         "skipped": 0,
         "execution_turn": "01a16e40-6d2e-7220-9a6e-4fb4fe7bc01f"
       }
+    },
+    "M4_App_control_and_SMS": {
+      "public_endpoint": "https://airsim.eric3u.cc",
+      "outgoing_dial_and_App_hangup": "passed",
+      "incoming_answer": "passed",
+      "background_targeted_hangup": "passed",
+      "incoming_reject": "passed",
+      "all_independent_guards": "call_ended_no_action",
+      "SMS_outbound": {
+        "state": "sent",
+        "observed_at": "2026-10-24T14:14:45.347039744Z",
+        "confirmed_by_user": true
+      },
+      "SMS_reply": {
+        "message_id": "f4297d67-ef49-4562-a8d5-b195495b559a",
+        "state": "received",
+        "observed_at": "2026-10-24T14:16:45.673376812Z",
+        "App_UI_verified": true
+      },
+      "carrier_delivery_report_claimed": false
+    },
+    "M4_75s_App_media": {
+      "call_id": "4a8a0e3a-f528-47f6-92e2-bd19f80921cf",
+      "session_id": "6dc83a11-9610-4b18-955d-6c58258117ca",
+      "App_received": 3734,
+      "App_sent": 3656,
+      "sequence_gaps": 0,
+      "write_timeouts": 0,
+      "stop": "configured_75s_diagnostic_limit; App_targeted_hangup",
+      "user_feedback": "slight interruptions; did not hear own delayed echo",
+      "content_acceptance": "not_passed",
+      "final_queue_statistics": "unreliable_due_repeat_stop_overwrite; fix_pending",
+      "server_sample_20_seconds": {
+        "agent_frames": 1032,
+        "client_frames": 1014,
+        "sequence_gaps": [
+          0,
+          0
+        ],
+        "dropped": [
+          0,
+          0
+        ]
+      }
+    },
+    "M4_incoming_recovery": {
+      "call_id": "3dc96392-b8e3-4d13-a886-80b95194f68e",
+      "first_session": "e6b50988-5652-424b-a65c-17b33b392a57",
+      "first_failure": {
+        "code": "downlinkStopped",
+        "stage": "ticking",
+        "last_downlink_age_ms": 2005,
+        "received": 208,
+        "sent": 404
+      },
+      "manual_recovery_session": "bda2767d-cd26-437d-a56b-f6d9f3bc3ec2",
+      "recovery_failure": {
+        "code": "stale",
+        "stage": "ticking",
+        "last_downlink_age_ms": 31,
+        "received": 20,
+        "sent": 45
+      },
+      "both_old_sessions_reclaimed_HTTP": 404,
+      "recovery_acceptance": "not_passed",
+      "background_hangup_at": "2026-10-24T14:23:35.354299288Z"
+    },
+    "M4_reject": {
+      "call_id": "c3f43263-1397-44b8-9faf-d704d616e702",
+      "disconnected_at": "2026-10-24T14:26:10.928409215Z",
+      "reason": "local",
+      "guard_did_not_act": true
     }
   },
   "pending": [
-    "App cloud calls",
-    "App SMS round trip",
-    "App audio content loop",
+    "App audio content loop and intermittent downlink interruption diagnosis",
     "App media failure recovery",
+    "focused verification of retained statistics and eligibility/audio energy diagnostics",
     "temporary client revocation and final cleanup"
   ],
   "not_claimed": [
