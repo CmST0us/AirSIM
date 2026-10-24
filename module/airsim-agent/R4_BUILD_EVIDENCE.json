@@ -5,7 +5,7 @@
   "version": "2.0.0-dev.r4",
   "artifact": {
     "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/airsim-agent/dist/airsim-agent",
-    "sha256": "6a63c689ccf961dac9d2b9e7c997f656cf6306be2defb0934ac49aa070981689",
+    "sha256": "71f2c3781023dc1847ad5eea5895242c252eb3e906f6b056998650da7e432475",
     "bytes": 7274680,
     "kib": 7104.1796875,
     "elf_machine": "AArch64",
@@ -39,7 +39,10 @@
     "local_media_stats_exact_schema_lifecycle_race": "passed",
     "cloud_messages_epoch_filter_local_history_preserved": "passed",
     "short_lived_certificate_real_mtls_connection_deadline": "passed",
-    "cloud_package_race_after_certificate_deadline": "passed"
+    "cloud_package_race_after_certificate_deadline": "passed",
+    "media_ticket_single_now_skew_boundaries": "passed",
+    "media_ticket_valid_skew_reaches_owner_rejection": "passed",
+    "cloud_package_race_after_ticket_skew": "passed"
   },
   "memory": {
     "measurement_environment": "darwin arm64 Apple M1 Max; synthetic read-only snapshot and messages pair; 100 iterations",
@@ -79,5 +82,13 @@
     "reconnect_with_expired_certificate": "certificate_invalid",
     "media_children": "inherit_control_connection_deadline",
     "automatic_renewal": false
+  },
+  "media_ticket_future_check": {
+    "agent_plausibility_max_seconds": 35,
+    "server_ticket_lifetime_seconds_unchanged": 30,
+    "absolute_expires_at_unchanged": true,
+    "reject_remaining_nonpositive": true,
+    "now_sampled_once": true,
+    "other_preconditions_unchanged": true
   }
 }

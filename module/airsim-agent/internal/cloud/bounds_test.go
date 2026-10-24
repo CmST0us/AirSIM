@@ -153,3 +153,60 @@ func TestAcceptedReceiptSlotsReleasedAndObservationBounded(t *testing.T) {
 		}
 	}
 }
+
+func TestMediaTicketClockSkewExactBoundaries(t *testing.T) {
+	serverNow := time.Date(2026, 10, 24, 12, 0, 0, 123456789, time.UTC)
+	expires := serverNow.Add(30 * time.Second).Format(time.RFC3339Nano)
+	tests := []struct {
+		name  string
+		now   time.Time
+		valid bool
+	}{
+		{"normal_30_seconds", serverNow, true},
+		{"device_behind_1_second", serverNow.Add(-time.Second), true},
+		{"device_behind_5_seconds_exact_35", serverNow.Add(-5 * time.Second), true},
+		{"over_35_by_nanosecond", serverNow.Add(-5*time.Second - time.Nanosecond), false},
+		{"one_nanosecond_remaining", serverNow.Add(30*time.Second - time.Nanosecond), true},
+		{"exactly_current", serverNow.Add(30 * time.Second), false},
+		{"expired_by_nanosecond", serverNow.Add(30*time.Second + time.Nanosecond), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if validMediaExpiry(expires, tt.now) != tt.valid {
+				t.Fatal("expiry boundary")
+			}
+			c, fc := testConnection(t)
+			r := mediaStart{Request: uid(), Session: uid(), Call: fc.call, Boot: fc.boot, Epoch: fc.epoch, Client: uid(), Generation: uid(), Ticket: strings.Repeat("ab", 32), Expires: expires}
+			payload, _ := json.Marshal(r)
+			if c.startMediaAt(payload, tt.now) != tt.valid {
+				t.Fatal("startMedia protocol boundary")
+			}
+			if c.agent.Media.(*fakeMedia).creates.Load() != 0 {
+				t.Fatal("unexpected local media creation")
+			}
+			if tt.valid {
+				select {
+				case out := <-c.queue:
+					if out.kind != "media_status" {
+						t.Fatal("wrong reply")
+					}
+					b, _ := json.Marshal(out.payload)
+					var v map[string]string
+					if json.Unmarshal(b, &v) != nil || v["reason"] != "media_owner" || v["state"] != "closed" || v["session_id"] != r.Session {
+						t.Fatal("did not reach owner rejection")
+					}
+				default:
+					t.Fatal("missing owner rejection")
+				}
+			} else if len(c.queue) != 0 {
+				t.Fatal("invalid expiry passed protocol validation")
+			}
+			if r.Expires != expires {
+				t.Fatal("absolute ticket expiry changed")
+			}
+		})
+	}
+	if validMediaExpiry("not-a-time", serverNow) {
+		t.Fatal("malformed expiry")
+	}
+}

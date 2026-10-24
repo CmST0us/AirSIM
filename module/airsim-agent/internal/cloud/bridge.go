@@ -36,7 +36,20 @@ type BridgeStats struct {
 }
 type bridgeCounters struct{ cloud, local, drops, zeros atomic.Uint64 }
 
+// Only the future plausibility bound tolerates five seconds of clock skew.
+// The server remains authoritative for its unchanged absolute ticket expiry.
+func validMediaExpiry(expires string, now time.Time) bool {
+	expiry, err := utc(expires)
+	if err != nil {
+		return false
+	}
+	remaining := expiry.Sub(now)
+	return remaining > 0 && remaining <= 35*time.Second
+}
 func (c *connection) startMedia(b []byte) bool {
+	return c.startMediaAt(b, time.Now())
+}
+func (c *connection) startMediaAt(b []byte, now time.Time) bool {
 	var r mediaStart
 	if exact(b, "request_id,session_id,call_id,agent_boot_id,backend_epoch,client_installation_id,generation,ticket,expires_at", &r) != nil {
 		return false
@@ -46,8 +59,7 @@ func (c *connection) startMedia(b []byte) bool {
 			return false
 		}
 	}
-	expiry, e := utc(r.Expires)
-	if e != nil || !hex32(r.Ticket) || time.Until(expiry) <= 0 || time.Until(expiry) > 30*time.Second {
+	if !hex32(r.Ticket) || !validMediaExpiry(r.Expires, now) {
 		return false
 	}
 	o, ok := c.owners[r.Call]
