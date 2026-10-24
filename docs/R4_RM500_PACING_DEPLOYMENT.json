@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-24T10:34:29.359326+00:00",
+  "phase": "R4_bounded_media_pacing_deployed",
+  "commit": "edc34e8",
+  "pid": 1964,
+  "remote": "/mnt/data/airsim-v2/releases/942b2777fcf2979e/airsim-agent",
+  "sha256": "942b2777fcf2979eefb0db08439c2a37b412d625357018ee732f45fac5385641",
+  "bytes": 7274680,
+  "helper": "/mnt/data/airsim-v2/releases/ea836044de25662b/airsim-audiod",
+  "helper_sha256": "39ff88dabce16196defdacc72637a15695f171a65f080179dde4382df3cc41dc",
+  "previous_r4_rollback_gzip": "/mnt/data/airsim-v2/releases/71f2c3781023dc18/airsim-agent.rollback.gz",
+  "previous_r4_sha256": "71f2c3781023dc1847ad5eea5895242c252eb3e906f6b056998650da7e432475",
+  "archived_intermediate_r4": {
+    "device_path": "/mnt/data/airsim-v2/releases/6a63c689ccf961da/airsim-agent.rollback.gz",
+    "binary_sha256": "6a63c689ccf961dac9d2b9e7c997f656cf6306be2defb0934ac49aa070981689",
+    "gzip_sha256": "98904793c5e8f499fc88c669397d7e253589b6b925f31ef567f31e10adab9e70",
+    "gzip_bytes": 2941058,
+    "ecs_archive": "/opt/airsim-v2/backups/rm500-agents/6a63c689ccf961dac9d2b9e7c997f656cf6306be2defb0934ac49aa070981689.gz",
+    "verified_compressed_and_uncompressed_sha256": true,
+    "device_copy_removed": true
+  },
+  "r3_rollback": "/mnt/data/airsim-v2/releases/ea836044de25662b/airsim-agent",
+  "identity_cloud_config_journal_unchanged": true,
+  "cloud": {
+    "configured": true,
+    "connected": true,
+    "server_id": "2def58e8-0a60-4448-87b9-9682a06b9d77",
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "connection_epoch": "f283d318-725a-47aa-add8-95ddb28004c2",
+    "last_connected_at": "2026-10-24T10:34:28.685067106Z",
+    "last_error": "",
+    "certificate_expires_at": "2026-11-23T09:29:52Z"
+  },
+  "agent_boot_id": "44f18471-80a0-495d-82d7-12a6bef7564c",
+  "backend_epoch": "e45b85c5-841a-45e2-a908-13f36da3ed33",
+  "ready": true,
+  "audio": {
+    "available": true,
+    "implementation": "implemented",
+    "verification": "unverified",
+    "voice_ready": false,
+    "reason": ""
+  },
+  "space_after": "Filesystem           1K-blocks      Used Available Use% Mounted on\n/dev/ubi0_userdata       35664     31896      3260  91% /mnt/userdata",
+  "live_audio_acceptance": "pending"
+}
