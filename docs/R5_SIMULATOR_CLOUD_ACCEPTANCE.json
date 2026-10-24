@@ -1,7 +1,7 @@
 {
   "stage": "R5 M4 simulator foreground v2 acceptance",
   "date": "2026-10-24",
-  "status": "controls_SMS_and_75s_audio_content_passed; controlled_recovery_transport_passed_user_listening_feedback_pending",
+  "status": "simulator_foreground_controls_SMS_75s_audio_content_and_controlled_recovery_passed_with_known_intermittent_audio_limitations",
   "platform": "iOS 27.0 simulator; RM500U real carrier call; ECS Compose public HTTPS/WSS 443",
   "verification_mode": "explicit DEBUG simulator prompt and memory-only delayed echo; no recording; not a real microphone cloud test",
   "controls": {
@@ -79,7 +79,8 @@
     "diagnostic_zero": 422,
     "App_hangup_confirmed": true,
     "emergency_guard_did_not_act": true,
-    "user_listening_confirmation": "pending"
+    "user_listening_confirmation": "confirmed: after the brief silence the prompt restarted and delayed self-echo was audible",
+    "acceptance": "passed_transport_and_user_confirmed_content"
   },
   "known_limits": [
     "Earlier attempts had a 2-second downlink gap and one stale eligibility failure; no confirmed permanent fix for intermittent transport/timing failures.",
@@ -116,5 +117,6 @@
     "App_calls_SMS": "f63e6c1",
     "statistics_and_energy_diagnostics": "3ce8282"
   },
-  "privacy": "No phone numbers, SMS bodies, tokens or PCM persisted in this report."
+  "privacy": "No phone numbers, SMS bodies, tokens or PCM persisted in this report.",
+  "echo_acceptance_complete": true
 }

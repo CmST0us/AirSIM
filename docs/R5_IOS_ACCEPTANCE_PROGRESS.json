@@ -11,8 +11,8 @@
   "milestones": {
     "M1_protocol": "passed",
     "M2_ui_and_version_isolation": "passed",
-    "M3_audio": "local_verification_passed_cloud_acceptance_pending",
-    "M4_app_cloud_rm500_acceptance": "controls_SMS_75s_audio_content_passed_recovery_listening_feedback_pending"
+    "M3_audio": "local_verification_and_simulator_cloud_content_passed; physical_device_audio_not_claimed",
+    "M4_app_cloud_rm500_acceptance": "simulator_foreground_functional_passed_with_known_intermittent_audio_limitations"
   },
   "verification": {
     "initial_simulator_build_and_launch": "passed",
@@ -378,10 +378,14 @@
       "audio_state": "closed",
       "cloud_connected": true,
       "checked_at": "2026-10-24T14:41:52.742463+00:00"
+    },
+    "M4_final_recovery_user_confirmation": {
+      "confirmed": true,
+      "content": "prompt restarted after the brief silence and delayed self-echo was audible",
+      "scope": "controlled simulator recovery call; not a physical App microphone or long-duration quality test"
     }
   },
   "pending": [
-    "user listening confirmation for final controlled media recovery call",
     "intermittent audio transport/timing and voice-quality follow-up (not claimed solved)"
   ],
   "not_claimed": [
