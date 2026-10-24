@@ -99,3 +99,10 @@
 本次ECS实时统计采集器失败，未获得服务端帧计数；客户端和设备统计完整，收尾另行确认ECS媒体session为404、四容器healthy、本地媒体closed、电话disconnected、设备云端连接保持，未使用本地应急挂断。详见 [实测进展证据](R4_CLOUD_ACCEPTANCE_PROGRESS.json) 的 incoming_attempts[1]。运行时 voice_ready=false / verification=unverified 延续R3实验发布门槛。剩余收尾为云端拒接与实机媒体故障恢复/旧票据失效；长稳及其他硬件时钟不纳入本轮结论。
 
 收尾等待用户下一次回拨时，测试客户端凭据已撤销，公网API实测401；设备临时网络探针已移除，全部电话disconnected、媒体closed、设备云端仍在线。云端拒接与主动媒体断连恢复测试程序已准备，尚未执行，不计作通过。
+
+
+## 实机媒体故障回收与新会话恢复通过
+
+用户确认方便继续后，新建短期测试客户端并只等待授权号码的入站来电。真实云端接听后先传输10秒，主控主动断开客户端WSS；在没有调用DELETE前，0.107秒观察到Agent桥及本地音频自动closed，同一通话保持active、控制连接/Agent boot/backend/connection epoch不变。旧票据距原到期时间仍有19.37秒时即被拒绝且未返回waiting/paired，ECS旧session为404、旧request重放返回410。
+
+随后在同一通话使用新request/session恢复媒体，持续15.003秒、发送750/接收742帧、零序号缺口，无需手动删除旧会话、重启Agent或重拨。最终两个媒体DELETE均204，云端观察电话disconnected，本地guard确认已结束而未操作。此次故障类型为客户端媒体连接意外断开；此前ECS控制重启已单独验证，不将本次扩写为所有服务故障组合通过。见实测进展证据的 media_fault_recovery。剩余收尾仅为云端入站拒接。

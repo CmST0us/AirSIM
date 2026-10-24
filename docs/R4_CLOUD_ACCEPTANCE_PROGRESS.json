@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-10-24T10:41:45.443417+00:00",
+  "recorded_at": "2026-10-24T10:50:46.473546+00:00",
   "overall_status": "cloud_calls_sms_and_75s_duplex_content_passed_current_configuration_final_checks_pending",
   "public_endpoints": {
     "api": "https://airsim.eric3u.cc",
@@ -914,14 +914,15 @@
     }
   ],
   "pending": [
-    "Cloud incoming reject on real RM500",
-    "Media fault/recovery and old-ticket invalidation real hardware checks"
+    "Cloud incoming reject on real RM500"
   ],
   "not_claimed": [
-    "75-second cloud audio acceptance",
     "continuous call-time transport quality",
     "iOS or APNs completion",
-    "carrier delivery report"
+    "carrier delivery report",
+    "30-minute / 100-session endurance",
+    "real hardware 8 kHz vendor playback clock",
+    "permanent resolution of intermittent cellular uplink backlog"
   ],
   "call_time_isolation": {
     "recorded_at": "2026-10-24T10:07:56.343500+00:00",
@@ -3135,5 +3136,88 @@
     "all_calls_disconnected": true,
     "connection_epoch": "f283d318-725a-47aa-add8-95ddb28004c2",
     "next_human_test": "awaiting_user_availability_for_media_fault_recovery_and_incoming_reject"
+  },
+  "media_fault_recovery": {
+    "mode": "fault",
+    "started_at": "2026-10-24T10:49:10.108854+00:00",
+    "business_transport": "public HTTPS/WSS",
+    "audio_storage": "bounded_memory_only",
+    "result": "real_hardware_media_disconnect_cleanup_old_ticket_rejection_new_session_recovery_passed",
+    "call_id": "fac8e981-21f3-40c7-8580-7e58be96d80e",
+    "command": {
+      "command_id": "c83d7a8f-ccea-4b83-b873-1d117beab7b3",
+      "receipt_state": "observed",
+      "result_code": ""
+    },
+    "generation": "520503e0-40d1-433b-b96e-feb5a2b71c90",
+    "first_session_id": "b2302a56-6300-4508-bd15-259843a0df54",
+    "initial_stream": {
+      "frames": 495,
+      "samples": 79200,
+      "sequence_gaps": 0,
+      "rms": 136.5,
+      "peak": 3296,
+      "span_s": 9.874,
+      "echo_frames": 0,
+      "echo_dropped": 465,
+      "error": null,
+      "sent_frames": 500,
+      "duration_s": 10.002
+    },
+    "automatic_cleanup": {
+      "observed_after_s": 0.107,
+      "bridge": {
+        "session_id": "b2302a56-6300-4508-bd15-259843a0df54",
+        "state": "closed",
+        "reason": "media_closed",
+        "cloud_input_gaps": 0,
+        "local_input_gaps": 0,
+        "queue_drops": 3,
+        "zero_frames": 4
+      },
+      "local_audio_state": "closed",
+      "before_explicit_api_delete": true
+    },
+    "control_and_call_survived": true,
+    "old_ticket": {
+      "rejected_by_connection_close": true,
+      "seconds_until_original_expiry": 19.37,
+      "received_waiting_or_paired": false
+    },
+    "old_session_ecs": {
+      "http": 404
+    },
+    "old_request_http": 410,
+    "second_session_id": "48255c49-694b-45fc-a166-c690cb5eaed5",
+    "recovered_stream": {
+      "frames": 742,
+      "samples": 118720,
+      "sequence_gaps": 0,
+      "rms": 51.3,
+      "peak": 1539,
+      "span_s": 14.833,
+      "echo_frames": 0,
+      "echo_dropped": 712,
+      "error": null,
+      "sent_frames": 750,
+      "duration_s": 15.003
+    },
+    "media_cleanup": [
+      {
+        "session_id": "b2302a56-6300-4508-bd15-259843a0df54",
+        "http": 204
+      },
+      {
+        "session_id": "48255c49-694b-45fc-a166-c690cb5eaed5",
+        "http": 204
+      }
+    ],
+    "hangup": "observed_disconnected",
+    "guard_completed_without_action": true,
+    "test_program_sha256": "0d286140765b17b1b918e0d0d25a02d23d1b5b564a0840b81082fe45826822ea",
+    "fault_kind": "intentional abrupt client WSS socket shutdown during active managed call",
+    "recovery_requires_new_session": true,
+    "recovery_used_explicit_delete_before_new_session": false,
+    "user_recovered_prompt_feedback": "pending"
   }
 }
