@@ -632,7 +632,9 @@ final class CallKitController: NSObject {
 
 extension CallKitController: CXProviderDelegate {
     nonisolated func providerDidReset(_ provider: CXProvider) {
+        let stamp = LegacyRuntimeGate.generation
         Task { @MainActor [weak self] in
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
             guard let self else { return }
             self.audioSessionIsActive = false
             await self.handler?.callKitProviderDidReset()
@@ -641,19 +643,30 @@ extension CallKitController: CXProviderDelegate {
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
-        Task { @MainActor [weak self] in await self?.performStart(action) }
+        let stamp = LegacyRuntimeGate.generation
+        Task { @MainActor [weak self] in
+            guard LegacyRuntimeGate.accepts(stamp) else { action.fail(); return }
+            await self?.performStart(action) }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        Task { @MainActor [weak self] in await self?.performAnswer(action) }
+        let stamp = LegacyRuntimeGate.generation
+        Task { @MainActor [weak self] in
+            guard LegacyRuntimeGate.accepts(stamp) else { action.fail(); return }
+            await self?.performAnswer(action) }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        Task { @MainActor [weak self] in await self?.performEnd(action) }
+        let stamp = LegacyRuntimeGate.generation
+        Task { @MainActor [weak self] in
+            guard LegacyRuntimeGate.accepts(stamp) else { action.fail(); return }
+            await self?.performEnd(action) }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
+        let stamp = LegacyRuntimeGate.generation
         Task { @MainActor [weak self] in
+            guard LegacyRuntimeGate.accepts(stamp) else { action.fail(); return }
             guard let self, let handler = self.handler else {
                 action.fail()
                 return
@@ -664,7 +677,9 @@ extension CallKitController: CXProviderDelegate {
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXPlayDTMFCallAction) {
+        let stamp = LegacyRuntimeGate.generation
         Task { @MainActor [weak self] in
+            guard LegacyRuntimeGate.accepts(stamp) else { action.fail(); return }
             do {
                 guard let handler = self?.handler else { throw CallKitBridgeError.handlerUnavailable }
                 try await handler.callKitPlayDTMF(action.digits)
@@ -679,7 +694,9 @@ extension CallKitController: CXProviderDelegate {
         _ provider: CXProvider,
         didActivate audioSession: AVAudioSession
     ) {
+        let stamp = LegacyRuntimeGate.generation
         Task { @MainActor [weak self] in
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
             guard let self else { return }
             self.audioSessionIsActive = true
             await AgentVerboseTraceRecorder.shared.recordEvent(
@@ -689,6 +706,7 @@ extension CallKitController: CXProviderDelegate {
                 title: "CallKit 音频会话已激活",
                 fields: self.audioTraceFields(audioSession)
             )
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
             await self.handler?.callKitAudioSessionDidActivate()
         }
     }
@@ -697,7 +715,9 @@ extension CallKitController: CXProviderDelegate {
         _ provider: CXProvider,
         didDeactivate audioSession: AVAudioSession
     ) {
+        let stamp = LegacyRuntimeGate.generation
         Task { @MainActor [weak self] in
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
             guard let self else { return }
             self.audioSessionIsActive = false
             await AgentVerboseTraceRecorder.shared.recordEvent(
@@ -707,6 +727,7 @@ extension CallKitController: CXProviderDelegate {
                 title: "CallKit 音频会话已停用",
                 fields: self.audioTraceFields(audioSession)
             )
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
             self.handler?.callKitAudioSessionDidDeactivate()
         }
     }

@@ -2,7 +2,7 @@ import Foundation
 
 // Field spellings intentionally follow the frozen R4 wire contract.
 
-struct V2Call: Decodable {
+struct V2Call: Codable {
     let call_id: String
     let state: String
     let ownership: String
@@ -73,7 +73,7 @@ struct V2Calls: Decodable {
     }
 }
 
-struct V2Message: Decodable {
+struct V2Message: Codable {
     let message_id: String
     let direction: String
     let sender: String

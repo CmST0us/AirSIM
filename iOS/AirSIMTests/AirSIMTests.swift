@@ -44,6 +44,9 @@ private struct AgentSMSInboxProbe: AgentSMSInboxServicing {
 final class AirSIMTests: XCTestCase {
     @MainActor
     func testRejectIsNotSilentlyDroppedWhileAnotherActionIsBusy() async {
+        let previous = LegacyRuntimeGate.allowed
+        LegacyRuntimeGate.configure(true)
+        defer { LegacyRuntimeGate.configure(previous) }
         let model = AppModel()
         model.isBusy = true
         model.errorMessage = "reject was not attempted"
@@ -55,6 +58,9 @@ final class AirSIMTests: XCTestCase {
 
     @MainActor
     func testHangupIsNotSilentlyDroppedWhileAnotherActionIsBusy() async {
+        let previous = LegacyRuntimeGate.allowed
+        LegacyRuntimeGate.configure(true)
+        defer { LegacyRuntimeGate.configure(previous) }
         let model = AppModel()
         model.isBusy = true
         model.errorMessage = "hangup was not attempted"

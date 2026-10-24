@@ -556,11 +556,17 @@ enum CloudCallControlClient {
         credentials: CloudCallControlCredentials,
         session: URLSession = URLSession(configuration: .ephemeral)
     ) async throws -> CloudCallControlReceipt {
-        try await execute(
-            submissionRequest(envelope: envelope, credentials: credentials),
-            session: session,
-            acceptedStatusCodes: 200...202
-        )
+        let request = try submissionRequest(envelope: envelope, credentials: credentials)
+        let stamp = LegacyRuntimeGate.generation
+        let id = try LegacySwitchFence.shared.begin(service: credentials.relayURL, device: credentials.deviceID, action: envelope.action, commandID: envelope.commandID, callID: envelope.callID, callUUID: envelope.callUUID, callGeneration: envelope.generation, traceID: envelope.traceID)
+        do {
+            let receipt: CloudCallControlReceipt = try await execute(request, session: session, acceptedStatusCodes: 200...202)
+            guard receipt.commandID == envelope.commandID else { throw CloudCallControlClientError.invalidResponse }
+            if receipt.isFinal { try LegacySwitchFence.shared.resolve(id, runtime: stamp) }
+            return receipt
+        } catch let failure as V2HTTPFailure where (400..<500).contains(failure.status) {
+            try LegacySwitchFence.shared.resolve(id, runtime: stamp); throw failure
+        }
     }
 
     static func awaitFinalReceipt(
@@ -569,6 +575,7 @@ enum CloudCallControlClient {
         session: URLSession = URLSession(configuration: .ephemeral),
         timeout: TimeInterval = 30
     ) async throws -> CloudCallControlReceipt {
+        let stamp = LegacyRuntimeGate.generation
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             let receipt: CloudCallControlReceipt = try await execute(
@@ -576,7 +583,11 @@ enum CloudCallControlClient {
                 session: session,
                 acceptedStatusCodes: 200...200
             )
-            if receipt.isFinal { return receipt }
+            guard receipt.commandID == envelope.commandID else { throw CloudCallControlClientError.invalidResponse }
+            if receipt.isFinal {
+                try LegacySwitchFence.shared.resolveCommand(service: credentials.relayURL, device: credentials.deviceID, commandID: envelope.commandID, runtime: stamp)
+                return receipt
+            }
             try await Task.sleep(for: .milliseconds(250))
         }
         throw CloudCallControlClientError.timeout
@@ -587,10 +598,11 @@ enum CloudCallControlClient {
         session: URLSession,
         acceptedStatusCodes: ClosedRange<Int>
     ) async throws -> T {
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await LegacyRuntimeGate.data(session: session, request: request)
         guard let http = response as? HTTPURLResponse else {
             throw CloudCallControlClientError.invalidResponse
         }
+        if (400..<500).contains(http.statusCode) { throw V2HTTPFailure(status: http.statusCode) }
         guard acceptedStatusCodes.contains(http.statusCode) else {
             let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
             throw CloudCallControlClientError.rejected(detail ?? "Relay 拒绝了通话控制（HTTP \(http.statusCode)）")
@@ -607,6 +619,11 @@ enum CloudCallControlClient {
 /// CallKit 激活 AVAudioSession 后才启动麦克风和播放，控制 WebSocket 可提前接听模块来电。
 @MainActor
 final class IPhoneCloudCallSession {
+    private var persistentControlTasks: [UUID: Task<Void, Never>] = [:]
+    func waitForPersistentControls() async {
+        for task in Array(persistentControlTasks.values) { await task.value }
+    }
+
     static let shared = IPhoneCloudCallSession()
 
     private let media = IPhoneCloudCallMediaBridge()
@@ -644,14 +661,18 @@ final class IPhoneCloudCallSession {
 
     private init() {
         media.onConnectionLost = {
+            let stamp = LegacyRuntimeGate.generation
             Task { @MainActor in
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 let session = IPhoneCloudCallSession.shared
                 session.answerAcknowledged = false
                 session.requestMediaRebuild(.connectionLost)
             }
         }
         media.onControl = { control in
+            let stamp = LegacyRuntimeGate.generation
             Task { @MainActor in
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 let session = IPhoneCloudCallSession.shared
                 let status = control.status
                 let relayStatuses = ["action_queued", "action_forwarded", "peer_connected", "owner_claimed"]
@@ -664,6 +685,7 @@ final class IPhoneCloudCallSession {
                     fields: control.traceFields,
                     isFailure: status == "action_error"
                 )
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 switch status {
                 case _ where CloudCallAnswerPolicy.isAcknowledged(status: status):
                     session.confirmAnswer()
@@ -699,7 +721,9 @@ final class IPhoneCloudCallSession {
             }
         }
         media.onDownlinkPlayback = {
+            let stamp = LegacyRuntimeGate.generation
             Task { @MainActor in
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 let session = IPhoneCloudCallSession.shared
                 if session.hasActiveCall, session.media.isAudioRunning {
                     session.audioState = .connected
@@ -707,7 +731,9 @@ final class IPhoneCloudCallSession {
             }
         }
         media.onDownlinkFrame = { bytes, peak, jitterBufferFrames, droppedFrames in
+            let stamp = LegacyRuntimeGate.generation
             Task { @MainActor in
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 let session = IPhoneCloudCallSession.shared
                 session.mediaHealthTracker?.recordDownlink(
                     bytes: bytes,
@@ -720,7 +746,9 @@ final class IPhoneCloudCallSession {
             }
         }
         media.onUplinkFrame = { bytes, peak in
+            let stamp = LegacyRuntimeGate.generation
             Task { @MainActor in
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 let session = IPhoneCloudCallSession.shared
                 session.mediaHealthTracker?.recordUplink(bytes: bytes, peak: peak, at: Date())
                 session.publishMediaHealth()
@@ -729,6 +757,8 @@ final class IPhoneCloudCallSession {
     }
 
     func answer(_ incoming: IncomingVoIPCall) async throws {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.accepts(stamp) else { throw CancellationError() }
         guard let url = incoming.authenticatedMediaURL else {
             throw IPhoneCloudCallError.mediaUnavailable
         }
@@ -747,7 +777,9 @@ final class IPhoneCloudCallSession {
             media.stop()
             do {
                 try await media.connect(to: url)
+                guard LegacyRuntimeGate.accepts(stamp) else { stop(); throw CancellationError() }
             } catch {
+                guard LegacyRuntimeGate.accepts(stamp) else { stop(); throw CancellationError() }
                 // 系统接听动作不能因为第一次 WebSocket 建连抖动而直接失败。
                 // 保留同一通话并在后台有界重连，成功后再补发 answer 控制帧。
                 requestMediaRebuild(.connectionLost)
@@ -759,6 +791,7 @@ final class IPhoneCloudCallSession {
     }
 
     func reject(_ incoming: IncomingVoIPCall) async throws {
+        guard LegacyRuntimeGate.allowed else { throw CancellationError() }
         call = incoming
         answered = false
         guard let envelope = media.controlEnvelope(action: "reject", call: incoming),
@@ -771,6 +804,8 @@ final class IPhoneCloudCallSession {
     }
 
     func end() async {
+        let reservation = LegacyBusinessReservations.reserve()
+        defer { LegacyBusinessReservations.release(reservation) }
         guard let call else {
             stop()
             return
@@ -795,14 +830,20 @@ final class IPhoneCloudCallSession {
         _ envelope: CloudCallControlEnvelope,
         credentials: CloudCallControlCredentials
     ) {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.allowed else { return }
+        let reservation = LegacyBusinessReservations.reserve()
         let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "AirSIMCallControl")
-        Task { @MainActor in
+        persistentControlTasks[reservation] = Task { @MainActor in
             defer {
+                LegacyBusinessReservations.release(reservation)
+                persistentControlTasks.removeValue(forKey: reservation)
                 if backgroundTask != .invalid {
                     UIApplication.shared.endBackgroundTask(backgroundTask)
                 }
             }
             do {
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 await tracePersistentControl(envelope, phase: "submitting")
                 let receipt = try await CloudCallControlClient.submit(
                     envelope: envelope,
@@ -830,8 +871,10 @@ final class IPhoneCloudCallSession {
                         final.rescueCommandID.map { "救援命令 \($0)" },
                     ].compactMap { $0 }.joined(separator: " · ")
                 )
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 emitLifecycle(from: envelope, state: .ended, source: .relay)
             } catch {
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 await tracePersistentControl(
                     envelope,
                     phase: "failed",
@@ -930,6 +973,7 @@ final class IPhoneCloudCallSession {
     }
 
     func startAudio() throws {
+        guard LegacyRuntimeGate.allowed else { throw CancellationError() }
         guard isPrepared else { throw IPhoneCloudCallError.connectionClosed }
         try media.startAudio()
         mediaHealthTracker?.recordRoute(media.audioRouteDescription)
@@ -938,6 +982,7 @@ final class IPhoneCloudCallSession {
     }
 
     func startAudioWithRetry() {
+        guard LegacyRuntimeGate.allowed else { return }
         guard canAttemptAudio else { return }
         if media.isAudioRunning {
             audioState = .connected
@@ -1056,6 +1101,16 @@ final class IPhoneCloudCallSession {
         audioState = .idle
         mediaHealthTracker = nil
         mediaHealthSnapshot = CloudMediaHealthSnapshot()
+    }
+
+    // Switching runtimes waits for producers and the serial media queue to retire.
+    func stopRuntimeAndWait() async {
+        let tasks = [answerRetryTask, audioRetryTask, reconnectTask, mediaHealthTask].compactMap { $0 }
+        stop()
+        await media.drain()
+        for task in tasks { await task.value }
+        await waitForPersistentControls()
+        await media.drain()
     }
 
     private func scheduleAnswerConfirmation(for incoming: IncomingVoIPCall) {
@@ -1188,6 +1243,7 @@ final class IPhoneCloudCallSession {
                 do {
                     media.stop()
                     try await media.connect(to: url)
+                    guard !Task.isCancelled, LegacyRuntimeGate.allowed, self.call?.uuid == call.uuid else { media.stop(); return }
                     answerAcknowledged = false
                     replayAnswerIfNeeded()
                     scheduleAnswerConfirmation(for: call)
@@ -1481,6 +1537,12 @@ private final class IPhoneCloudCallMediaBridge: @unchecked Sendable {
             uplinkBuffer.removeAll(keepingCapacity: false)
             controlOperations.removeAll(keepingCapacity: false)
             stopAudioLocked()
+        }
+    }
+
+    func drain() async {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume() }
         }
     }
 

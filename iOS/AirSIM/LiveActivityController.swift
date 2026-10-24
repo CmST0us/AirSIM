@@ -241,6 +241,7 @@ final class LiveActivityController {
 
     func stop() async {
         for activity in Activity<AirSIMCallActivityAttributes>.activities {
+            LegacyActivityEvents.shared.retire(activity.id)
             await activity.end(nil, dismissalPolicy: .immediate)
         }
         activity = nil

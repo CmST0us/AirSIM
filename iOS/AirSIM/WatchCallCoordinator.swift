@@ -26,6 +26,16 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
     func configure(model: AppModel) { self.model = model }
 
     @MainActor
+    func stopRuntime() {
+        model = nil; lastPayload = nil; lastCloudMediaAllowed = nil
+        session?.outstandingUserInfoTransfers.forEach { $0.cancel() }
+        // Do not stop or deregister the independent Watch installation.
+    }
+
+    @MainActor
+    var hasPendingBusiness: Bool { pendingWatchDialID != nil || localEndInFlight != nil }
+
+    @MainActor
     func refreshMediaPolicy() {
         lastCloudMediaAllowed = nil
         if let lastPayload { publish(lastPayload) }
@@ -37,6 +47,7 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
     }
 
     func start() {
+        guard LegacyRuntimeGate.allowed else { return }
         guard WCSession.isSupported() else { return }
         if session == nil {
             let session = WCSession.default
@@ -89,6 +100,7 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
 
     @MainActor
     private func publish(_ payload: WatchCallPayload) {
+        guard LegacyRuntimeGate.allowed else { return }
         if payload.phase == .ended, localWatchCall?.callID == payload.callID {
             localWatchCall = nil
         }
@@ -126,7 +138,9 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
 		guard activationState == .activated,
 			  !session.receivedApplicationContext.isEmpty else { return }
 		let context = session.receivedApplicationContext
+        let stamp = LegacyRuntimeGate.generation
 		Task { @MainActor in
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
 			_ = self.consumeWatchRegistration(context) || self.consumeWatchOwnership(context)
 		}
 	}
@@ -134,6 +148,7 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
 
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
+        guard LegacyRuntimeGate.allowed else { return }
         session.activate()
     }
 
@@ -142,7 +157,9 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
         didReceiveMessage message: [String: Any],
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
+        let stamp = LegacyRuntimeGate.generation
         Task { @MainActor in
+            guard LegacyRuntimeGate.accepts(stamp) else { replyHandler(["ok": false, "error": "legacy_runtime_stopped"]); return }
             if self.consumeWatchRegistration(message) {
                 replyHandler(["ok": true])
                 return
@@ -484,7 +501,9 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        let stamp = LegacyRuntimeGate.generation
         Task { @MainActor in
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
             if message["action"] as? String == "cancel_dial" {
                 self.cancelWatchDial(message)
                 return
@@ -502,7 +521,9 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        let stamp = LegacyRuntimeGate.generation
         Task { @MainActor in
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
             if userInfo["action"] as? String == "watch_local_end" {
                 await self.endLocalWatchCall(userInfo, replyHandler: { _ in })
                 return
@@ -519,7 +540,9 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
         _ session: WCSession,
         didReceiveApplicationContext applicationContext: [String: Any]
     ) {
+        let stamp = LegacyRuntimeGate.generation
         Task { @MainActor in
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
             if applicationContext["action"] as? String == "watch_local_end" {
                 await self.endLocalWatchCall(applicationContext, replyHandler: { _ in })
                 return
@@ -534,6 +557,7 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
 
     @MainActor
     private func consumeWatchRegistration(_ message: [String: Any]) -> Bool {
+        guard LegacyRuntimeGate.allowed else { return false }
         guard message["event"] as? String == "watch_voip_registration",
               let token = message["watch_voip_token"] as? String,
               let bundleID = message["watch_bundle_id"] as? String,
@@ -547,6 +571,7 @@ final class WatchCallCoordinator: NSObject, WCSessionDelegate {
 
     @MainActor
     private func consumeWatchOwnership(_ message: [String: Any]) -> Bool {
+        guard LegacyRuntimeGate.allowed else { return false }
         guard message["event"] as? String == "watch_call_owner",
               let phase = message["phase"] as? String else { return false }
         let callID = message["call_id"] as? String

@@ -547,6 +547,7 @@ final class AppModel: ObservableObject {
     }
 
     func start(sceneIsActive: Bool) {
+        guard LegacyRuntimeGate.allowed else { return }
         guard !hasStarted else { return }
         hasStarted = true
         appIsActive = sceneIsActive
@@ -614,7 +615,7 @@ final class AppModel: ObservableObject {
         initialPermissionTask = Task { [weak self] in
             guard let self else { return }
             await self.initialPermissionCoordinator.requestIfNeeded(
-                isForeground: { self.appIsActive },
+                isForeground: { self.appIsActive && LegacyRuntimeGate.allowed && !Task.isCancelled },
                 microphoneIsUndetermined: { self.audio.microphonePermissionIsUndetermined },
                 requestMicrophone: { _ = await self.audio.requestMicrophonePermission() },
                 startDiscovery: { self.vowlan.startBrowsing() },
@@ -716,6 +717,27 @@ final class AppModel: ObservableObject {
         }
         if eventStreamSupported == true { return 0.1 }
         return 1
+    }
+
+    var blocksRuntimeSwitch: Bool {
+        LegacyBusinessReservations.pending || LegacySwitchFence.shared.blocked || activeOperationCount > 0 || isBusy || pendingOutgoingCall != nil || callLifecycleSnapshot.state.representsCall
+            || activeCall != nil || remoteCall != nil || callAudioIsActive || callKit.managesCurrentCall
+            || IPhoneCloudCallSession.shared.hasActiveCall || WatchCallCoordinator.shared.hasPendingBusiness
+    }
+
+    func stopRuntime() async {
+        hasStarted = false; appIsActive = false
+        pollingGeneration &+= 1; cloudStatusRefreshGeneration &+= 1
+        let tasks = [pollingTask, moduleMetadataTask, initialPermissionTask, cloudStatusRefreshTask].compactMap { $0 }
+        tasks.forEach { $0.cancel() }
+        pollingTask = nil; moduleMetadataTask = nil; initialPermissionTask = nil; cloudStatusRefreshTask = nil
+        vowlan.onAvailabilityChange = nil; vowlan.onDiscoveredAgentsChange = nil; vowlan.stopBrowsing()
+        backgroundStandby.setEnabled(false); audio.deactivate()
+        await IPhoneCloudCallSession.shared.waitForPersistentControls()
+        await IPhoneCloudCallSession.shared.stopRuntimeAndWait(); VirtualCallTTSController.shared.stop()
+        for task in tasks { await task.value }
+        await liveActivity.stop()
+        callKit.handler = nil
     }
 
     func stop() {
@@ -1602,7 +1624,7 @@ final class AppModel: ObservableObject {
         allowWhileBusy: Bool = false,
         _ operation: () async throws -> Void
     ) async {
-        guard allowWhileBusy || !isBusy else { return }
+        guard LegacyRuntimeGate.allowed, allowWhileBusy || !isBusy else { return }
         activeOperationCount += 1
         isBusy = true
         defer {

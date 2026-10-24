@@ -2,6 +2,7 @@ import SwiftUI
 
 /// AirSIM 只引导三星配对；不检查旧模块 USB ECM、AT 或 QDC507 固件。
 struct AirSIMFirstConnectionView: View {
+    @EnvironmentObject private var router: AppRouteCoordinator
     @EnvironmentObject private var model: AppModel
     @AppStorage("airsim.first-connection-complete") private var completed = false
     @AppStorage(LocalModePreference.key) private var localModeEnabled = false
@@ -34,7 +35,7 @@ struct AirSIMFirstConnectionView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
 
-                Toggle(isOn: $localModeEnabled) {
+                Toggle(isOn: Binding(get: { router.choice == .local }, set: { enabled in Task { await router.choose(enabled ? .local : .v1) } })) {
                     VStack(alignment: .leading, spacing: 3) {
                         Label("仅本地模式", systemImage: "wifi")
                             .font(.headline)
@@ -42,10 +43,6 @@ struct AirSIMFirstConnectionView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
-                }
-                .onChange(of: localModeEnabled) { enabled in
-                    if enabled { cloudModeEnabled = false }
-                    model.setLocalModeEnabled(enabled)
                 }
 
                 Spacer()
@@ -81,6 +78,8 @@ struct AirSIMFirstConnectionView: View {
 }
 
 struct AirSIMSettingsView: View {
+    @ObservedObject private var activityEvents = LegacyActivityEvents.shared
+    @EnvironmentObject private var router: AppRouteCoordinator
     private enum SelfTestPhase {
         case idle
         case running
@@ -105,16 +104,20 @@ struct AirSIMSettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Toggle(isOn: $localModeEnabled) {
-                        Label("仅本地模式", systemImage: "wifi")
+                Section("连接版本") {
+                    RuntimeChoiceButtons()
+                    if activityEvents.limitReached { Text("Live Activity token 观察已达上限，需重启 App 恢复；通话和普通推送不受影响。") }
+#if DEBUG
+                    Text("只读源保留：全局 \(activityEvents.globalCount) · 活动 \(activityEvents.activityCount) · retired \(activityEvents.retiredCount) · 订阅 \(activityEvents.subscriptionCount)").font(.caption)
+#endif
+                    if LegacySwitchFence.shared.blocked {
+                        Text("旧版操作结果待核对，暂不能迁移。")
+                        Button("查询旧云端操作收据") { Task { await VoIPPushController.shared.recoverSwitchFences(); model.objectWillChange.send() } }
                     }
-                    .onChange(of: localModeEnabled) { enabled in
-                        selfTestTask?.cancel()
-                        selfTestPhase = .idle
-                        selfTestReport = nil
-                        if enabled { cloudModeEnabled = false }
-                        model.setLocalModeEnabled(enabled)
+                }
+                Section {
+                    Toggle(isOn: Binding(get: { router.choice == .local }, set: { enabled in Task { await router.choose(enabled ? .local : .v1) } })) {
+                        Label("仅本地模式", systemImage: "wifi")
                     }
                 } header: {
                     Text("运行模式")
@@ -152,7 +155,7 @@ struct AirSIMSettingsView: View {
                         SamsungPairingView()
                     } label: {
                         Label("配对三星手机", systemImage: "personalhotspot")
-                    }
+                    }.disabled(model.blocksRuntimeSwitch)
                     Button("重新发现", systemImage: "arrow.clockwise") {
                         model.vowlan.restartBrowsing()
                         Task { await model.vowlan.probeNow() }
@@ -176,7 +179,7 @@ struct AirSIMSettingsView: View {
                     Toggle(isOn: $cloudModeEnabled) {
                         Label("远程通话与短信", systemImage: "cloud")
                     }
-                    .disabled(localModeEnabled)
+                    .disabled(localModeEnabled || model.blocksRuntimeSwitch)
                     .onChange(of: cloudModeEnabled) { enabled in
                         selfTestTask?.cancel()
                         selfTestPhase = .idle
@@ -195,8 +198,9 @@ struct AirSIMSettingsView: View {
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .disabled(localModeEnabled)
+                        .disabled(localModeEnabled || model.blocksRuntimeSwitch)
                     Button("保存 Relay 地址") {
+                        guard !model.blocksRuntimeSwitch else { message = "旧版操作结果待核对或仍有通话"; return }
                         VoIPPushController.shared.updateRelayURL(relayURL)
                         selfTestTask?.cancel()
                         selfTestPhase = .idle
@@ -209,7 +213,7 @@ struct AirSIMSettingsView: View {
                         }
                         message = "地址已保存；配对后自动注册。"
                     }
-                    .disabled(localModeEnabled)
+                    .disabled(localModeEnabled || model.blocksRuntimeSwitch)
                     if let message { Text(message).foregroundStyle(.secondary) }
                 } header: {
                     Text("云端 Relay")

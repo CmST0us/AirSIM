@@ -288,6 +288,7 @@ final class VoWLANController: ObservableObject {
     private var discoveredEndpoint: VoWLANEndpoint?
 
     func startBrowsing() {
+        guard LegacyRuntimeGate.allowed else { return }
         guard VoWLANCredentialStore.load() != nil else {
             stopBrowserSession()
             availability = .unpaired
@@ -298,6 +299,7 @@ final class VoWLANController: ObservableObject {
     }
 
     func restartBrowsing() {
+        guard LegacyRuntimeGate.allowed else { return }
         guard VoWLANCredentialStore.load() != nil else {
             stopBrowserSession()
             availability = .unpaired
@@ -418,6 +420,8 @@ final class VoWLANController: ObservableObject {
     }
 
     func probeNow() async {
+        guard LegacyRuntimeGate.allowed else { return }
+        let runtimeStamp = LegacyRuntimeGate.generation
         guard let endpoint = availability.endpoint ?? discoveredEndpoint else { return }
         guard let credential = VoWLANCredentialStore.load() else {
             availability = .unpaired
@@ -436,8 +440,9 @@ final class VoWLANController: ObservableObject {
                 configuration.waitsForConnectivity = false
                 let session = URLSession(configuration: configuration)
                 defer { session.finishTasksAndInvalidate() }
-                return try await session.data(for: request)
+                return try await LegacyRuntimeGate.data(session: session, request: request)
             }
+            guard LegacyRuntimeGate.accepts(runtimeStamp) else { return }
             guard let http = response as? HTTPURLResponse, http.statusCode == 200,
                   let identity = try? JSONDecoder().decode(VoWLANHealthIdentity.self, from: data),
                   identity.ok else {
@@ -462,6 +467,7 @@ final class VoWLANController: ObservableObject {
                 fields: ["host": endpoint.host, "control_port": String(endpoint.controlPort)]
             )
         } catch {
+            guard LegacyRuntimeGate.accepts(runtimeStamp) else { return }
             availability = .unavailable(VoWLANProbeRecovery.userFacingMessage(for: error))
             await AgentVerboseTraceRecorder.shared.recordEvent(
                 source: "ios", category: "vowlan", phase: "failed",

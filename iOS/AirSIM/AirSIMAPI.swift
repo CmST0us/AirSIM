@@ -153,6 +153,7 @@ struct AirSIMAPI: Sendable {
     }
 
     func dial(number: String) async throws {
+        let stamp = LegacyRuntimeGate.generation
         do {
             try await post(
                 "api/calls/dial",
@@ -164,6 +165,7 @@ struct AirSIMAPI: Sendable {
             // ATD 是非幂等操作：响应连接被模块重置后只能查询状态确认，绝对不能自动重发。
             for delay in [0.25, 0.5, 1.0, 1.5] {
                 try? await Task.sleep(for: .seconds(delay))
+                guard LegacyRuntimeGate.accepts(stamp), !Task.isCancelled else { throw CancellationError() }
                 guard let status = try? await callStatus(), let call = status.active else { continue }
                 let expectedState = ["dialing", "alerting", "active", "held"].contains(call.state)
                 let expectedNumber = call.number?.isEmpty != false || call.number == number
@@ -239,7 +241,7 @@ struct AirSIMAPI: Sendable {
         _ body: Body,
         timeout: TimeInterval = 8
     ) async throws -> Response {
-        let data = try await raw(method: "POST", path: path, body: body, timeout: timeout)
+        let data = try await raw(method: "POST", path: path, body: body, timeout: timeout, validate: { _ = try Self.decode(Response.self, from: $0) })
         return try Self.decode(Response.self, from: data)
     }
 
@@ -247,14 +249,28 @@ struct AirSIMAPI: Sendable {
         _ = try await raw(method: method, path: path, body: body, timeout: 10)
     }
 
-    private func raw<Body: Encodable>(method: String, path: String, body: Body, timeout: TimeInterval) async throws -> Data {
+    private func raw<Body: Encodable>(method: String, path: String, body: Body, timeout: TimeInterval, validate: (Data) throws -> Void = { _ in }) async throws -> Data {
         var request = URLRequest(url: endpoint(path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
         request.timeoutInterval = timeout
-        let response = try await tracedResponse(for: request)
+        let stamp = LegacyRuntimeGate.generation
+        var fenceID: String?
+        let response = try await tracedResponse(for: request, onDispatch: {
+            if LegacySwitchFence.businessPath(path) {
+                let fields = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: Any]
+                fenceID = try LegacySwitchFence.shared.begin(service: baseURL.absoluteString, device: LegacySwitchFence.localDevice(route.credential), action: path, callID: fields?["call_id"] as? String)
+            }
+        })
+        if (400..<500).contains(response.statusCode), let fenceID { try LegacySwitchFence.shared.resolve(fenceID, runtime: stamp) }
         try Self.requireSuccess(response)
+        if let expected = ["api/calls/dial": "dialing", "api/calls/answer": "answered", "api/calls/hangup": "hung_up", "api/calls/dtmf": "sent"][path] {
+            let object = try JSONSerialization.jsonObject(with: response.body) as? [String: Any]
+            guard let result = object?[expected] as? NSNumber, CFGetTypeID(result) == CFBooleanGetTypeID(), result.boolValue else { throw V2Error.protocolViolation }
+        }
+        try validate(response.body)
+        if let fenceID { try LegacySwitchFence.shared.resolve(fenceID, runtime: stamp, awaitIdle: ["api/calls/hangup", "api/calls/reject"].contains(path)) }
         return response.body
     }
 
@@ -264,17 +280,24 @@ struct AirSIMAPI: Sendable {
     ) async throws -> Response {
         let response = try await tracedResponse(for: request, recordVerboseTrace: recordVerboseTrace)
         try Self.requireSuccess(response)
-        return try Self.decode(Response.self, from: response.body)
+        let value = try Self.decode(Response.self, from: response.body)
+        if let status = (value as? CallStatus) ?? (value as? AgentEventStatus)?.call {
+            try LegacySwitchFence.shared.observeLocal(status, service: baseURL.absoluteString, device: LegacySwitchFence.localDevice(route.credential), runtime: LegacyRuntimeGate.generation)
+        }
+        return value
     }
 
     private func tracedResponse(
         for originalRequest: URLRequest,
         uploadFileURL: URL? = nil,
-        recordVerboseTrace: Bool = true
+        recordVerboseTrace: Bool = true,
+        onDispatch: () throws -> Void = {}
     ) async throws -> WiredHTTPResponse {
         guard AirSIMRoutePolicy.permits(route) else {
             throw APIError.disabledLegacyRoute
         }
+        let runtimeStamp = try LegacyRuntimeGate.begin()
+        defer { LegacyRuntimeGate.end() }
         var request = originalRequest
         let method = request.httpMethod?.uppercased() ?? "GET"
         let path: String = {
@@ -312,7 +335,10 @@ struct AirSIMAPI: Sendable {
             VoWLANController.apply(signed, to: &request)
         }
         do {
+            guard LegacyRuntimeGate.accepts(runtimeStamp) else { throw CancellationError() }
+            try onDispatch()
             let response = try await transport.send(request, uploadFileURL: uploadFileURL)
+            guard LegacyRuntimeGate.accepts(runtimeStamp) else { throw CancellationError() }
             if let trace {
                 await AgentVerboseTraceRecorder.shared.finish(
                     trace,

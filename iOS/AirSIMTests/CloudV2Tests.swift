@@ -344,3 +344,434 @@ extension CloudV2Tests {
         }
     }
 }
+
+private final class V2TestOwned: V2OwnedCallStore {
+    var value: V2CallContext?
+    var fails = false
+    func load() throws -> V2CallContext? { value }
+    func save(_ context: V2CallContext) throws { if fails { throw V2Error.persistence }; value = context }
+    func clear() throws { value = nil }
+}
+private func v2CallObject(id: String = v2OtherID, state: String = "active", date: String = V2Validation.timestamp(v2Now)) -> [String: Any] {
+    ["call_id": id, "state": state, "ownership": "managed", "direction": "outgoing", "number": "", "observed_at": date, "disconnect_reason": ""]
+}
+private func v2SnapshotData(module: String = v2ID, age: Double = 0, calls: [[String: Any]] = [], telephony: Bool = true, messaging: Bool = true) throws -> Data {
+    try v2Data(["server_id": v2ID, "module_id": module, "online": true, "last_seen": V2Validation.timestamp(v2Now), "connection_epoch": v2ID, "snapshot": [
+        "agent_boot_id": v2ID, "backend_epoch": v2ID, "observed_at": V2Validation.timestamp(v2Now.addingTimeInterval(-age)),
+        "control": ["schema_version": 1, "agent_boot_id": v2ID, "backend_epoch": v2ID, "ready": true, "reason": "", "scope": "local_control", "voice_ready": false, "telephony_ready": telephony, "messaging_ready": messaging, "inbox_gap": false, "inbox_dropped": 0, "command_capacity_remaining": 100],
+        "calls": ["agent_boot_id": v2ID, "backend_epoch": v2ID, "available": true, "calls": calls],
+        "audio": ["available": true, "implementation": "implemented", "verification": "unverified", "voice_ready": false, "reason": ""]]])
+}
+private func v2Accepted(id: String = v2ID, action: String = "call.dial", callID: String? = v2OtherID) throws -> Data {
+    var receipt: [String: Any] = ["command_id": id, "action": action, "state": "accepted", "result_code": "", "updated_at": V2Validation.timestamp(v2Now)]
+    if let callID { receipt["call_id"] = callID }
+    return try v2Data(["command_id": id, "state": "completed", "generation": v2ID, "receipt": receipt])
+}
+extension CloudV2Tests {
+    func testFreshInstallAndEveryLegacyMigrationEvidence() {
+        let suite = "airsim.route.test.\(UUID())"
+        let store = UserDefaults(suiteName: suite)!; defer { store.removePersistentDomain(forName: suite) }
+        XCTAssertNil(CloudVersionPreference.selection(defaults: store))
+        XCTAssertEqual(CloudVersionPreference.selection(defaults: store, paired: true), .v1)
+        for key in ["airsim.first-connection-complete", LocalModePreference.key, CloudModePreference.key, "airsim.push-relay-url", "airsim.voip-push-token", "airsim.alert-push-token", "airsim.push-device-id", "airsim.live-activity-push-to-start-token", "airsim.watch-voip-push-token", "airsim.watch-bundle-id", "airsim.appearance", "airsim.language"] {
+            store.set(false, forKey: key)
+            XCTAssertEqual(CloudVersionPreference.selection(defaults: store), .v1, key)
+            store.removeObject(forKey: key)
+        }
+        store.set(true, forKey: LocalModePreference.key)
+        XCTAssertEqual(CloudVersionPreference.selection(defaults: store), .local)
+        CloudVersionPreference.save(.v2, defaults: store)
+        XCTAssertEqual(CloudVersionPreference.selection(defaults: store), .v2)
+    }
+    @MainActor func testRouteUsesInjectedDefaultsAndReservationsBlockSwitch() async {
+        let suite = "airsim.route.test.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite); LegacyRuntimeGate.configure(false) }
+        let router = AppRouteCoordinator(defaults: defaults, paired: false)
+        XCTAssertNil(router.choice); XCTAssertNil(router.legacy); XCTAssertNil(router.cloud); XCTAssertFalse(LegacyRuntimeGate.allowed)
+        let reservation = LegacyBusinessReservations.reserve()
+        await router.choose(.v2)
+        XCTAssertNil(router.choice); XCTAssertNotNil(router.error)
+        LegacyBusinessReservations.release(reservation)
+        await router.choose(.v2)
+        XCTAssertEqual(router.choice, .v2)
+        XCTAssertEqual(CloudVersionPreference.selection(defaults: defaults), .v2)
+        XCTAssertNil(router.legacy)
+    }
+    func testLegacyGateABADropsOldRegistrationWatchAndMediaCompletions() throws {
+        defer { LegacyRuntimeGate.configure(false) }
+        LegacyRuntimeGate.configure(true)
+        let first = try LegacyRuntimeGate.begin(); LegacyRuntimeGate.end()
+        LegacyRuntimeGate.configure(false)
+        XCTAssertFalse(LegacyRuntimeGate.accepts(first))
+        LegacyRuntimeGate.configure(true)
+        XCTAssertFalse(LegacyRuntimeGate.accepts(first))
+        XCTAssertTrue(LegacyRuntimeGate.accepts(LegacyRuntimeGate.generation))
+    }
+    func testExpiredPushRoutesToIsolatedReportAndStopsBusinessDispatch() {
+        var reports = 0, business = 0
+        func receive(allowed: Bool) {
+            if LegacyPushRouting.rejectExpired(allowed: allowed, expired: { reports += 1 }) { return }
+            business += 1
+        }
+        receive(allowed: false); XCTAssertEqual(reports, 1); XCTAssertEqual(business, 0)
+        receive(allowed: true); XCTAssertEqual(reports, 1); XCTAssertEqual(business, 1)
+    }
+    func testLegacyUnknownWritesPersistButReadErrorsDoNotCreateFence() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root); LegacyRuntimeGate.configure(false) }
+        let url = root.appendingPathComponent("fence.json")
+        LegacyRuntimeGate.configure(true); let stamp = LegacyRuntimeGate.generation
+        let fence = LegacySwitchFence(url: url)
+        for path in ["api/calls/status", "api/events", "api/sms", "api/push/status"] { XCTAssertFalse(LegacySwitchFence.businessPath(path)) }
+        XCTAssertFalse(fence.blocked)
+        let id = try fence.begin(service: "local", device: "device", action: "api/calls/dial")
+        XCTAssertTrue(fence.blocked)
+        let restored = LegacySwitchFence(url: url)
+        XCTAssertEqual(restored.pending.first?.id, id)
+        let empty = CallStatus(active: nil, history: [], polling: true, eventDriven: true, pollIntervalSeconds: 1, lastPollError: "", revision: 1)
+        try restored.observeLocal(empty, service: "local", device: "device", runtime: stamp)
+        XCTAssertTrue(restored.blocked) // An empty snapshot cannot disprove an unknown dial.
+        LegacyRuntimeGate.configure(false); LegacyRuntimeGate.configure(true)
+        try restored.resolve(id, runtime: stamp)
+        XCTAssertTrue(restored.blocked)
+        try restored.resolve(id, runtime: LegacyRuntimeGate.generation)
+        XCTAssertFalse(restored.blocked)
+    }
+    func testConfirmedLocalHangupWaitsForAuthoritativeIdle() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root); LegacyRuntimeGate.configure(false) }
+        LegacyRuntimeGate.configure(true); let stamp = LegacyRuntimeGate.generation
+        let fence = LegacySwitchFence(url: root.appendingPathComponent("fence.json"))
+        let id = try fence.begin(service: "local", device: "device", action: "api/calls/hangup", callID: "call")
+        try fence.resolve(id, runtime: stamp, awaitIdle: true)
+        XCTAssertTrue(fence.blocked)
+        let error = CallStatus(active: nil, history: [], polling: true, eventDriven: true, pollIntervalSeconds: 1, lastPollError: "offline", revision: 1)
+        try fence.observeLocal(error, service: "local", device: "device", runtime: stamp)
+        XCTAssertTrue(fence.blocked)
+        let idle = CallStatus(active: nil, history: [], polling: true, eventDriven: true, pollIntervalSeconds: 1, lastPollError: "", revision: 2)
+        try fence.observeLocal(idle, service: "other", device: "device", runtime: stamp)
+        XCTAssertTrue(fence.blocked)
+        try fence.observeLocal(idle, service: "local", device: "device", runtime: stamp)
+        XCTAssertFalse(fence.blocked)
+    }
+    @MainActor func testOwnedContextPersistsBeforePendingReleaseAndRequiresFreshIdentity() async throws {
+        let pending = V2TestPending(), owned = V2TestOwned()
+        pending.value = V2PendingCommand(binding: v2Binding(), commandID: v2ID, action: "call.dial")
+        let transport = V2TestTransport { request in V2HTTPResponse(status: 200, body: try request.url!.path == "/.well-known/airsim" ? v2Discovery() : v2Accepted()) }
+        let client = V2Client(transport: transport, tokens: V2TestTokens(), now: { v2Now }); _ = try await client.connect(v2Config())
+        let machine = try V2CommandMachine(client: client, store: pending, ownedStore: owned)
+        owned.fails = true; try await machine.recover()
+        XCTAssertEqual(machine.phase, .unknown); XCTAssertNotNil(pending.value); XCTAssertNil(owned.value)
+        owned.fails = false; try await machine.recover(); XCTAssertNotNil(owned.value)
+        try machine.acknowledgeResolved(); XCTAssertNil(pending.value)
+        let restarted = try V2CommandMachine(client: client, store: pending, ownedStore: owned)
+        let context = try XCTUnwrap(restarted.ownedCall)
+        client.stop(); _ = try await client.connect(v2Config())
+        let fresh = try V2JSON.decode(V2SnapshotResponse.self, from: v2SnapshotData(calls: [v2CallObject()]), limit: 262144)
+        let stale = try V2JSON.decode(V2SnapshotResponse.self, from: v2SnapshotData(age: 9, calls: [v2CallObject()]), limit: 262144)
+        XCTAssertThrowsError(try client.restoreOwnership(context, snapshot: stale))
+        XCTAssertNoThrow(try client.restoreOwnership(context, snapshot: fresh))
+        client.stop(); _ = try await client.connect(v2Config(client: v2OtherID))
+        XCTAssertThrowsError(try client.restoreOwnership(context, snapshot: fresh))
+        XCTAssertEqual(restarted.ownedCall, context)
+        try restarted.clearDisconnectedOwnedCall(); XCTAssertNil(owned.value)
+    }
+    @MainActor func testAcceptedDialWithoutCallIDStaysPendingAcrossRestart() async throws {
+        let pending = V2TestPending()
+        pending.value = V2PendingCommand(binding: v2Binding(), commandID: v2ID, action: "call.dial")
+        let transport = V2TestTransport { request in V2HTTPResponse(status: 200, body: try request.url!.path == "/.well-known/airsim" ? v2Discovery() : v2Accepted(callID: nil)) }
+        let client = V2Client(transport: transport, tokens: V2TestTokens(), now: { v2Now }); _ = try await client.connect(v2Config())
+        let first = try V2CommandMachine(client: client, store: pending); try await first.recover()
+        XCTAssertEqual(first.phase, .waiting); XCTAssertNil(first.ownedCall)
+        XCTAssertThrowsError(try first.acknowledgeResolved())
+        let second = try V2CommandMachine(client: client, store: pending); try await second.recover()
+        XCTAssertEqual(second.phase, .waiting); XCTAssertNotNil(second.pending)
+        XCTAssertTrue(transport.requests.allSatisfy { $0.httpMethod != "POST" })
+    }
+    @MainActor func testBackgroundCancelsConnectingWithoutLateActivationOrBusyLatch() async throws {
+        let suite = "airsim.model.test.\(UUID())", root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let defaults = UserDefaults(suiteName: suite)!, tokens = V2TestTokens()
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
+        var continuation: CheckedContinuation<V2HTTPResponse, Error>?
+        let transport = V2TestTransport { _ in try await withCheckedThrowingContinuation { continuation = $0 } }
+        let client = V2Client(transport: transport, tokens: tokens, now: { v2Now })
+        let model = CloudV2Model(client: client, defaults: defaults, root: root, tokens: tokens, now: { v2Now })
+        XCTAssertEqual(transport.requests.count, 0); XCTAssertNil(model.selectedModuleID)
+        let active = Task { await model.sceneChanged(.active) }
+        while continuation == nil { await Task.yield() }
+        XCTAssertTrue(model.busy)
+        await model.sceneChanged(.inactive); XCTAssertTrue(model.foreground)
+        let background = Task { await model.sceneChanged(.background) }
+        while model.foreground { await Task.yield() }
+        continuation?.resume(returning: V2HTTPResponse(status: 200, body: try v2Discovery()))
+        await active.value; await background.value
+        XCTAssertFalse(model.busy); XCTAssertFalse(model.connected); XCTAssertFalse(model.blocksSwitch)
+        XCTAssertEqual(tokens.reads, 0); XCTAssertEqual(transport.requests.count, 1)
+        await model.stop()
+    }
+}
+
+extension CloudV2Tests {
+    func testHistoryDomainsCapsAndChronologicalFractionOrdering() throws {
+        let domain = V2HistoryDomain(identity: v2Config().identity, moduleID: v2ID, bootID: v2ID, backendEpoch: v2ID)
+        let otherClient = V2HistoryDomain(identity: v2Config(client: v2OtherID).identity, moduleID: v2ID, bootID: v2ID, backendEpoch: v2ID)
+        let otherModule = V2HistoryDomain(identity: v2Config().identity, moduleID: v2OtherID, bootID: v2ID, backendEpoch: v2ID)
+        let otherEpoch = V2HistoryDomain(identity: v2Config().identity, moduleID: v2ID, bootID: v2ID, backendEpoch: v2OtherID)
+        func message(_ id: String, _ date: String) throws -> V2Message {
+            try V2JSON.decode(V2Message.self, from: v2Data(["message_id": id, "direction": "incoming", "sender": "", "recipient": "", "text": "fixture", "state": "received", "delivery": "unknown", "observed_at": date]), limit: 1024)
+        }
+        let plain = try message(v2ID, "2026-10-24T00:00:00Z"), fraction = try message(v2OtherID, "2026-10-24T00:00:00.5Z")
+        var history = V2History()
+        history.merge(messages: [V2StoredMessage(domain: domain, message: plain, inboxGap: false, inboxDropped: 0), V2StoredMessage(domain: domain, message: fraction, inboxGap: true, inboxDropped: 2)])
+        XCTAssertEqual(history.messages.first?.message.message_id, v2OtherID)
+        history.merge(messages: [otherClient, otherModule, otherEpoch].map { V2StoredMessage(domain: $0, message: plain, inboxGap: false, inboxDropped: 0) })
+        XCTAssertEqual(history.messages.count, 5)
+        var batch: [V2StoredMessage] = []
+        for _ in 0..<2001 { batch.append(V2StoredMessage(domain: domain, message: try message(UUID().uuidString.lowercased(), "2026-10-24T00:00:01Z"), inboxGap: false, inboxDropped: 0)) }
+        history.merge(messages: batch); XCTAssertEqual(history.messages.count, 2000)
+        var calls: [V2StoredCall] = []
+        for _ in 0..<501 { calls.append(V2StoredCall(domain: domain, call: try V2JSON.decode(V2Call.self, from: v2Data(v2CallObject(id: UUID().uuidString.lowercased())), limit: 1024))) }
+        history.merge(calls: calls); XCTAssertEqual(history.calls.count, 500)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = V2ProtectedFile<V2History>(url: root.appendingPathComponent("history.json"))
+        try file.save(history)
+        XCTAssertEqual(try file.load()?.messages.count, 2000)
+        XCTAssertEqual(try file.url.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup, true)
+    }
+    @MainActor func testModelReadinessModuleIsolationAndOfflineHistory() async throws {
+        let suite = "airsim.model.test.\(UUID())", root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let defaults = UserDefaults(suiteName: suite)!, tokens = V2TestTokens()
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
+        var offline = false
+        let transport = V2TestTransport { request in
+            if offline { throw V2Error.transport }
+            let path = request.url!.path
+            if path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            if path == "/v2/modules" { return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "modules": [v2ID, v2OtherID].map { ["module_id": $0, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID] }])) }
+            let module = path.contains(v2OtherID) ? v2OtherID : v2ID
+            if path.hasSuffix("snapshot") { return V2HTTPResponse(status: 200, body: try v2SnapshotData(module: module, calls: [v2CallObject(state: "disconnected")], telephony: module == v2ID, messaging: module != v2ID)) }
+            return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "module_id": module, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": []]))
+        }
+        let model = CloudV2Model(client: V2Client(transport: transport, tokens: tokens, now: { v2Now }), defaults: defaults, root: root, tokens: tokens, now: { v2Now })
+        await model.sceneChanged(.active)
+        for _ in 0..<100 where model.modules.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNil(model.selectedModuleID); XCTAssertFalse(model.telephonyReady)
+        await model.selectModule(v2ID)
+        for _ in 0..<100 where model.messagesResponse == nil { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(model.telephonyReady); XCTAssertFalse(model.messagingReady); XCTAssertEqual(model.visibleCalls.count, 1)
+        await model.selectModule(v2OtherID)
+        for _ in 0..<100 where model.messagesResponse == nil { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertFalse(model.telephonyReady); XCTAssertTrue(model.messagingReady)
+        XCTAssertEqual(model.history.calls.count, 2); XCTAssertEqual(model.visibleCalls.count, 1)
+        offline = true
+        // Force a fresh poll through the explicit module change; old history remains available.
+        await model.selectModule(v2ID)
+        for _ in 0..<100 where model.syncStatus == nil { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotNil(model.syncStatus); XCTAssertNil(model.error); XCTAssertEqual(model.visibleCalls.count, 1)
+        XCTAssertFalse(model.telephonyReady)
+        await model.stop()
+        XCTAssertTrue(transport.requests.allSatisfy { $0.httpMethod != "POST" })
+    }
+    @MainActor func testInFlightDialBackgroundSendsOneDirectedHangupAndPreservesUnknown() async throws {
+        let suite = "airsim.model.test.\(UUID())", root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let defaults = UserDefaults(suiteName: suite)!, tokens = V2TestTokens()
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
+        defaults.set(v2ID, forKey: V2LocalPaths.selectionKey(v2Config().identity))
+        var dialContinuation: CheckedContinuation<V2HTTPResponse, Error>?
+        var dialID = "", hangups: [[String: Any]] = []
+        let transport = V2TestTransport { request in
+            let path = request.url!.path
+            if path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            if request.httpMethod == "POST" {
+                let envelope = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+                let command = envelope["command"] as! [String: Any]
+                if command["action"] as? String == "call.dial" {
+                    dialID = command["command_id"] as! String
+                    return try await withCheckedThrowingContinuation { dialContinuation = $0 }
+                }
+                hangups.append(command); throw V2Error.transport
+            }
+            if path == "/v2/modules" { return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "modules": [["module_id": v2ID, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID]]])) }
+            if path.hasSuffix("snapshot") { return V2HTTPResponse(status: 200, body: try v2SnapshotData()) }
+            if path.hasSuffix("messages") { return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "module_id": v2ID, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": []])) }
+            return V2HTTPResponse(status: 404, body: Data())
+        }
+        let model = CloudV2Model(client: V2Client(transport: transport, tokens: tokens, now: { v2Now }), defaults: defaults, root: root, tokens: tokens, now: { v2Now })
+        await model.sceneChanged(.active)
+        for _ in 0..<100 where !model.telephonyReady { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(model.telephonyReady)
+        model.number = "+12345678901"
+        let dial = Task { await model.dial() }
+        for _ in 0..<100 where dialContinuation == nil { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertNotNil(dialContinuation)
+        await model.sceneChanged(.inactive); XCTAssertTrue(model.foreground); XCTAssertTrue(hangups.isEmpty)
+        await model.sceneChanged(.background)
+        dialContinuation?.resume(returning: V2HTTPResponse(status: 200, body: try v2Accepted(id: dialID)))
+        await dial.value
+        for _ in 0..<100 where hangups.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(hangups.count, 1)
+        XCTAssertEqual((hangups.first?["args"] as? [String: String])?["call_id"], v2OtherID)
+        XCTAssertTrue(model.hasUnresolvedCommand); XCTAssertEqual(model.ownedCall?.callID, v2OtherID)
+        await model.sceneChanged(.active)
+        try await Task.sleep(for: .milliseconds(20))
+        await model.sceneChanged(.background)
+        try await Task.sleep(for: .milliseconds(20))
+        await model.stop()
+        XCTAssertEqual(hangups.count, 1)
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod == "POST" }.count, 2)
+        XCTAssertNotNil(try V2FilePendingStore(url: root.appendingPathComponent("pending.json")).load())
+    }
+}
+
+// Deliberately ignores cancellation, matching the observed SDK suspension.
+@MainActor
+private final class StubbornActivitySource: LegacyActivitySource {
+    var pushToken: Data? = Data([1])
+    var activities: [LegacyActivitySnapshot] = []
+    var pushEmit: ((Data) -> Void)?
+    var activityEmit: ((LegacyActivitySnapshot) -> Void)?
+    var tokenEmit: [String: (Data) -> Void] = [:]
+    var endEmit: [String: () -> Void] = [:]
+    var globalContinuations: [CheckedContinuation<Void, Never>] = []
+    var activityContinuations: [String: CheckedContinuation<Void, Never>] = [:]
+    var globalStarts = 0
+    var activityStarts: [String: Int] = [:]
+    func pushTokens(_ emit: @escaping @MainActor (Data) -> Void) async {
+        globalStarts += 1; pushEmit = emit
+        await withCheckedContinuation { globalContinuations.append($0) }
+    }
+    func activityUpdates(_ emit: @escaping @MainActor (LegacyActivitySnapshot) -> Void) async {
+        globalStarts += 1; activityEmit = emit
+        await withCheckedContinuation { globalContinuations.append($0) }
+    }
+    func observe(_ id: String, token: @escaping @MainActor (Data) -> Void, ended: @escaping @MainActor () -> Void) async {
+        activityStarts[id, default: 0] += 1; tokenEmit[id] = token; endEmit[id] = ended
+        await withCheckedContinuation { activityContinuations[id] = $0 }
+    }
+    func complete(_ id: String) { activityContinuations.removeValue(forKey: id)?.resume() }
+    func finishAll() {
+        for continuation in globalContinuations { continuation.resume() }; globalContinuations.removeAll()
+        for continuation in activityContinuations.values { continuation.resume() }; activityContinuations.removeAll()
+    }
+}
+extension CloudV2Tests {
+    @MainActor func testActivityRuntimeSubscriptionsFinishWhileSourcesIgnoreCancellation() async throws {
+        let source = StubbornActivitySource(), hub = LegacyActivityEvents(source: StubbornActivitySource())
+        // A new v2-only process never starts either global observer.
+        XCTAssertEqual(hub.globalCount, 0); XCTAssertEqual(hub.subscriptionCount, 0)
+        let events = LegacyActivityEvents(source: source)
+        let suite = "airsim.activity.test.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite); source.finishAll(); LegacyRuntimeGate.configure(false) }
+        var businessWrites = 0
+        for cycle in 0..<24 {
+            LegacyRuntimeGate.configure(true); let stamp = LegacyRuntimeGate.generation
+            let id = "activity-\(cycle)"
+            source.activities = [LegacyActivitySnapshot(id: id, callID: "fixture", token: Data([2]))]
+            let subscription = events.subscribe()
+            let ended = expectation(description: "consumer stopped \(cycle)")
+            let consumer = Task { @MainActor in
+                for await _ in subscription.stream {
+                    guard !Task.isCancelled, LegacyRuntimeGate.accepts(stamp) else { break }
+                    businessWrites += 1; defaults.set(businessWrites, forKey: "writes")
+                }
+                ended.fulfill()
+            }
+            for _ in 0..<10 { await Task.yield() }
+            LegacyRuntimeGate.configure(false)
+            events.unsubscribe(subscription.id); consumer.cancel()
+            await fulfillment(of: [ended], timeout: 1)
+            await consumer.value
+            let stoppedWrites = businessWrites
+            source.pushEmit?(Data([3]))
+            source.activityEmit?(LegacyActivitySnapshot(id: "late-\(cycle)", callID: "fixture", token: Data([4])))
+            source.tokenEmit[id]?(Data([5]))
+            for _ in 0..<5 { await Task.yield() }
+            XCTAssertEqual(businessWrites, stoppedWrites)
+            XCTAssertEqual(defaults.integer(forKey: "writes"), stoppedWrites)
+            XCTAssertEqual(events.subscriptionCount, 0)
+            XCTAssertEqual(events.globalCount, 2)
+            XCTAssertLessThanOrEqual(events.activityCount, 16)
+            XCTAssertEqual(events.retiredCount, events.activityCount)
+        }
+        XCTAssertEqual(source.globalStarts, 2)
+        XCTAssertEqual(source.activityStarts.count, 16)
+        XCTAssertTrue(events.limitReached)
+        XCTAssertTrue(source.activityStarts.values.allSatisfy { $0 == 1 })
+        source.finishAll()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(events.activityCount, 0); XCTAssertEqual(events.globalCount, 0)
+        XCTAssertTrue(events.limitReached) // Restart-required diagnostic remains latched.
+    }
+    @MainActor func testRetiredActivityKeepsLedgerUntilActualExitAndDoesNotRestartSameID() async {
+        let source = StubbornActivitySource(), events: LegacyActivityEvents
+        events = LegacyActivityEvents(source: source)
+        source.activities = [LegacyActivitySnapshot(id: "same", callID: "fixture", token: nil)]
+        let first = events.subscribe()
+        for _ in 0..<10 { await Task.yield() }
+        source.endEmit["same"]?()
+        XCTAssertEqual(events.activityCount, 1); XCTAssertEqual(events.retiredCount, 1)
+        events.unsubscribe(first.id)
+        let second = events.subscribe()
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(source.activityStarts["same"], 1)
+        source.tokenEmit["same"]?(Data([9]))
+        XCTAssertNil(events.currentActivities["same"]?.token)
+        events.unsubscribe(second.id)
+        source.complete("same")
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(events.activityCount, 0); XCTAssertEqual(events.retiredCount, 0)
+        source.finishAll()
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testActivityEventsReconcileBoundedAuthoritativeSnapshotWithoutResurrection() async {
+        let source = StubbornActivitySource(), events: LegacyActivityEvents
+        events = LegacyActivityEvents(source: source)
+        let live = LegacyActivitySnapshot(id: "live", callID: "fixture", token: Data([1]))
+        source.activities = [live]
+        let subscription = events.subscribe()
+        var registeredIDs: [String] = []
+        let consumer = Task { @MainActor in
+            for await _ in subscription.stream {
+                for activity in events.currentActivities.values where activity.token != nil { registeredIDs.append(activity.id) }
+            }
+        }
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(source.activityStarts["live"], 1)
+        registeredIDs.removeAll()
+        // No ended callback arrives, but the system list has already removed the activity.
+        source.activities = []
+        source.activityEmit?(live)
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertTrue(events.currentActivities.isEmpty)
+        XCTAssertEqual(events.retiredCount, 1); XCTAssertEqual(events.activityCount, 1)
+        for i in 0..<100 {
+            source.activityEmit?(LegacyActivitySnapshot(id: "historical-\(i)", callID: "fixture", token: Data([2])))
+        }
+        source.tokenEmit["live"]?(Data([3]))
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertTrue(events.currentActivities.isEmpty); XCTAssertTrue(registeredIDs.isEmpty)
+        XCTAssertEqual(source.activityStarts.count, 1)
+        source.complete("live")
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(events.activityCount, 0)
+        source.activities = (0..<40).map { LegacyActivitySnapshot(id: "current-\($0)", callID: "fixture", token: nil) }
+        events.refreshCurrentActivities()
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(events.currentActivities.count, 16)
+        XCTAssertEqual(events.activityCount, 16); XCTAssertTrue(events.limitReached)
+        source.activities = []
+        events.refreshCurrentActivities()
+        XCTAssertTrue(events.currentActivities.isEmpty)
+        XCTAssertEqual(events.activityCount, 16); XCTAssertEqual(events.retiredCount, 16)
+        events.unsubscribe(subscription.id); consumer.cancel(); await consumer.value
+        source.finishAll()
+    }
+}

@@ -56,6 +56,11 @@
 		A50000000000000000000006 /* V2Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000006 /* V2Models.swift */; };
 		A50000000000000000000007 /* V2Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000007 /* V2Transport.swift */; };
 		A500000000000000000000FF /* CloudV2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000FF /* CloudV2Tests.swift */; };
+		A50000000000000000000064 /* AppRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000064 /* AppRouting.swift */; };
+		A50000000000000000000065 /* CloudV2Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000065 /* CloudV2Model.swift */; };
+		A50000000000000000000066 /* CloudV2View.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000066 /* CloudV2View.swift */; };
+		A50000000000000000000067 /* LegacySwitchFence.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000067 /* LegacySwitchFence.swift */; };
+		A5000000000000000000006C /* V2LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5000000000000000000006C /* V2LocalStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -159,6 +164,11 @@
 		B50000000000000000000006 /* V2Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Models.swift; sourceTree = "<group>"; };
 		B50000000000000000000007 /* V2Transport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Transport.swift; sourceTree = "<group>"; };
 		B500000000000000000000FF /* CloudV2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2Tests.swift; sourceTree = "<group>"; };
+		B50000000000000000000064 /* AppRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/AppRouting.swift; sourceTree = "<group>"; };
+		B50000000000000000000065 /* CloudV2Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/CloudV2Model.swift; sourceTree = "<group>"; };
+		B50000000000000000000066 /* CloudV2View.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/CloudV2View.swift; sourceTree = "<group>"; };
+		B50000000000000000000067 /* LegacySwitchFence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/LegacySwitchFence.swift; sourceTree = "<group>"; };
+		B5000000000000000000006C /* V2LocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2LocalStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -215,6 +225,11 @@
 				B50000000000000000000005 /* V2Media.swift */,
 				B50000000000000000000006 /* V2Models.swift */,
 				B50000000000000000000007 /* V2Transport.swift */,
+				B50000000000000000000064 /* AppRouting.swift */,
+				B50000000000000000000065 /* CloudV2Model.swift */,
+				B50000000000000000000066 /* CloudV2View.swift */,
+				B50000000000000000000067 /* LegacySwitchFence.swift */,
+				B5000000000000000000006C /* V2LocalStore.swift */,
 				B10000000000000000000001 /* AirSIMIPadApp.swift */,
 				B10000000000000000000002 /* APIModels.swift */,
 				B10000000000000000000003 /* AirSIMAPI.swift */,
@@ -462,6 +477,11 @@
 				A50000000000000000000005 /* V2Media.swift in Sources */,
 				A50000000000000000000006 /* V2Models.swift in Sources */,
 				A50000000000000000000007 /* V2Transport.swift in Sources */,
+				A50000000000000000000064 /* AppRouting.swift in Sources */,
+				A50000000000000000000065 /* CloudV2Model.swift in Sources */,
+				A50000000000000000000066 /* CloudV2View.swift in Sources */,
+				A50000000000000000000067 /* LegacySwitchFence.swift in Sources */,
+				A5000000000000000000006C /* V2LocalStore.swift in Sources */,
 				A10000000000000000000001 /* AirSIMIPadApp.swift in Sources */,
 				A10000000000000000000002 /* APIModels.swift in Sources */,
 				A10000000000000000000003 /* AirSIMAPI.swift in Sources */,

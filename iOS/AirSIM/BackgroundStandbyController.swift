@@ -88,15 +88,26 @@ enum IncomingSMSPresentationRequest {
 /// 接收锁屏通知动作，并在系统授予的后台执行时间内直接控制模块通话。
 @MainActor
 final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
-    private let coldLaunchCallHandler = ColdLaunchCallKitHandler()
+    private var coldHandler: ColdLaunchCallKitHandler?
+    static weak var current: AirSIMNotificationDelegate?
+    private var coldLaunchCallHandler: ColdLaunchCallKitHandler {
+        if let coldHandler { return coldHandler }
+        let handler = ColdLaunchCallKitHandler(); coldHandler = handler; return handler
+    }
+    func stopRuntime() { coldHandler?.stop(); coldHandler = nil }
     private let historyStore = LocalHistoryStore()
 
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        Self.current = self
+        let selection = CloudVersionPreference.selection(paired: VoWLANCredentialStore.load() != nil)
+        if let selection { CloudVersionPreference.save(selection) }
+        LegacyRuntimeGate.configure(selection == .v1 || selection == .local)
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        guard LegacyRuntimeGate.allowed else { return true }
         IncomingCallNotification.registerCategory()
         let localModeEnabled = LocalModePreference.isEnabled()
         CallKitController.shared.setEnabled(!localModeEnabled)
@@ -120,7 +131,7 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // 首次授权弹窗可能晚于 didFinishLaunching 返回；回到前台时重新登记是幂等的。
-        guard !LocalModePreference.isEnabled() else { return }
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         VoIPPushController.shared.start()
         application.registerForRemoteNotifications()
         Task { await VoIPPushController.shared.syncRegistration() }
@@ -130,7 +141,7 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
-        guard !LocalModePreference.isEnabled() else { return }
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         VoIPPushController.shared.storeAlertToken(deviceToken)
 #if DEBUG
         print("[AirSIM APNs] 普通通知 token 已更新；字节数=\(deviceToken.count)")
@@ -141,7 +152,7 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        guard !LocalModePreference.isEnabled() else { return }
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         VoIPPushController.shared.clearAlertToken()
 #if DEBUG
         print("[AirSIM APNs] 普通通知 token 注册失败：\(error.localizedDescription)")
@@ -153,7 +164,7 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        guard !LocalModePreference.isEnabled() else {
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else {
             completionHandler(.noData)
             return
         }
@@ -193,6 +204,7 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        guard LegacyRuntimeGate.allowed else { completionHandler([]); return }
         guard notification.request.content.userInfo["event"] as? String == "incoming_sms" else {
             completionHandler([])
             return
@@ -205,6 +217,12 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        guard LegacyRuntimeGate.allowed else {
+            UserDefaults.standard.removeObject(forKey: IncomingCallPresentationRequest.key)
+            UserDefaults.standard.removeObject(forKey: IncomingSMSPresentationRequest.key)
+            completionHandler(); return
+        }
+        let stamp = LegacyRuntimeGate.generation
         let actionIdentifier = response.actionIdentifier
         if response.notification.request.content.userInfo["event"] as? String == "incoming_sms" {
             let userInfo = response.notification.request.content.userInfo
@@ -245,12 +263,13 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
                 completionHandler()
             }
             do {
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 guard let api = await coldLaunchCallHandler.availableSamsungAPI() else {
                     throw CallKitBridgeError.noReachableTransport
                 }
                 let status = try await api.callStatus()
                 // 必须匹配仍在振铃的同一通电话，防止用户点击过期通知误操作新通话。
-                guard status.active?.id == callID,
+                guard LegacyRuntimeGate.accepts(stamp), status.active?.id == callID,
                       status.active?.direction == "incoming",
                       let state = status.active?.state,
                       ["incoming", "waiting"].contains(state) else { return }
@@ -261,6 +280,7 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
                     _ = try await api.rejectCall(callID: callID)
                 }
             } catch {
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 Self.reportActionFailure(error)
             }
         }
@@ -299,21 +319,30 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
 private final class ColdLaunchCallKitHandler: CallKitActionHandling {
     private let vowlan = VoWLANController()
 
-    init() { vowlan.startBrowsing() }
+    init() {}
+    func stop() { vowlan.stopBrowsing() }
 
     func availableSamsungAPI() async -> AirSIMAPI? {
+        guard LegacyRuntimeGate.allowed else { return nil }
+        let stamp = LegacyRuntimeGate.generation
+        vowlan.startBrowsing()
         await vowlan.probeNow()
-        guard vowlan.availability.isOnlineForDisplay,
+        guard LegacyRuntimeGate.accepts(stamp), vowlan.availability.isOnlineForDisplay,
               let endpoint = vowlan.availability.endpoint,
               let credential = VoWLANCredentialStore.load() else { return nil }
         return AirSIMAPI(route: .vowlan(endpoint: endpoint, credential: credential))
     }
 
     func callKitStart(number: String) async throws {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.accepts(stamp) else { return }
         guard let api = await availableSamsungAPI() else { throw CallKitBridgeError.noReachableTransport }
+        guard LegacyRuntimeGate.accepts(stamp) else { throw CancellationError() }
         try await api.dial(number: number)
     }
     func callKitAnswer(origin: CallAnswerOrigin) async throws {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.accepts(stamp) else { return }
         if let pushedCall = CallKitController.shared.currentIncomingPush,
            pushedCall.isVirtual {
             try VirtualCallTTSController.shared.prepare(pushedCall)
@@ -322,12 +351,15 @@ private final class ColdLaunchCallKitHandler: CallKitActionHandling {
                   pushedCall.authenticatedMediaURL != nil {
             try await IPhoneCloudCallSession.shared.answer(pushedCall)
         } else if let api = await availableSamsungAPI() {
+            guard LegacyRuntimeGate.accepts(stamp) else { throw CancellationError() }
             try await api.answerCall()
         } else {
             throw CallKitBridgeError.noReachableTransport
         }
     }
     func callKitEnd() async throws {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.accepts(stamp) else { return }
         if VirtualCallTTSController.shared.isPrepared
             || CallKitController.shared.currentIncomingPush?.isVirtual == true {
             VirtualCallTTSController.shared.stop()
@@ -345,6 +377,7 @@ private final class ColdLaunchCallKitHandler: CallKitActionHandling {
         }
         guard let api = await availableSamsungAPI() else { throw CallKitBridgeError.noReachableTransport }
         let call = (try? await api.callStatus())?.active
+        guard LegacyRuntimeGate.accepts(stamp) else { throw CancellationError() }
         if let call,
            call.direction == "incoming",
            ["incoming", "waiting"].contains(call.state) {
@@ -354,22 +387,29 @@ private final class ColdLaunchCallKitHandler: CallKitActionHandling {
         }
     }
     func callKitSetMuted(_ muted: Bool) async {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.accepts(stamp) else { return }
         if VirtualCallTTSController.shared.isPrepared {
             VirtualCallTTSController.shared.setMuted(muted)
             return
         }
         IPhoneCloudCallSession.shared.setMuted(muted)
         if !IPhoneCloudCallSession.shared.isPrepared,
-           let api = await availableSamsungAPI() { try? await api.setAudioMuted(muted) }
+           let api = await availableSamsungAPI(), LegacyRuntimeGate.accepts(stamp) { try? await api.setAudioMuted(muted) }
     }
     func callKitPlayDTMF(_ digits: String) async throws {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.accepts(stamp) else { return }
         if VirtualCallTTSController.shared.isPrepared { return }
         for digit in digits where "0123456789*#".contains(digit) {
             guard let api = await availableSamsungAPI() else { throw CallKitBridgeError.noReachableTransport }
+            guard LegacyRuntimeGate.accepts(stamp) else { throw CancellationError() }
             try await api.sendDTMF(String(digit))
         }
     }
     func callKitAudioSessionDidActivate() async {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.accepts(stamp) else { return }
         if VirtualCallTTSController.shared.isPrepared {
             VirtualCallTTSController.shared.start()
         } else if IPhoneCloudCallSession.shared.hasActiveCall {
@@ -377,14 +417,20 @@ private final class ColdLaunchCallKitHandler: CallKitActionHandling {
         }
     }
     func callKitAudioSessionDidDeactivate() {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.accepts(stamp) else { return }
         if VirtualCallTTSController.shared.isPrepared { VirtualCallTTSController.shared.stop() }
         else { IPhoneCloudCallSession.shared.stopAudio() }
     }
     func callKitProviderDidReset() async {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.accepts(stamp) else { return }
         if VirtualCallTTSController.shared.isPrepared { VirtualCallTTSController.shared.stop() }
         else { IPhoneCloudCallSession.shared.stopAudio() }
     }
-    func callKitDidFail(_ message: String) {}
+    func callKitDidFail(_ message: String) {
+        let stamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.accepts(stamp) else { return }}
 }
 
 /// 个人侧载模式下维持静音播放，让 iOS 在熄屏后继续执行模块来电轮询。
@@ -547,6 +593,8 @@ final class IncomingCallNotifier {
     private var notifiedCallIDs: [String] = []
 
     func requestAuthorization() {
+        guard LegacyRuntimeGate.allowed else { return }
+        let stamp = LegacyRuntimeGate.generation
         IncomingCallNotification.registerCategory()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
 #if DEBUG
@@ -557,7 +605,8 @@ final class IncomingCallNotifier {
             }
 #endif
             Task { @MainActor in
-                guard !LocalModePreference.isEnabled() else { return }
+                guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
+                guard LegacyRuntimeGate.accepts(stamp) else { return }
                 VoIPPushController.shared.start()
                 UIApplication.shared.registerForRemoteNotifications()
             }

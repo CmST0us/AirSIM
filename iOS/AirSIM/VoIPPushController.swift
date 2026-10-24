@@ -744,10 +744,24 @@ final class VoIPPushController: NSObject {
     private var latestRegistrationAPI = AirSIMAPI()
     private var activityKitRegistrationStarted = false
     private var activityKitRegistrationTasks: [Task<Void, Never>] = []
-    private var observedActivityIDs = Set<String>()
+    private var activitySubscriptionID: UUID?
+    private let activityEvents = LegacyActivityEvents.shared
+
+    func stopRuntime() async {
+        registry?.desiredPushTypes = []; registry?.delegate = nil; registry = nil
+        UIApplication.shared.unregisterForRemoteNotifications()
+        if let id = activitySubscriptionID { activityEvents.unsubscribe(id); activitySubscriptionID = nil }
+        let tasks = activityKitRegistrationTasks + [registrationRetryTask].compactMap { $0 }
+        tasks.forEach { $0.cancel() }
+        activityKitRegistrationTasks.removeAll(); registrationRetryTask = nil
+        activityKitRegistrationStarted = false; registrationPending = false
+        for task in tasks { await task.value }
+        while registrationInFlight { try? await Task.sleep(for: .milliseconds(20)) }
+        await IPhoneCloudCallSession.shared.stopRuntimeAndWait()
+    }
 
     func start() {
-        guard !LocalModePreference.isEnabled() else { return }
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         startActivityKitRegistration()
         if let registry {
             // 重新赋值会让系统在授权或网络状态变化后再次核对现有凭据。
@@ -779,7 +793,7 @@ final class VoIPPushController: NSObject {
             activityKitRegistrationTasks.forEach { $0.cancel() }
             activityKitRegistrationTasks.removeAll()
             activityKitRegistrationStarted = false
-            observedActivityIDs.removeAll()
+            if let id = activitySubscriptionID { activityEvents.unsubscribe(id); activitySubscriptionID = nil }
             UIApplication.shared.unregisterForRemoteNotifications()
             Task { await IPhoneCloudCallSession.shared.end() }
 #if DEBUG
@@ -804,53 +818,47 @@ final class VoIPPushController: NSObject {
     }
 
     private func startActivityKitRegistration() {
-        guard !LocalModePreference.isEnabled(), !activityKitRegistrationStarted else { return }
-        if #available(iOS 17.2, *) {
-            activityKitRegistrationStarted = true
-            let pushToStartTask = Task { @MainActor [weak self] in
-                for await token in Activity<AirSIMCallActivityAttributes>.pushToStartTokenUpdates {
-                    guard let self, !Task.isCancelled else { return }
-                    guard !LocalModePreference.isEnabled(),
-                          LiveActivityVisibilityPreference.isEnabled() else { continue }
-                    UserDefaults.standard.set(
-                        VoIPPushToken.hex(token),
-                        forKey: Keys.liveActivityPushToStartToken
-                    )
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled(), !activityKitRegistrationStarted else { return }
+        activityKitRegistrationStarted = true
+        let stamp = LegacyRuntimeGate.generation
+        let subscription = activityEvents.subscribe()
+        activitySubscriptionID = subscription.id
+        let task = Task { @MainActor [weak self] in
+            var lastPushToken: Data?
+            var lastActivityTokens: [String: Data] = [:]
+            for await _ in subscription.stream {
+                guard let self, !Task.isCancelled, LegacyRuntimeGate.accepts(stamp),
+                      !LocalModePreference.isEnabled() else { return }
+                guard LiveActivityVisibilityPreference.isEnabled() else { continue }
+                if let token = activityEvents.currentPushToken, token != lastPushToken {
+                    lastPushToken = token
+                    UserDefaults.standard.set(VoIPPushToken.hex(token), forKey: Keys.liveActivityPushToStartToken)
                     resetRegistrationBackoff()
                     await syncRegistration()
                 }
-            }
-            let activityUpdateTask = Task { @MainActor [weak self] in
-                guard let self else { return }
-                for activity in Activity<AirSIMCallActivityAttributes>.activities {
-                    observeLiveActivity(activity)
+                guard !Task.isCancelled, LegacyRuntimeGate.accepts(stamp) else { return }
+                for activity in Array(activityEvents.currentActivities.values) {
+                    guard !Task.isCancelled, LegacyRuntimeGate.accepts(stamp) else { return }
+                    guard let current = activityEvents.currentActivities[activity.id], current.callID == activity.callID,
+                          let token = current.token, lastActivityTokens[activity.id] != token else { continue }
+                    lastActivityTokens[activity.id] = token
+                    await registerLiveActivityUpdateToken(VoIPPushToken.hex(token), activityID: activity.id, callID: activity.callID)
                 }
-                for await activity in Activity<AirSIMCallActivityAttributes>.activityUpdates {
-                    guard !Task.isCancelled else { return }
-                    observeLiveActivity(activity)
-                }
+                let ids = Set(activityEvents.currentActivities.keys)
+                lastActivityTokens = lastActivityTokens.filter { ids.contains($0.key) }
             }
-            activityKitRegistrationTasks = [pushToStartTask, activityUpdateTask]
         }
+        activityKitRegistrationTasks = [task]
     }
 
     func observeLiveActivity(_ activity: Activity<AirSIMCallActivityAttributes>) {
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         guard LiveActivityVisibilityPreference.isEnabled() else {
             Task { await activity.end(nil, dismissalPolicy: .immediate) }
             return
         }
-        guard !LocalModePreference.isEnabled() else { return }
-        guard observedActivityIDs.insert(activity.id).inserted else { return }
-        Task { @MainActor [weak self] in
-            for await token in activity.pushTokenUpdates {
-                guard let self else { return }
-                await registerLiveActivityUpdateToken(
-                    VoIPPushToken.hex(token),
-                    activityID: activity.id,
-                    callID: activity.content.state.callID
-                )
-            }
-        }
+        startActivityKitRegistration()
+        activityEvents.refreshCurrentActivities()
     }
 
     private func registerLiveActivityUpdateToken(
@@ -858,7 +866,7 @@ final class VoIPPushController: NSObject {
         activityID: String,
         callID: String
     ) async {
-        guard !LocalModePreference.isEnabled(),
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled(),
               LiveActivityVisibilityPreference.isEnabled() else { return }
         guard let registration = currentRegistration(),
               let url = RelayEndpoint.url(
@@ -891,21 +899,24 @@ final class VoIPPushController: NSObject {
             updateToken: token
         ))
         let configuration = URLSessionConfiguration.ephemeral
-        _ = try? await URLSession(configuration: configuration).data(for: request)
+        _ = try? await LegacyRuntimeGate.data(session: URLSession(configuration: configuration), request: request)
     }
 
     func storeAlertToken(_ token: Data) {
+        guard LegacyRuntimeGate.allowed else { return }
         UserDefaults.standard.set(VoIPPushToken.hex(token), forKey: Keys.alertToken)
         resetRegistrationBackoff()
         Task { await syncRegistration() }
     }
 
     func clearAlertToken() {
+        guard LegacyRuntimeGate.allowed else { return }
         UserDefaults.standard.removeObject(forKey: Keys.alertToken)
         resetRegistrationBackoff()
     }
 
     func storeWatchVoIPRegistration(token: String, bundleID: String) {
+        guard LegacyRuntimeGate.allowed else { return }
         let token = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let bundleID = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty, !bundleID.isEmpty else { return }
@@ -916,6 +927,7 @@ final class VoIPPushController: NSObject {
     }
 
     func updateRelayURL(_ value: String) {
+        guard !LegacySwitchFence.shared.blocked else { return }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty {
             UserDefaults.standard.removeObject(forKey: Keys.relayURL)
@@ -935,7 +947,8 @@ final class VoIPPushController: NSObject {
     }
 
     func syncRegistration(with requestedAPI: AirSIMAPI? = nil) async {
-        guard !LocalModePreference.isEnabled() else { return }
+        let runtimeStamp = LegacyRuntimeGate.generation
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         let api = requestedAPI ?? latestRegistrationAPI
         if PushRegistrationAttemptPolicy.shouldResetBackoff(
             previousRoute: latestRegistrationAPI.route,
@@ -971,7 +984,7 @@ final class VoIPPushController: NSObject {
         registrationInFlight = true
         defer {
             registrationInFlight = false
-            if registrationPending {
+            if registrationPending, LegacyRuntimeGate.accepts(runtimeStamp) {
                 registrationPending = false
                 Task { await syncRegistration(with: latestRegistrationAPI) }
             }
@@ -986,6 +999,7 @@ final class VoIPPushController: NSObject {
             do {
                 guard case .vowlan = api.route else { throw CallKitBridgeError.noReachableTransport }
                 try await api.registerVoIPPush(registration)
+                guard LegacyRuntimeGate.accepts(runtimeStamp) else { return }
                 lastRegisteredFingerprint = fingerprint
                 lastRegisteredRoute = api.route
                 agentRegistered = true
@@ -993,6 +1007,7 @@ final class VoIPPushController: NSObject {
                 print("[AirSIM PushKit] Agent 已接收设备注册")
                 Task {
                     try? await Task.sleep(for: .seconds(8))
+                    guard LegacyRuntimeGate.accepts(runtimeStamp) else { return }
                     do {
                         let status = try await api.pushStatus()
                         print(
@@ -1012,11 +1027,13 @@ final class VoIPPushController: NSObject {
             }
         }
 
+        guard LegacyRuntimeGate.accepts(runtimeStamp) else { return }
         if !relayRegistered, PushRegistrationRetryPolicy.shouldAttemptRelay(
             now: Date(), retryAfter: nextRelayRegistrationAttempt
         ) {
             do {
                 try await registerDirectlyWithRelay(registration)
+                guard LegacyRuntimeGate.accepts(runtimeStamp) else { return }
                 lastRelayRegisteredFingerprint = fingerprint
                 relayRegistered = true
                 nextRelayRegistrationAttempt = .distantPast
@@ -1033,6 +1050,7 @@ final class VoIPPushController: NSObject {
             }
         }
         // Relay 成功但本地 Agent 仍不可达时继续低频重试，确保模块恢复后也持有同一组凭据。
+        guard LegacyRuntimeGate.accepts(runtimeStamp) else { return }
         let needsRetry = PushRegistrationRetryPolicy.needsRetry(
             agentRegistered: agentRegistered,
             relayRegistered: relayRegistered
@@ -1150,7 +1168,7 @@ final class VoIPPushController: NSObject {
     }
 
     private func scheduleRegistrationRetry(after delay: TimeInterval) {
-        guard !LocalModePreference.isEnabled() else { return }
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         registrationRetryTask?.cancel()
         registrationRetryTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
@@ -1161,7 +1179,7 @@ final class VoIPPushController: NSObject {
     }
 
     func setCloudModeEnabled(_ enabled: Bool, with api: AirSIMAPI = AirSIMAPI()) async {
-        guard !LocalModePreference.isEnabled() else { return }
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         resetRegistrationBackoff()
         WatchCallCoordinator.shared.refreshMediaPolicy()
         // PushKit、CallKit 与 APNs 是本地 USB 模式的通知控制面，不能跟随
@@ -1216,7 +1234,7 @@ final class VoIPPushController: NSObject {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5
         configuration.timeoutIntervalForResource = 6
-        let (data, response) = try await URLSession(configuration: configuration).data(for: request)
+        let (data, response) = try await LegacyRuntimeGate.data(session: URLSession(configuration: configuration), request: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw CloudAgentStatusError.invalidResponse
         }
@@ -1311,6 +1329,21 @@ final class VoIPPushController: NSObject {
         return try await relayRequest(url: url, body: body, as: CloudCommandEnqueueResponse.self)
     }
 
+    func recoverSwitchFences() async {
+        guard LegacyRuntimeGate.allowed, let credentials = cloudCallControlCredentials() else { return }
+        let stamp = LegacyRuntimeGate.generation
+        for op in LegacySwitchFence.shared.pending where op.service == credentials.relayURL && op.device == credentials.deviceID {
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
+            guard let commandID = op.commandID else { continue }
+            if let callUUID = op.callUUID, let callID = op.callID, let generation = op.callGeneration, let traceID = op.traceID {
+                let envelope = CloudCallControlEnvelope(action: op.action, callID: callID, callUUID: callUUID, generation: generation, commandID: commandID, traceID: traceID)
+                _ = try? await CloudCallControlClient.awaitFinalReceipt(envelope: envelope, credentials: credentials, timeout: 1)
+            } else if let id = UUID(uuidString: commandID) {
+                _ = try? await waitForCloudCommand(commandID: id, timeout: 1)
+            }
+        }
+    }
+
     private func waitForCloudCommand(commandID: UUID, timeout: TimeInterval) async throws -> CloudCommandResultResponse {
         guard let registration = currentRegistration(),
               let url = RelayEndpoint.url(base: registration.relayURL, path: "v1/commands/result") else {
@@ -1347,14 +1380,25 @@ final class VoIPPushController: NSObject {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10
         configuration.timeoutIntervalForResource = 12
-        let (data, response) = try await URLSession(configuration: configuration).data(for: request)
+        let stamp = LegacyRuntimeGate.generation
+        var fenceID: String?
+        if url.path == "/v1/commands/enqueue" {
+            guard LegacyRuntimeGate.allowed else { throw CancellationError() }
+            fenceID = try LegacySwitchFence.shared.begin(service: configuredRelayURL(), device: body["device_id"] ?? "", action: body["type"] ?? "", commandID: body["command_id"])
+        }
+        let (data, response) = try await LegacyRuntimeGate.data(session: URLSession(configuration: configuration), request: request)
         guard let http = response as? HTTPURLResponse else { throw CloudCommandError.invalidResponse }
+        if (400..<500).contains(http.statusCode), let fenceID { try LegacySwitchFence.shared.resolve(fenceID, runtime: stamp) }
         guard (200..<300).contains(http.statusCode) else {
             let message = (try? JSONDecoder().decode(RelayErrorResponse.self, from: data).error)
             throw CloudCommandError.failed(message ?? "Relay HTTP \(http.statusCode)")
         }
         guard let decoded = try? JSONDecoder().decode(type, from: data) else {
             throw CloudCommandError.invalidResponse
+        }
+        if url.path == "/v1/commands/result", let receipt = decoded as? CloudCommandResultResponse,
+           receipt.commandID == body["command_id"], ["completed", "failed", "expired"].contains(receipt.status) {
+            try LegacySwitchFence.shared.resolveCommand(service: configuredRelayURL(), device: body["device_id"] ?? "", commandID: receipt.commandID, runtime: stamp)
         }
         return decoded
     }
@@ -1377,7 +1421,7 @@ final class VoIPPushController: NSObject {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 5
         configuration.timeoutIntervalForResource = 6
-        let (data, response) = try await URLSession(configuration: configuration).data(for: request)
+        let (data, response) = try await LegacyRuntimeGate.data(session: URLSession(configuration: configuration), request: request)
         guard let http = response as? HTTPURLResponse else {
             throw CloudAgentStatusError.invalidResponse
         }
@@ -1404,7 +1448,7 @@ final class VoIPPushController: NSObject {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 8
         configuration.timeoutIntervalForResource = 10
-        let (data, response) = try await URLSession(configuration: configuration).data(for: request)
+        let (data, response) = try await LegacyRuntimeGate.data(session: URLSession(configuration: configuration), request: request)
 #if DEBUG
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             let detail = String(data: data.prefix(1_024), encoding: .utf8) ?? "<非文本响应>"
@@ -1423,6 +1467,7 @@ final class VoIPPushController: NSObject {
     }
 
     private func store(token: String) {
+        guard LegacyRuntimeGate.allowed else { return }
         UserDefaults.standard.set(token, forKey: Keys.token)
         resetRegistrationBackoff()
         Task { await syncRegistration() }
@@ -1459,7 +1504,7 @@ final class VoIPPushController: NSObject {
     }
 
     private func currentRegistration() -> AgentPushRegistration? {
-        guard !LocalModePreference.isEnabled() else { return nil }
+        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return nil }
         guard let token = UserDefaults.standard.string(forKey: Keys.token), !token.isEmpty else {
 #if DEBUG
             print("[AirSIM PushKit] 暂无 VoIP token，跳过同步")
@@ -1539,11 +1584,13 @@ extension VoIPPushController: PKPushRegistryDelegate {
         for type: PKPushType
     ) {
         guard type == .voIP else { return }
+        let stamp = LegacyRuntimeGate.generation
         let token = VoIPPushToken.hex(pushCredentials.token)
         Task { @MainActor [weak self] in
 #if DEBUG
             print("[AirSIM PushKit] VoIP token 已更新；字节数=\(pushCredentials.token.count)")
 #endif
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
             self?.store(token: token)
         }
     }
@@ -1553,10 +1600,12 @@ extension VoIPPushController: PKPushRegistryDelegate {
         didInvalidatePushTokenFor type: PKPushType
     ) {
         guard type == .voIP else { return }
+        let stamp = LegacyRuntimeGate.generation
         Task { @MainActor [weak self] in
 #if DEBUG
             print("[AirSIM PushKit] VoIP token 已失效")
 #endif
+            guard LegacyRuntimeGate.accepts(stamp) else { return }
             UserDefaults.standard.removeObject(forKey: Keys.token)
             self?.resetRegistrationBackoff()
         }
@@ -1572,12 +1621,14 @@ extension VoIPPushController: PKPushRegistryDelegate {
             completion()
             return
         }
-        guard !LocalModePreference.isEnabled() else {
-            completion()
-            return
-        }
+        let stamp = LegacyRuntimeGate.generation
+        if LegacyPushRouting.rejectExpired(allowed: LegacyRuntimeGate.allowed, expired: {
+            Task { @MainActor in ExpiredLegacyPushReporter.shared.report(completion: completion) }
+        }) { return }
+        guard !LocalModePreference.isEnabled() else { completion(); return }
         let userInfo = payload.dictionaryPayload
         Task { @MainActor in
+            guard LegacyRuntimeGate.accepts(stamp) else { ExpiredLegacyPushReporter.shared.report(completion: completion); return }
             do {
                 let call = try IncomingVoIPCall(userInfo: userInfo)
                 CallKitController.shared.reportIncomingPush(call) { _ in completion() }
@@ -1587,7 +1638,7 @@ extension VoIPPushController: PKPushRegistryDelegate {
                         let resolvedName = await Task.detached(priority: .userInitiated) {
                             try? ContactFetcher().displayName(for: number)
                         }.value
-                        if let resolvedName, resolvedName != number {
+                        if LegacyRuntimeGate.accepts(stamp), let resolvedName, resolvedName != number {
                             WatchCallCoordinator.shared.publishIncoming(call, callerName: resolvedName)
                         }
                     }
@@ -1599,5 +1650,158 @@ extension VoIPPushController: PKPushRegistryDelegate {
                 completion()
             }
         }
+    }
+}
+
+struct LegacyActivitySnapshot {
+    let id: String
+    let callID: String
+    var token: Data?
+}
+
+@MainActor
+protocol LegacyActivitySource {
+    var pushToken: Data? { get }
+    var activities: [LegacyActivitySnapshot] { get }
+    func pushTokens(_ emit: @escaping @MainActor (Data) -> Void) async
+    func activityUpdates(_ emit: @escaping @MainActor (LegacyActivitySnapshot) -> Void) async
+    func observe(_ id: String, token: @escaping @MainActor (Data) -> Void, ended: @escaping @MainActor () -> Void) async
+}
+
+@MainActor
+private final class SystemLegacyActivitySource: LegacyActivitySource {
+    var pushToken: Data? {
+        if #available(iOS 17.2, *) { return Activity<AirSIMCallActivityAttributes>.pushToStartToken }
+        return nil
+    }
+    var activities: [LegacyActivitySnapshot] {
+        Activity<AirSIMCallActivityAttributes>.activities.filter { $0.activityState == .active || $0.activityState == .stale }.map(Self.snapshot)
+    }
+    private static func snapshot(_ activity: Activity<AirSIMCallActivityAttributes>) -> LegacyActivitySnapshot {
+        LegacyActivitySnapshot(id: activity.id, callID: activity.content.state.callID, token: activity.pushToken)
+    }
+    func pushTokens(_ emit: @escaping @MainActor (Data) -> Void) async {
+        if #available(iOS 17.2, *) {
+            for await token in Activity<AirSIMCallActivityAttributes>.pushToStartTokenUpdates { emit(token) }
+        }
+    }
+    func activityUpdates(_ emit: @escaping @MainActor (LegacyActivitySnapshot) -> Void) async {
+        for await activity in Activity<AirSIMCallActivityAttributes>.activityUpdates { emit(Self.snapshot(activity)) }
+    }
+    func observe(_ id: String, token: @escaping @MainActor (Data) -> Void, ended: @escaping @MainActor () -> Void) async {
+        guard let activity = Activity<AirSIMCallActivityAttributes>.activities.first(where: { $0.id == id }) else { return }
+        // One ledger entry owns both iterators. It is removed only after both exit.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                for await value in activity.pushTokenUpdates { token(value) }
+            }
+            group.addTask { @MainActor in
+                for await state in activity.activityStateUpdates {
+                    if state == .ended || state == .dismissed { ended(); return }
+                }
+            }
+            await group.waitForAll()
+        }
+    }
+}
+
+// Process lifetime, read-only system sources. No runtime/model, networking or defaults.
+@MainActor
+final class LegacyActivityEvents: ObservableObject {
+    static let shared = LegacyActivityEvents(source: SystemLegacyActivitySource())
+    private let source: LegacyActivitySource
+    private var globals: [Task<Void, Never>] = []
+    private var started = false
+    private struct Entry { let task: Task<Void, Never>; var retired: Bool }
+    private var perActivity: [String: Entry] = [:]
+    private var subscriptions: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private(set) var currentPushToken: Data?
+    private(set) var currentActivities: [String: LegacyActivitySnapshot] = [:]
+    @Published private(set) var limitReached = false
+    @Published private(set) var globalCount = 0
+    @Published private(set) var activityCount = 0
+    @Published private(set) var retiredCount = 0
+    @Published private(set) var subscriptionCount = 0
+    init(source: LegacyActivitySource) { self.source = source }
+
+    func subscribe() -> (id: UUID, stream: AsyncStream<Void>) {
+        let id = UUID()
+        let pair = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        subscriptions[id] = pair.continuation; subscriptionCount = subscriptions.count
+        if !started {
+            started = true; globalCount = 2
+            globals = [
+                Task { [self] in
+                    await source.pushTokens { [weak self] token in
+                        guard let self else { return }
+                        self.currentPushToken = token
+                        self.signal()
+                    }
+                    globalCount -= 1
+                },
+                Task { [self] in
+                    await source.activityUpdates { [weak self] _ in self?.refreshCurrentActivities() }
+                    globalCount -= 1
+                }
+            ]
+        }
+        // Initialize from current system state, never queued events from an old runtime.
+        currentPushToken = source.pushToken
+        refreshCurrentActivities()
+        pair.continuation.yield(())
+        return (id, pair.stream)
+    }
+    func unsubscribe(_ id: UUID) {
+        subscriptions.removeValue(forKey: id)?.finish()
+        subscriptionCount = subscriptions.count
+        if subscriptions.isEmpty {
+            for id in Array(perActivity.keys) { retire(id) }
+            currentActivities.removeAll()
+        }
+    }
+    func refreshCurrentActivities() {
+        guard !subscriptions.isEmpty else { return }
+        // Events are only invalidation signals. Never append their historical payloads.
+        var current: [String: LegacyActivitySnapshot] = [:]
+        var overflow = false
+        for activity in source.activities {
+            if current[activity.id] == nil, current.count == 16 { overflow = true; continue }
+            current[activity.id] = activity
+        }
+        for id in Array(perActivity.keys) where current[id] == nil { retire(id) }
+        currentActivities = current
+        for id in current.keys { observe(id) }
+        if overflow { limitReached = true }
+        signal()
+    }
+    private func signal() { for continuation in subscriptions.values { continuation.yield(()) } }
+    private func observe(_ id: String) {
+        guard !subscriptions.isEmpty, perActivity[id] == nil else { return }
+        guard !limitReached else { return }
+        guard perActivity.count < 16 else { limitReached = true; signal(); return }
+        let task = Task { [self] in
+            await source.observe(id, token: { [weak self] token in
+                guard let self, self.perActivity[id]?.retired == false, !self.subscriptions.isEmpty else { return }
+                self.refreshCurrentActivities()
+                guard self.perActivity[id]?.retired == false, self.currentActivities[id] != nil else { return }
+                self.currentActivities[id]?.token = token
+                self.signal()
+            }, ended: { [weak self] in self?.retire(id) })
+            perActivity.removeValue(forKey: id)
+            if !source.activities.contains(where: { $0.id == id }) { currentActivities.removeValue(forKey: id); signal() }
+            updateCounts()
+        }
+        perActivity[id] = Entry(task: task, retired: false)
+        updateCounts()
+    }
+    func retire(_ id: String) {
+        guard var entry = perActivity[id], !entry.retired else { return }
+        entry.retired = true; perActivity[id] = entry
+        entry.task.cancel(); currentActivities.removeValue(forKey: id)
+        updateCounts()
+    }
+    private func updateCounts() {
+        activityCount = perActivity.count
+        retiredCount = perActivity.values.filter(\.retired).count
     }
 }

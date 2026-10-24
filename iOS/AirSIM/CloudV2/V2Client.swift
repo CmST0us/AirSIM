@@ -166,6 +166,11 @@ final class V2Client {
         let response = try await request(path: mediaPath(context) + "/" + sessionID, method: "DELETE", body: nil, limit: 256 * 1024, stamp: stamp)
         guard response.status == 204, response.body.isEmpty else { throw V2Error.protocolViolation }
     }
+    func restoreOwnership(_ context: V2CallContext, snapshot: V2SnapshotResponse) throws {
+        guard try activeStamp().identity == context.binding.identity, snapshot.matches(context, now: now()) else { throw V2Error.stale }
+        try context.validate()
+        ownedCalls.removeAll { $0.binding.moduleID == context.binding.moduleID }; ownedCalls.append(context)
+    }
     func recordOwnership(_ record: V2CommandRecord, pending: V2PendingCommand) throws -> V2CallContext? {
         guard try activeStamp().identity == pending.binding.identity,
               record.command_id == pending.commandID, record.receipt?.action == pending.action else { throw V2Error.invalidIdentity }

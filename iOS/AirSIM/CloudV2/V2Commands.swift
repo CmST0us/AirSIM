@@ -65,6 +65,8 @@ struct V2FilePendingStore: V2PendingStore {
             try pending.validate()
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try JSONEncoder().encode(pending).write(to: url, options: [.atomic, .completeFileProtection])
+            var destination = url; var values = URLResourceValues(); values.isExcludedFromBackup = true
+            try destination.setResourceValues(values)
         } catch { throw V2Error.persistence }
     }
     func clear() throws {
@@ -82,13 +84,15 @@ enum V2CommandPhase: Equatable {
 final class V2CommandMachine {
     private let client: V2Client
     private let store: V2PendingStore
+    private let ownedStore: V2OwnedCallStore?
     private(set) var pending: V2PendingCommand?
     private(set) var phase: V2CommandPhase = .idle
     private var requestInFlight = false
     private(set) var ownedCall: V2CallContext?
     var blocksConfigurationChange: Bool { pending != nil }
-    init(client: V2Client, store: V2PendingStore) throws {
-        self.client = client; self.store = store
+    init(client: V2Client, store: V2PendingStore, ownedStore: V2OwnedCallStore? = nil) throws {
+        self.client = client; self.store = store; self.ownedStore = ownedStore
+        ownedCall = try ownedStore?.load()
         pending = try store.load()
         if let pending { try pending.validate(); phase = .unknown }
     }
@@ -131,6 +135,10 @@ final class V2CommandMachine {
         if ["call.dial", "call.answer"].contains(pending.action), ["accepted", "observed"].contains(receipt.state), let callID = pending.callID {
             guard callID == receipt.call_id else { throw V2Error.invalidIdentity }
             ownedCall = try client.recordOwnership(record, pending: pending)
+            if let ownedCall { try ownedStore?.save(ownedCall) }
+        }
+        if ["call.dial", "call.answer"].contains(pending.action), ["accepted", "observed"].contains(receipt.state), pending.callID == nil {
+            phase = .waiting; return
         }
         if receipt.state == "outcome_unknown" || record.state == "outcome_unknown" { phase = .unknown }
         else if ["prepared", "dispatched"].contains(receipt.state) { phase = .waiting }
@@ -142,7 +150,8 @@ final class V2CommandMachine {
         default: throw V2Error.busy
         }
     }
-    func invalidateOwnedCall() { ownedCall = nil }
+    func clearDisconnectedOwnedCall() throws { try ownedStore?.clear(); ownedCall = nil }
+    func invalidateOwnedCall() { /* Keep identity until an explicit disconnected snapshot. */ }
 }
 
 
