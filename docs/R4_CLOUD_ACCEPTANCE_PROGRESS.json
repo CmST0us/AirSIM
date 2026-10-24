@@ -3126,6 +3126,14 @@
     "local_audio_state": "closed",
     "cloud_bridge_state": "closed",
     "cloud_connected": true,
-    "four_ecs_containers_healthy": true
+    "four_ecs_containers_healthy": true,
+    "recorded_at": "2026-10-24T10:45:25.778507+00:00",
+    "test_client_installation_id": "779b974b-836a-46cd-a9da-22af86453389",
+    "test_client_revoked": true,
+    "revoked_client_http": 401,
+    "temporary_network_probe_removed": true,
+    "all_calls_disconnected": true,
+    "connection_epoch": "f283d318-725a-47aa-add8-95ddb28004c2",
+    "next_human_test": "awaiting_user_availability_for_media_fault_recovery_and_incoming_reject"
   }
 }
