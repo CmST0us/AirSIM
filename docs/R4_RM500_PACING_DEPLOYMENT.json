@@ -43,5 +43,6 @@
     "reason": ""
   },
   "space_after": "Filesystem           1K-blocks      Used Available Use% Mounted on\n/dev/ubi0_userdata       35664     31896      3260  91% /mnt/userdata",
-  "live_audio_acceptance": "pending"
+  "live_audio_acceptance": "passed_75s_current_hardware_user_confirmed_prompt_and_self_echo",
+  "acceptance_evidence": "R4_CLOUD_ACCEPTANCE_PROGRESS.json incoming_attempts[1]"
 }

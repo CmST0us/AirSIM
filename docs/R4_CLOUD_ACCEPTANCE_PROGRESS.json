@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-10-24T09:52:02.732844+00:00",
-  "overall_status": "incomplete_cloud_audio_stability_and_incoming_controls_pending",
+  "recorded_at": "2026-10-24T10:41:45.443417+00:00",
+  "overall_status": "cloud_calls_sms_and_75s_duplex_content_passed_current_configuration_final_checks_pending",
   "public_endpoints": {
     "api": "https://airsim.eric3u.cc",
     "device": "https://device.airsim.eric3u.cc",
@@ -914,10 +914,8 @@
     }
   ],
   "pending": [
-    "Intermittent upload backlog not resolved; later call-time low/high synthetic probes passed. Real cloud content acceptance still required.",
-    "75-second cloud prompt and self-echo confirmed by user",
-    "media fault/recovery real hardware checks",
-    "Cloud incoming reject and media fault/recovery; cloud answer observed, DTMF accepted, cloud hangup observed in incoming attempt1"
+    "Cloud incoming reject on real RM500",
+    "Media fault/recovery and old-ticket invalidation real hardware checks"
   ],
   "not_claimed": [
     "75-second cloud audio acceptance",
@@ -2889,7 +2887,245 @@
             }
           }
         }
+      },
+      "user_feedback": {
+        "verbatim": "听到提示语，但断续或中断",
+        "echo_stage_reached": false
       }
+    },
+    {
+      "schema_version": 1,
+      "phase": "R4",
+      "started_at": "2026-10-24T10:35:26.555708+00:00",
+      "transport": "ECS HTTPS and separate WSS",
+      "audio_storage": "bounded_memory_only",
+      "result": "cloud_audio_content_passed_current_hardware_configuration",
+      "direction": "incoming",
+      "answer": {
+        "state": "accepted",
+        "result_code": "",
+        "call_id": "bee9f01c-628b-4508-b4e4-f9978a466124"
+      },
+      "command_id": "59366921-458a-48a0-aac4-fd1242a56084",
+      "dtmf": {
+        "state": "accepted",
+        "result_code": ""
+      },
+      "active_at": "2026-10-24T10:37:04.585382+00:00",
+      "media_session_id": "b3dffd11-9cad-4aeb-a0a3-e9fb7d35aa38",
+      "stage": "duplex_stream",
+      "uplink_frames": 3750,
+      "downlink": {
+        "frames": 3736,
+        "samples": 597760,
+        "sequence_gaps": 1,
+        "rms": 589.3,
+        "peak": 17988,
+        "span_s": 74.732,
+        "echo_frames": 2308,
+        "echo_dropped": 1398,
+        "error": null,
+        "windows": [
+          {
+            "at_s": 5.03,
+            "rms": 88.4,
+            "peak": 852,
+            "frames": 245
+          },
+          {
+            "at_s": 10.03,
+            "rms": 1347.3,
+            "peak": 15758,
+            "frames": 248
+          },
+          {
+            "at_s": 15.06,
+            "rms": 791.3,
+            "peak": 10250,
+            "frames": 253
+          },
+          {
+            "at_s": 20.07,
+            "rms": 54.6,
+            "peak": 1599,
+            "frames": 245
+          },
+          {
+            "at_s": 25.14,
+            "rms": 1342.8,
+            "peak": 17988,
+            "frames": 253
+          },
+          {
+            "at_s": 30.15,
+            "rms": 927.3,
+            "peak": 10357,
+            "frames": 253
+          },
+          {
+            "at_s": 35.15,
+            "rms": 195.5,
+            "peak": 2938,
+            "frames": 247
+          },
+          {
+            "at_s": 40.34,
+            "rms": 6.3,
+            "peak": 210,
+            "frames": 250
+          },
+          {
+            "at_s": 45.35,
+            "rms": 25.0,
+            "peak": 682,
+            "frames": 261
+          },
+          {
+            "at_s": 50.36,
+            "rms": 73.7,
+            "peak": 994,
+            "frames": 250
+          },
+          {
+            "at_s": 55.36,
+            "rms": 2.4,
+            "peak": 48,
+            "frames": 250
+          },
+          {
+            "at_s": 60.39,
+            "rms": 74.9,
+            "peak": 1080,
+            "frames": 250
+          },
+          {
+            "at_s": 65.4,
+            "rms": 0.0,
+            "peak": 1,
+            "frames": 251
+          },
+          {
+            "at_s": 70.42,
+            "rms": 5.7,
+            "peak": 113,
+            "frames": 251
+          }
+        ]
+      },
+      "duration_s": 75.002,
+      "media_delete_http": 204,
+      "hangup": "observed_disconnected",
+      "user_feedback": {
+        "prompt_continuous_clear": true,
+        "delayed_self_echo_heard": true,
+        "verbatim": "提示语连续清楚，也听到了自己的回声"
+      },
+      "deployed_agent_commit": "edc34e8",
+      "deployed_agent_sha256": "942b2777fcf2979eefb0db08439c2a37b412d625357018ee732f45fac5385641",
+      "device_observation": {
+        "samples": 63,
+        "first_at": "2026-10-24T10:37:05.514389+00:00",
+        "last_at": "2026-10-24T10:38:21.092907+00:00",
+        "final_bridge": {
+          "session_id": "b3dffd11-9cad-4aeb-a0a3-e9fb7d35aa38",
+          "state": "closed",
+          "reason": "media_closed",
+          "cloud_input_gaps": 20,
+          "local_input_gaps": 0,
+          "queue_drops": 280,
+          "zero_frames": 293
+        },
+        "final_audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "9e647ca7-e1d4-4fd7-93b7-75a60804cf3c",
+            "call_id": "bee9f01c-628b-4508-b4e4-f9978a466124",
+            "agent_boot_id": "44f18471-80a0-495d-82d7-12a6bef7564c",
+            "backend_epoch": "e45b85c5-841a-45e2-a908-13f36da3ed33",
+            "state": "closed",
+            "reason": "requested_stop",
+            "created_at": "2026-10-24T10:37:04.624589072Z",
+            "closed_at": "2026-10-24T10:38:19.643677556Z",
+            "uplink_frames": 3744,
+            "downlink_frames": 3748,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T10:38:19.620455826Z",
+            "last_downlink": "2026-10-24T10:38:19.617046479Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 594560,
+              "playback_samples": 1189760,
+              "input_drops": 3,
+              "silence_samples": 3520,
+              "queue_peak": 2,
+              "elapsed_ms": 74368,
+              "capture_progress_ms": 74331,
+              "playback_progress_ms": 74351
+            }
+          }
+        },
+        "tcp_max_tx_bytes": 7800,
+        "rssi_dbm_observed": [
+          -97,
+          -71
+        ],
+        "eps_registration_observed": [
+          1
+        ],
+        "ims_registration_observed": [
+          1
+        ]
+      },
+      "server_observation": {
+        "samples": 0,
+        "observer_error": "RuntimeError",
+        "limitation": "No live ECS relay counters captured in this attempt. Do not infer server counters from client/device counts. Post-close internal session GET independently verified 404."
+      },
+      "cleanup": {
+        "cloud_hangup": "observed_disconnected",
+        "emergency_cleanup_required": false,
+        "public_media_delete_http": 204,
+        "ecs_internal_media_get_after_close": 404,
+        "local_audio_state": "closed",
+        "cloud_bridge_state": "closed",
+        "cloud_connected": true,
+        "four_ecs_containers_healthy": true
+      },
+      "interpretation": "75-second public HTTPS/WSS real cloud prompt and self-echo accepted by user. Pacing substantially reduced helper drops in this attempt, but 280 bounded bridge drops and 293 zero frames remain; radio conditions differed from the previous call. This does not prove intermittent cellular backlog permanently resolved or long-term stability."
     }
-  ]
+  ],
+  "latest_cleanup": {
+    "cloud_hangup": "observed_disconnected",
+    "emergency_cleanup_required": false,
+    "public_media_delete_http": 204,
+    "ecs_internal_media_get_after_close": 404,
+    "local_audio_state": "closed",
+    "cloud_bridge_state": "closed",
+    "cloud_connected": true,
+    "four_ecs_containers_healthy": true
+  }
 }
