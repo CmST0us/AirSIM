@@ -55,8 +55,7 @@ private struct V2PhoneView: View {
                 Section("通话") {
                     Text("当前模块：\(model.selectedModuleID.map { String($0.prefix(8)) } ?? "未选择")")
                     Text(model.telephonyReady ? "通话控制就绪" : "通话控制不可用或状态已过期").foregroundStyle(.secondary)
-                    Text("实验音频：\(model.snapshot?.snapshot?.audio.available == true ? "模块可用" : "模块不可用") · App 音频待 M3 接入")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text(model.media.state.title).font(.caption).foregroundStyle(.secondary)
                     if let call = model.activeCall {
                         Text(call.number.isEmpty ? "号码不可用" : call.number).font(.title2)
                         Text("设备状态：\(call.state)")
@@ -72,8 +71,15 @@ private struct V2PhoneView: View {
                             .disabled(!model.canAct || !model.ownedControlReady)
                         TextField("DTMF（0–9、A–D、*、#）", text: $model.tones).textInputAutocapitalization(.characters)
                         Button("发送 DTMF") { Task { await model.dtmf() } }.disabled(!model.canAct || !model.ownedControlReady)
-                        HStack { Button("静音（待接入）") {}; Button("扬声器（待接入）") {} }.disabled(true)
-                        Text("音频尚未接入，不代表已建立双向语音。").font(.caption)
+                        Button("恢复音频") { model.connectAudio() }.disabled(!model.audioReady || model.media.active)
+                        HStack {
+                            Button(model.media.muted ? "取消静音" : "静音") { model.media.setMuted(!model.media.muted) }
+                            Button(model.media.speaker ? "使用听筒" : "使用扬声器") { model.media.setSpeaker(!model.media.speaker) }
+                        }.disabled(model.media.state != .paired)
+                        Text(model.media.muted ? "麦克风已静音" : "麦克风未静音").font(.caption)
+#if DEBUG && targetEnvironment(simulator)
+                        if model.diagnosticAudio { Text("模拟器音频注入：提示与回声，不代表真实麦克风验收。").font(.caption) }
+#endif
                     } else {
                         TextField("拨号号码", text: $model.number).keyboardType(.phonePad)
                         Button("拨号") { Task { await model.dial() } }
@@ -106,7 +112,7 @@ private struct V2MessagesView: View {
                     Text("模块：\(model.selectedModuleID.map { String($0.prefix(8)) } ?? "未选择")")
                     TextField("收件号码", text: $model.smsNumber).keyboardType(.phonePad)
                     TextField("短信内容", text: $model.smsText, axis: .vertical).lineLimit(3...6)
-                    Text("剩余 \(70 - model.smsText.utf16.count) 个 UTF-16 码元").font(.caption)
+                    Text("剩余 \(70 - model.smsText.utf16.count) 字符（表情可能占 2）").font(.caption)
                     Button("发送") { Task { await model.sendSMS() } }
                         .disabled(!model.canAct || !model.messagingReady || model.smsText.isEmpty || model.smsText.utf16.count > 70)
                     Text(model.commandStatus).font(.caption)
@@ -148,15 +154,28 @@ private struct V2SettingsView: View {
                     Button("导入连接配置 JSON") { importing = true }.disabled(model.blocksSwitch)
                     Button("连接") { Task { await model.connect() } }.disabled(model.busy || model.connected || model.configuration == nil)
                     Button("断开连接") { Task { await model.disconnect() } }.disabled(model.blocksSwitch || !model.connected)
-                    Text("管理员短期配置；不提供正式登录或自动续期。文件校验失败不会回退 v1。")
+                    Text("导入管理员提供的短期连接文件；到期后需重新导入。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("前台实验模式") {
                     Toggle("启用实验音频", isOn: $model.experimentalAudio)
-                    Text("模块 voice_ready 不代表本轮 App 验收。App 音频引擎将在后续阶段接入。")
+                    Text("实验音频尚未经正式语音质量验收。开启后可在本 App 拨打或接听的通话中使用。")
                     Text("APNs：不可用 · 正式登录：不可用 · Watch v2：未支持")
                     Text("权限弹窗不会挂断；进入后台会停止轮询，并对本客户端已拥有的通话提交一次挂断。")
                 }.font(.footnote)
+#if DEBUG && targetEnvironment(simulator)
+                Section("Debug · 音频诊断") {
+                    Toggle("模拟器音频注入：提示与回声", isOn: $model.diagnosticAudio).disabled(model.media.active)
+                    Text("默认关闭；开启时不采集真实麦克风，最多 75 秒后定向挂断。")
+                    Button("断开本次媒体") { model.media.disconnectForDiagnostics() }.disabled(!model.media.active)
+                    Button("测试本机音频（3秒）") { model.testLocalAudio() }.disabled(model.busy || model.media.active || model.ownedCall != nil || model.activeCall != nil)
+                    Text(model.localAudioResult)
+                    let stats = model.media.statistics
+                    Text("接收 \(stats.received) · 发送 \(stats.sent) · 序号缺口 \(stats.sequenceGaps)")
+                    Text("队列丢弃 \(stats.queueDrops) · 跳过节拍 \(stats.skippedSlots) · 写超时 \(stats.writeTimeouts)")
+                    Text("采集 \(stats.captureFrames) · 已播放 \(stats.rendered) · 播放补零 \(stats.playbackZero) · 注入补零 \(stats.diagnosticZero)")
+                }.font(.caption)
+#endif
                 Section("迁移诊断") {
                     if activityEvents.limitReached { Text("旧版 Live Activity token 观察已达上限，需重启恢复。") }
 #if DEBUG

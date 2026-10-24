@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 @testable import AirSIM
 
 private let v2ID = "00112233-4455-4677-8899-aabbccddeeff"
@@ -773,5 +774,374 @@ extension CloudV2Tests {
         XCTAssertEqual(events.activityCount, 16); XCTAssertEqual(events.retiredCount, 16)
         events.unsubscribe(subscription.id); consumer.cancel(); await consumer.value
         source.finishAll()
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testV2RealSimulatorEnginePrepareAndStopWithoutNetwork() async throws {
+#if targetEnvironment(simulator)
+        guard ProcessInfo.processInfo.environment["AIRSIM_OPT_IN_HARDWARE_AUDIO_TEST"] == "1" else {
+            throw XCTSkip("Hardware audio is verified by the explicit foreground local probe; XCTest RemoteIO previously aborted.")
+        }
+        let audio = V2AudioEngine()
+        do {
+            try await audio.prepare(microphone: true)
+            try await Task.sleep(for: .milliseconds(300))
+            _ = audio.takeCaptured()
+            let metrics = audio.metrics
+            NSLog("[AirSIM V2 Engine Test] rate=%.0f channels=%d voice_processing=%d captured=%llu running=%d", metrics.sampleRate, metrics.channels, metrics.voiceProcessing ? 1 : 0, metrics.captured, metrics.running ? 1 : 0)
+            XCTAssertTrue(metrics.running); XCTAssertTrue(metrics.voiceProcessing)
+        } catch {
+            NSLog("[AirSIM V2 Engine Test] unavailable=%@", (error as? V2AudioError)?.message ?? String(describing: type(of: error)))
+            if case V2AudioError.voiceProcessing = error {} else { XCTFail("Unexpected engine error: \(error)") }
+        }
+        await audio.stop(); await audio.stop()
+        XCTAssertFalse(audio.metrics.running); XCTAssertEqual(audio.metrics.queuedPlayback, 0)
+#endif
+    }
+}
+
+@MainActor private final class V2TestMediaClock: V2MediaClock {
+    var now: UInt64 = 0
+    private var sleepers: [UUID: (UInt64, CheckedContinuation<Void, Error>)] = [:]
+    func sleep(until: UInt64) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled { continuation.resume(throwing: CancellationError()) }
+                else { sleepers[id] = (until, continuation) }
+            }
+        } onCancel: { Task { @MainActor in self.sleepers.removeValue(forKey: id)?.1.resume(throwing: CancellationError()) } }
+    }
+    func advance(_ value: UInt64, wake: Bool = true) {
+        now = value
+        if wake { for (id, entry) in sleepers where entry.0 <= now { sleepers.removeValue(forKey: id)?.1.resume() } }
+    }
+}
+@MainActor private final class V2TestAudioIO: V2AudioIO {
+    var metrics = V2AudioMetrics()
+    var onFailure: ((V2AudioError) -> Void)?
+    var prepares = 0, stops = 0, plays = 0
+    var frames: [Data] = []
+    var prepareError: Error?
+    var prepareBlock: (() async -> Void)?
+    var stopBlock: (() async -> Void)?
+    func prepare(microphone: Bool) async throws { prepares += 1; await prepareBlock?(); if let prepareError { throw prepareError }; metrics.running = true }
+    func takeCaptured() -> [Data] { let result = frames; frames.removeAll(); metrics.captured += UInt64(result.count); return result }
+    func play(_ pcm: Data) -> Bool { plays += 1; return true }
+    func setMuted(_ value: Bool) {}
+    func setSpeaker(_ value: Bool) throws {}
+    func stop() async { stops += 1; await stopBlock?(); metrics.running = false }
+}
+@MainActor private final class V2TestMediaSocket: V2MediaSocket {
+    var selected: String? = "airsim.media.v2"
+    var messages: [URLSessionWebSocketTask.Message] = []
+    var sent: [URLSessionWebSocketTask.Message] = []
+    var limits: [Int] = [], cancelled = 0, writes = 0, maxWrites = 0
+    var blockWrites = false
+    private var reader: CheckedContinuation<URLSessionWebSocketTask.Message, Error>?
+    private var writer: CheckedContinuation<Void, Error>?
+    func open(_ url: URL) async throws -> String? { selected }
+    func limit(_ bytes: Int) { limits.append(bytes) }
+    func send(_ message: URLSessionWebSocketTask.Message) async throws {
+        writes += 1; maxWrites = max(maxWrites, writes); sent.append(message)
+        defer { writes -= 1 }
+        if blockWrites { try await withCheckedThrowingContinuation { writer = $0 } }
+    }
+    func receive() async throws -> URLSessionWebSocketTask.Message {
+        if !messages.isEmpty { return messages.removeFirst() }
+        return try await withCheckedThrowingContinuation { reader = $0 }
+    }
+    func deliver(_ message: URLSessionWebSocketTask.Message) {
+        if let reader { self.reader = nil; reader.resume(returning: message) } else { messages.append(message) }
+    }
+    func cancel() {
+        cancelled += 1
+        let reader = reader, writer = writer; self.reader = nil; self.writer = nil
+        reader?.resume(throwing: CancellationError()); writer?.resume(throwing: CancellationError())
+    }
+}
+private func v2MediaCreated(id: String = v2ID) throws -> V2MediaCreated {
+    try V2JSON.decode(V2MediaCreated.self, from: v2Data(["session_id": id, "ticket": String(repeating: "a", count: 64), "expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(30)), "media_url": "wss://media.example.invalid/v2/media", "format": ["sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160]]), limit: 4096)
+}
+private func v2HandshakeMessages() -> [URLSessionWebSocketTask.Message] {
+    [.string("{\"type\":\"waiting\",\"session_id\":\"\(v2ID)\"}"), .string("{\"type\":\"paired\",\"session_id\":\"\(v2ID)\",\"format\":{\"sample_rate\":8000,\"channels\":1,\"sample_format\":\"s16le\",\"frame_samples\":160}}")]
+}
+@MainActor private func v2Yield(_ count: Int = 40) async { for _ in 0..<count { await Task.yield() } }
+
+extension CloudV2Tests {
+    func testV2PersistentResampling44100And48000HasCorrectFrequencyAndFragmentContinuity() throws {
+        for rate in [44100.0, 48000.0] {
+            func converted(chunk: Int) throws -> [Int16] {
+                let converter = try V2PCMConverter(rate: rate)
+                var output = Data()
+                let total = Int(rate)
+                for start in stride(from: 0, to: total, by: chunk) {
+                    let samples = (start..<min(start + chunk, total)).map { Float(sin(Double($0) * 2 * .pi * 400 / rate) * 0.5) }
+                    for frame in try samples.withUnsafeBufferPointer({ try converter.convert(samples: $0) }) { output.append(frame) }
+                }
+                return stride(from: 0, to: output.count, by: 2).map { Int16(bitPattern: UInt16(output[$0]) | UInt16(output[$0 + 1]) << 8) }
+            }
+            let fragmented = try converted(chunk: 257), regular = try converted(chunk: Int(rate * 0.02))
+            XCTAssertGreaterThanOrEqual(fragmented.count, 7840); XCTAssertLessThanOrEqual(fragmented.count, 8000)
+            XCTAssertEqual(fragmented.count, regular.count)
+            let delta = zip(fragmented, regular).map { abs(Int($0) - Int($1)) }.max() ?? 0
+            XCTAssertLessThan(delta, 20)
+            let samples = Array(fragmented.dropFirst(320))
+            let rising = zip(samples, samples.dropFirst()).filter { $0 <= 0 && $1 > 0 }.count
+            XCTAssertEqual(Double(rising) / (Double(samples.count) / 8000), 400, accuracy: 3)
+        }
+    }
+    func testV2PlaybackWindowRejectsFourthBufferAndStaleCompletions() {
+        var window = V2PlaybackWindow()
+        let first = window.reserve()!
+        XCTAssertNotNil(window.reserve()); XCTAssertNotNil(window.reserve()); XCTAssertNil(window.reserve())
+        XCTAssertEqual(window.pending, 3)
+        XCTAssertTrue(window.complete(first)); XCTAssertEqual(window.pending, 2)
+        window.reset(); _ = window.reserve()
+        XCTAssertFalse(window.complete(first)); XCTAssertEqual(window.pending, 1)
+    }
+    @MainActor func testV2DiagnosticEchoDoesNotStarveOrReplayPromptPeriodAndIsBounded() {
+        let pcm = Data(repeating: 17, count: 320), prompt = Data(repeating: 31, count: 320)
+        let diagnostic = V2DiagnosticAudio(prompt: [prompt, prompt])
+        diagnostic.start(at: 0)
+        diagnostic.receive(pcm, at: 0); XCTAssertEqual(diagnostic.echoCount, 0)
+        XCTAssertEqual(diagnostic.output(at: 0), prompt)
+        diagnostic.receive(pcm, at: 20_000_000); XCTAssertEqual(diagnostic.output(at: 20_000_000), prompt)
+        var real = 0
+        for i in 2..<502 {
+            let now = UInt64(i) * 20_000_000
+            diagnostic.receive(pcm, at: now) // Receive happens first at every 50fps boundary.
+            if diagnostic.output(at: now) == pcm { real += 1 }
+            XCTAssertLessThanOrEqual(diagnostic.echoCount, 20)
+        }
+        XCTAssertGreaterThan(real, 400)
+        _ = diagnostic.output(at: 12_000_000_000)
+        XCTAssertEqual(diagnostic.echoCount, 0)
+        XCTAssertNotEqual(diagnostic.output(at: 12_020_000_000), pcm)
+        XCTAssertGreaterThan(diagnostic.echoDrops, 0)
+    }
+    @MainActor func testV2DeadlineRejectsLateResponseEvenBeforeTimerRuns() async {
+        let clock = V2TestMediaClock()
+        var response: CheckedContinuation<Int, Error>?, cancels = 0
+        let task = Task {
+            try await V2MediaDeadline<Int>().run(clock: clock, until: 100, cancel: { cancels += 1 }) {
+                try await withCheckedThrowingContinuation { response = $0 }
+            }
+        }
+        await v2Yield()
+        clock.advance(101, wake: false); response?.resume(returning: 7)
+        do { _ = try await task.value; XCTFail("Late response must time out") } catch { XCTAssertTrue(error is V2MediaFailure) }
+        XCTAssertGreaterThan(cancels, 0)
+    }
+    @MainActor func testV2HandshakeRejectsWrongProtocolOrderAndOversizedAuthentication() async throws {
+        for scenario in 0..<4 {
+            let audio = V2TestAudioIO(), socket = V2TestMediaSocket(), clock = V2TestMediaClock()
+            socket.messages = v2HandshakeMessages()
+            if scenario == 0 { socket.selected = "wrong" }
+            if scenario == 1 { socket.messages.removeFirst() }
+            if scenario == 2 { socket.messages[0] = .string(String(repeating: "x", count: 2049)) }
+            if scenario == 3 { socket.messages[1] = socket.messages[0] }
+            var deletes = 0
+            let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in deletes += 1 })
+            media.start(context: V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID), diagnosticMode: false, validate: { true })
+            await v2Yield(100)
+            if case .failed = media.state {} else { XCTFail("Expected failure: \(scenario) \(media.state)") }
+            XCTAssertFalse(media.active); XCTAssertFalse(audio.metrics.running); XCTAssertEqual(deletes, 1)
+            await media.stop(); XCTAssertEqual(deletes, 1)
+        }
+    }
+    @MainActor func testV2AuthWaitingDeadlineIsThreeSecondsAndNeverCreatesAgain() async throws {
+        let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
+        var creates = 0
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in creates += 1; return try v2MediaCreated() }, delete: { _, _ in })
+        media.start(context: V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID), diagnosticMode: false, validate: { true })
+        await v2Yield(); clock.advance(3_000_000_000); await v2Yield(100)
+        if case .failed = media.state {} else { XCTFail() }
+        XCTAssertEqual(creates, 1); XCTAssertGreaterThan(socket.cancelled, 0)
+        await media.stop()
+    }
+    @MainActor func testV2SerialWriteDeadlineCancelsAndKeepsOneInFlight() async throws {
+        let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
+        socket.messages = v2HandshakeMessages()
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
+        media.start(context: V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID), diagnosticMode: false, validate: { true })
+        await v2Yield(); XCTAssertEqual(media.state, .paired)
+        socket.blockWrites = true; audio.frames = [Data(repeating: 1, count: 320)]
+        clock.advance(5_000_000); await v2Yield()
+        clock.advance(45_000_000); await v2Yield()
+        XCTAssertEqual(socket.writes, 1)
+        clock.advance(145_000_000); await v2Yield(100)
+        XCTAssertEqual(socket.maxWrites, 1); XCTAssertEqual(media.statistics.writeTimeouts, 1)
+        XCTAssertFalse(media.active); XCTAssertFalse(audio.metrics.running)
+        await media.stop()
+    }
+    @MainActor func testV2TwoSecondWatchdogRequiresRealCaptureAndValidDownlink() async throws {
+        for missingInput in [true, false] {
+            let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
+            socket.messages = v2HandshakeMessages()
+            let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
+            media.start(context: V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID), diagnosticMode: false, validate: { true })
+            await v2Yield()
+            if missingInput { socket.deliver(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, pcm: Data(repeating: 0, count: 320)).encode())) }
+            else { audio.frames = [Data(repeating: 0, count: 320)] }
+            clock.advance(1_000_000_000); await v2Yield()
+            clock.advance(2_000_000_000); await v2Yield(100)
+            if case .failed = media.state {} else { XCTFail() }
+            XCTAssertFalse(media.active); await media.stop()
+        }
+    }
+    @MainActor func testV2StopBarrierRejectsNewAttemptUntilOldPreparationAndDrainExit() async throws {
+        let audio = V2TestAudioIO(), socket = V2TestMediaSocket(), clock = V2TestMediaClock()
+        var preparation: CheckedContinuation<Void, Never>?, drain: CheckedContinuation<Void, Never>?
+        audio.prepareBlock = { await withCheckedContinuation { preparation = $0 } }
+        audio.stopBlock = { await withCheckedContinuation { drain = $0 } }
+        var creates: [String] = []
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, id in creates.append(id); return try v2MediaCreated() }, delete: { _, _ in })
+        let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        media.start(context: context, diagnosticMode: false, validate: { true }); await v2Yield()
+        let stopped = Task { await media.stop() }; await v2Yield()
+        XCTAssertTrue(media.active); XCTAssertEqual(media.state, .stopping)
+        media.start(context: context, diagnosticMode: false, validate: { true })
+        XCTAssertEqual(audio.prepares, 1)
+        preparation?.resume(); drain?.resume(); await stopped.value
+        XCTAssertTrue(creates.isEmpty)
+        audio.prepareBlock = nil; audio.stopBlock = nil; socket.messages = v2HandshakeMessages()
+        media.start(context: context, diagnosticMode: false, validate: { true }); await v2Yield()
+        XCTAssertEqual(media.state, .paired); XCTAssertEqual(creates.count, 1)
+        await media.stop(); XCTAssertFalse(media.active)
+    }
+    @MainActor func testV2EnginePermissionAndDrainLateCompletionCannotStopReplacement() async throws {
+        var callbacks: [(Bool) -> Void] = [], drain: CheckedContinuation<Void, Never>?
+        var shouldDelay = true
+        let audio = V2AudioEngine(requestPermission: { callbacks.append($0) }, drainHook: {
+            if shouldDelay { await withCheckedContinuation { drain = $0 } }
+        })
+        let first = Task { try await audio.prepare(microphone: true) }; await v2Yield()
+        XCTAssertEqual(callbacks.count, 1)
+        let stop = Task { await audio.stop() }; await v2Yield()
+        let second = Task { try await audio.prepare(microphone: true) }; await v2Yield()
+        XCTAssertEqual(callbacks.count, 1)
+        callbacks[0](true) // Already retired permission response must not touch AVAudioEngine.
+        shouldDelay = false; drain?.resume(); await stop.value; await v2Yield()
+        XCTAssertEqual(callbacks.count, 2)
+        callbacks[1](false)
+        do { try await first.value; XCTFail() } catch {}
+        do { try await second.value; XCTFail() } catch { if case V2AudioError.permission = error {} else { XCTFail() } }
+        XCTAssertFalse(audio.metrics.running); await audio.stop()
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testV2RestoredOwnedActiveCallNeverAutomaticallyCreatesMedia() async throws {
+        let suite = "airsim.restored.audio.\(UUID())", root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let defaults = UserDefaults(suiteName: suite)!, tokens = V2TestTokens()
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
+        defaults.set(v2ID, forKey: V2LocalPaths.selectionKey(v2Config().identity))
+        defaults.set(true, forKey: "airsim.v2.experimental-audio")
+        let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        try V2FileOwnedCallStore(file: V2ProtectedFile(url: root.appendingPathComponent("owned-call.json"))).save(context)
+        let transport = V2TestTransport { request in
+            let path = request.url!.path
+            if path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            if path == "/v2/modules" { return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "modules": [["module_id": v2ID, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID]]])) }
+            if path.hasSuffix("snapshot") { return V2HTTPResponse(status: 200, body: try v2SnapshotData(calls: [v2CallObject()])) }
+            return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "module_id": v2ID, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": []]))
+        }
+        let audio = V2TestAudioIO(), socket = V2TestMediaSocket(), clock = V2TestMediaClock()
+        socket.messages = v2HandshakeMessages()
+        var creates = 0
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in creates += 1; return try v2MediaCreated() }, delete: { _, _ in })
+        let client = V2Client(transport: transport, tokens: tokens, now: { v2Now })
+        let model = CloudV2Model(client: client, media: media, defaults: defaults, root: root, tokens: tokens, now: { v2Now })
+        await model.sceneChanged(.active)
+        for _ in 0..<100 where !model.audioReady { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertTrue(model.audioReady); XCTAssertEqual(model.ownedCall, context)
+        await v2Yield(); XCTAssertEqual(creates, 0); XCTAssertEqual(audio.prepares, 0)
+        model.connectAudio(); await v2Yield(); XCTAssertEqual(creates, 1); XCTAssertEqual(media.state, .paired)
+        socket.cancel(); await v2Yield(100)
+        model.experimentalAudio = false; await v2Yield(); model.experimentalAudio = true
+        try await Task.sleep(for: .milliseconds(1100))
+        XCTAssertEqual(creates, 1) // Neither polling nor the off/on switch bypasses manual recovery.
+        await model.stop()
+    }
+    @MainActor func testV2ExplicitRecoveryUsesNewRequestSessionAndLateCallbacksCannotStopIt() async throws {
+        let audio = V2TestAudioIO(), clock = V2TestMediaClock()
+        let first = V2TestMediaSocket(), second = V2TestMediaSocket()
+        first.messages = v2HandshakeMessages()
+        second.messages = v2HandshakeMessages().map { message in
+            if case .string(let text) = message { return .string(text.replacingOccurrences(of: v2ID, with: v2OtherID)) }
+            return message
+        }
+        var requestIDs: [String] = [], deleted: [String] = [], deleteFinished: CheckedContinuation<Void, Never>?
+        var socketIndex = 0
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { defer { socketIndex += 1 }; return socketIndex == 0 ? first : second }, clock: clock, now: { v2Now }, create: { _, id in
+            requestIDs.append(id); return try v2MediaCreated(id: requestIDs.count == 1 ? v2ID : v2OtherID)
+        }, delete: { _, id in
+            deleted.append(id)
+            if id == v2ID { await withCheckedContinuation { deleteFinished = $0 } }
+        })
+        let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        media.start(context: context, diagnosticMode: false, validate: { true }); await v2Yield()
+        let oldAudioFailure = audio.onFailure
+        first.cancel(); await v2Yield(100)
+        XCTAssertFalse(media.active); XCTAssertEqual(deleted, [v2ID])
+        media.start(context: context, diagnosticMode: false, validate: { true }); await v2Yield()
+        XCTAssertEqual(media.state, .paired); XCTAssertEqual(requestIDs.count, 2); XCTAssertNotEqual(requestIDs[0], requestIDs[1])
+        oldAudioFailure?(.interrupted); first.deliver(.string("late")); deleteFinished?.resume()
+        await v2Yield(); XCTAssertEqual(media.state, .paired); XCTAssertTrue(media.active)
+        XCTAssertEqual(second.cancelled, 0)
+        await media.stop(); await v2Yield(); await media.stop()
+        XCTAssertEqual(deleted, [v2ID, v2OtherID])
+    }
+    func testV2SoftwareCaptureCapacityMuteAndLatePushAfterStop() async throws {
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48000)!
+        buffer.frameLength = 48000
+        for channel in 0..<2 { for i in 0..<48000 { buffer.floatChannelData![channel][i] = channel == 0 ? 0.8 : 0.2 } }
+        let capture = try V2CaptureBuffer(rate: 48000)
+        capture.setMuted(true)
+        for _ in 0..<8 { capture.push(buffer) }
+        try await Task.sleep(for: .milliseconds(20))
+        let muted = capture.pull()
+        XCTAssertGreaterThan(muted.metrics.inputDrops, 0)
+        XCTAssertGreaterThan(muted.metrics.captured, 0)
+        XCTAssertLessThanOrEqual(muted.frames.count, 5)
+        XCTAssertTrue(muted.frames.allSatisfy { $0 == Data(repeating: 0, count: 320) })
+        XCTAssertTrue(capture.pull().frames.isEmpty) // Mute does not synthesize frames without capture.
+        capture.setMuted(false); capture.push(buffer)
+        try await Task.sleep(for: .milliseconds(20))
+        let unmuted = capture.pull()
+        XCTAssertFalse(unmuted.frames.isEmpty); XCTAssertLessThanOrEqual(unmuted.frames.count, 5)
+        XCTAssertTrue(unmuted.frames.contains { $0 != Data(repeating: 0, count: 320) })
+        await capture.stop(); capture.push(buffer)
+        try await Task.sleep(for: .milliseconds(10))
+        XCTAssertTrue(capture.pull().frames.isEmpty)
+        await capture.stop()
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testV2SpeechPromptMemorySmokeOnIOS27() async throws {
+#if targetEnvironment(simulator)
+        guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 else { throw XCTSkip("Speech smoke is limited to the approved iOS 27 audio simulator") }
+        let diagnostic = V2DiagnosticAudio()
+        do { try await diagnostic.prepare() }
+        catch { XCTFail("Speech prepare failed: format=\(diagnostic.sourceFormat) error=\(error)"); diagnostic.stop(); return }
+        diagnostic.start(at: 0)
+        var promptFrames = 0, nonzero = false
+        // Stop at the first injection gap: echoes are empty, and prompt output precedes zeros.
+        for i in 0..<1501 {
+            let before = diagnostic.zeroFrames
+            let frame = diagnostic.output(at: UInt64(i) * 20_000_000)
+            if diagnostic.zeroFrames > before { break }
+            if let frame { promptFrames += 1; nonzero = nonzero || frame.contains(where: { $0 != 0 }) }
+        }
+        NSLog("[AirSIM V2 Speech Test] frames=%d duration_ms=%d nonzero=%d", promptFrames, promptFrames * 20, nonzero ? 1 : 0)
+        XCTAssertGreaterThan(promptFrames, 0); XCTAssertLessThanOrEqual(promptFrames, 1500)
+        XCTAssertGreaterThan(promptFrames * 20, 1000); XCTAssertTrue(nonzero)
+        diagnostic.stop()
+#endif
     }
 }

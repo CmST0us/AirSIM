@@ -4,15 +4,15 @@
   "target": "iOS AirSIM foreground v2 client",
   "requested_test_platform": "simulator_first",
   "simulator": {
-    "name": "iPhone 17 Pro",
-    "runtime": "iOS 26.5",
-    "udid": "E9D74168-796E-4675-9038-DCAF84F0BE87"
+    "name": "AirSIM R5 Audio 27.0",
+    "runtime": "iOS 27.0 / 24A434",
+    "udid": "F4D9D82D-3467-4210-A30D-C1F5B9FC52E5"
   },
   "milestones": {
     "M1_protocol": "passed",
     "M2_ui_and_version_isolation": "passed",
-    "M3_audio": "specified_not_started",
-    "M4_app_cloud_rm500_acceptance": "not_started"
+    "M3_audio": "local_verification_passed_cloud_acceptance_pending",
+    "M4_app_cloud_rm500_acceptance": "in_progress"
   },
   "verification": {
     "initial_simulator_build_and_launch": "passed",
@@ -84,10 +84,57 @@
       "evidence_directory": "docs/evidence/r5",
       "network_isolation_evidence": "code boundary and injected transport/gate tests; not a packet capture",
       "physical_APNs": "not tested"
+    },
+    "M3_iOS26_5_audio_probe": {
+      "result": "RemoteIO initialization SIGABRT before VoiceProcessing enable",
+      "XCTest_attempt": "failed",
+      "foreground_attempt_after_target_restart": "failed",
+      "captured_frames": "unavailable",
+      "played_frames": "unavailable",
+      "crash_reports": [
+        "AirSIM-2026-10-24-202656.ips",
+        "AirSIM-2026-10-24-203515.ips"
+      ],
+      "no_network_or_calls": true
+    },
+    "M3_alternate_simulator": {
+      "name": "AirSIM R5 Audio 27.0",
+      "udid": "F4D9D82D-3467-4210-A30D-C1F5B9FC52E5",
+      "runtime": "iOS 27.0 / 24A434",
+      "purpose": "isolate RemoteIO runtime compatibility",
+      "result": "foreground_local_audio_probe_passed"
+    },
+    "M3_local_audio_probe": {
+      "runtime": "iOS 27.0",
+      "sample_rate": 44100,
+      "channels": 1,
+      "VoiceProcessing_enabled": true,
+      "duration_seconds": 3,
+      "captured_frames": 145,
+      "played_frames": 136,
+      "engine_stopped": true,
+      "source": "execution UI observation in turn 01a16ddc-6a20-73d0-8513-62a6fa436040",
+      "not_claimed": [
+        "AEC perceptual quality",
+        "cloud media path",
+        "physical iPhone audio"
+      ]
+    },
+    "M3_final_tests": {
+      "passed": 97,
+      "failed": 0,
+      "skipped": 1,
+      "skip": "real hardware XCTest requires explicit opt-in; foreground real-engine probe separately passed",
+      "source": "execution turn 01a16ddc-6a20-73d0-8513-62a6fa436040"
+    },
+    "M3_production_prompt_smoke": {
+      "frames": 515,
+      "duration_seconds": 10.3,
+      "nonzero_pcm": true,
+      "memory_only": true
     }
   },
   "pending": [
-    "M3 implementation and acceptance",
     "App cloud calls",
     "App SMS round trip",
     "App audio content loop",
@@ -102,5 +149,9 @@
     "formal interactive login",
     "long duration stability"
   ],
-  "privacy": "No credentials, phone numbers, message contents or PCM are stored in this report."
+  "privacy": "No credentials, phone numbers, message contents or PCM are stored in this report.",
+  "milestone_commits": {
+    "M1": "d077fe2",
+    "M2": "ad22d81"
+  }
 }

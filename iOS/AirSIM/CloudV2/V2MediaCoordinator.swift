@@ -1,0 +1,243 @@
+import Foundation
+import Combine
+
+struct V2MediaStatistics {
+    var received: UInt64 = 0, sent: UInt64 = 0, sequenceGaps: UInt64 = 0
+    var queueDrops: UInt64 = 0, skippedSlots: UInt64 = 0, playbackZero: UInt64 = 0
+    var rendered: UInt64 = 0, captureFrames: UInt64 = 0, writeTimeouts: UInt64 = 0
+    var diagnosticZero: UInt64 = 0
+}
+enum V2MediaState: Equatable {
+    case idle, preparing, authenticating, waiting, paired, failed(String), stopping
+    var title: String {
+        switch self {
+        case .idle: return "音频未连接"
+        case .preparing: return "正在准备音频"
+        case .authenticating: return "正在连接音频"
+        case .waiting: return "等待模块音频"
+        case .paired: return "音频已连接"
+        case .failed(let message): return message
+        case .stopping: return "正在停止音频"
+        }
+    }
+}
+
+@MainActor
+final class V2MediaCoordinator: ObservableObject {
+    @Published private(set) var state = V2MediaState.idle
+    @Published private(set) var statistics = V2MediaStatistics()
+    @Published private(set) var audioMetrics = V2AudioMetrics()
+    @Published private(set) var muted = false
+    @Published private(set) var speaker = false
+    private let audio: V2AudioIO
+    private let socketFactory: @MainActor () -> V2MediaSocket
+    private let clock: V2MediaClock
+    private let create: (V2CallContext, String) async throws -> V2MediaCreated
+    private let delete: (V2CallContext, String) async -> Void
+    private let wallNow: () -> Date
+    private(set) var context: V2CallContext?
+    private var stopTask: Task<Void, Never>?
+    private var socket: V2MediaSocket?
+    private var generation = UUID()
+    private var sessionID: String?
+    private var startTask: Task<Void, Never>?, receiveTask: Task<Void, Never>?, tickTask: Task<Void, Never>?, sendTask: Task<Void, Never>?
+    private var up: V2PCMQueue?, down: V2PCMQueue?
+    private var sendSequence: UInt64 = 0, receiveSequence: UInt64 = 0
+    private var lastCapture: UInt64 = 0, lastDownlink: UInt64 = 0, pairedAt: UInt64 = 0
+    private var counters = V2MediaStatistics()
+    private var diagnostic: V2DiagnosticAudio?
+    var onDiagnosticTimeout: ((V2CallContext) -> Void)?
+    var active: Bool { context != nil || startTask != nil || stopTask != nil || state == .stopping }
+    init(audio: V2AudioIO? = nil, socketFactory: @escaping @MainActor () -> V2MediaSocket = { V2URLMediaSocket() }, clock: V2MediaClock? = nil, now: @escaping () -> Date = Date.init, create: @escaping (V2CallContext, String) async throws -> V2MediaCreated, delete: @escaping (V2CallContext, String) async -> Void) {
+        self.audio = audio ?? V2AudioEngine(); self.socketFactory = socketFactory; self.clock = clock ?? V2SystemMediaClock(); wallNow = now
+        self.create = create; self.delete = delete
+    }
+    func start(context: V2CallContext, diagnosticMode: Bool, validate: @escaping () -> Bool) {
+        guard !active else { return }
+        let stamp = UUID(); generation = stamp; self.context = context
+        state = .preparing; counters = V2MediaStatistics(); statistics = counters
+        muted = false; speaker = false
+        audio.onFailure = { [weak self] error in self?.fail(error, stamp: stamp) }
+        startTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.generation == stamp { self.startTask = nil } }
+            do {
+                var diagnostic: V2DiagnosticAudio?
+#if DEBUG && targetEnvironment(simulator)
+                if diagnosticMode { let value = V2DiagnosticAudio(); self.diagnostic = value; try await value.prepare(); diagnostic = value }
+#else
+                guard !diagnosticMode else { throw V2MediaFailure.inactive }
+#endif
+                try await self.audio.prepare(microphone: diagnostic == nil)
+                guard self.generation == stamp, !Task.isCancelled, validate() else { throw V2MediaFailure.stale }
+                let created = try await self.create(context, UUID().uuidString.lowercased())
+                guard self.generation == stamp, !Task.isCancelled else {
+                    Task { await self.delete(context, created.session_id) }; return
+                }
+                self.sessionID = created.session_id
+                guard validate(), let url = URL(string: created.media_url), url.scheme == "wss" else { throw V2MediaFailure.stale }
+                let remaining = try V2Validation.date(created.expires_at).timeIntervalSince(self.wallNow())
+                guard remaining > 0 else { throw V2Error.expired }
+                let ticketDeadline = self.clock.now + UInt64(remaining * 1_000_000_000)
+                let socket = self.socketFactory(); self.socket = socket; self.state = .authenticating
+                let selected = try await V2MediaDeadline<String?>().run(clock: self.clock, until: min(ticketDeadline, self.clock.now + 3_000_000_000), cancel: { socket.cancel() }) { try await socket.open(url) }
+                guard selected == "airsim.media.v2" else { throw V2MediaFailure.handshake }
+                guard self.generation == stamp, !Task.isCancelled, validate() else { throw V2MediaFailure.stale }
+                let auth = try JSONEncoder().encode(V2MediaHandshake(session_id: created.session_id, ticket: created.ticket))
+                try await self.write(.string(String(decoding: auth, as: UTF8.self)), socket: socket)
+                let pairingDeadline = min(ticketDeadline, self.clock.now + 5_000_000_000)
+                let first = try await self.handshake(socket, deadline: min(pairingDeadline, self.clock.now + 3_000_000_000), id: created.session_id)
+                guard case .waiting = first else { throw V2MediaFailure.handshake }
+                self.state = .waiting
+                let second = try await self.handshake(socket, deadline: pairingDeadline, id: created.session_id)
+                guard case .paired = second, self.generation == stamp, !Task.isCancelled, validate() else { throw V2MediaFailure.handshake }
+                socket.limit(360)
+                self.state = .paired; self.pairedAt = self.clock.now
+                self.lastCapture = self.pairedAt; self.lastDownlink = self.pairedAt
+                self.sendSequence = 0; self.receiveSequence = 0
+                self.up = V2PCMQueue(generation: stamp, emptyPolicy: .skip)
+                self.down = V2PCMQueue(generation: stamp, emptyPolicy: .silence)
+                diagnostic?.start(at: self.pairedAt)
+                self.beginReceive(socket, id: created.session_id, stamp: stamp)
+                self.beginTicks(socket, id: created.session_id, stamp: stamp, validate: validate)
+            } catch { self.fail(error, stamp: stamp) }
+        }
+    }
+    private func handshake(_ socket: V2MediaSocket, deadline: UInt64, id: String) async throws -> V2MediaServerMessage {
+        let message = try await V2MediaDeadline<URLSessionWebSocketTask.Message>().run(clock: clock, until: deadline, cancel: { socket.cancel() }) { try await socket.receive() }
+        guard case .string(let text) = message, text.utf8.count <= 2048 else { throw V2MediaFailure.handshake }
+        return try V2MediaServerMessage.parse(Data(text.utf8), sessionID: id)
+    }
+    private func write(_ message: URLSessionWebSocketTask.Message, socket: V2MediaSocket) async throws {
+        try await V2MediaDeadline<Void>().run(clock: clock, until: clock.now + 100_000_000, cancel: { socket.cancel() }) { try await socket.send(message) }
+    }
+    private func beginReceive(_ socket: V2MediaSocket, id: String, stamp: UUID) {
+        receiveTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                while self.generation == stamp, !Task.isCancelled {
+                    let message = try await socket.receive()
+                    guard self.generation == stamp, !Task.isCancelled else { return }
+                    guard case .data(let data) = message else { throw V2MediaFailure.handshake }
+                    let result = try V2ASMPFrame.decode(data, sessionID: id, direction: 2, after: self.receiveSequence)
+                    self.receiveSequence = result.frame.sequence
+                    self.counters.received += 1; self.counters.sequenceGaps += result.gaps
+                    self.lastDownlink = self.clock.now
+                    try self.down?.enqueue(result.frame.pcm, at: self.clock.now, generation: stamp)
+                    self.diagnostic?.receive(result.frame.pcm, at: self.clock.now)
+                }
+            } catch { self.fail(error, stamp: stamp) }
+        }
+    }
+    private func beginTicks(_ socket: V2MediaSocket, id: String, stamp: UUID, validate: @escaping () -> Bool) {
+        tickTask = Task { [weak self] in
+            guard let self else { return }
+            var next = self.clock.now, nextPublish = next
+            while self.generation == stamp, !Task.isCancelled, self.state == .paired {
+                guard validate() else { self.fail(V2MediaFailure.stale, stamp: stamp); return }
+                let now = self.clock.now
+                let frames = self.audio.takeCaptured()
+                guard self.generation == stamp, self.state == .paired else { return }
+                if !frames.isEmpty { self.lastCapture = now }
+                do {
+                    for frame in frames { try self.up?.enqueue(frame, at: now, generation: stamp) }
+                    if let diagnostic = self.diagnostic {
+                        if let pcm = diagnostic.output(at: now) { try self.up?.enqueue(pcm, at: now, generation: stamp) }
+                        self.lastCapture = now // Explicit injection, never represented as a real microphone.
+                        self.counters.diagnosticZero = diagnostic.zeroFrames
+                        if now - self.pairedAt >= 75_000_000_000, let context = self.context {
+                            self.fail(V2MediaFailure.inactive, stamp: stamp); self.onDiagnosticTimeout?(context); return
+                        }
+                    }
+                    guard now - self.lastCapture < 2_000_000_000 else { throw V2MediaFailure.inputStopped }
+                    guard now - self.lastDownlink < 2_000_000_000 else { throw V2MediaFailure.downlinkStopped }
+                    if self.sendTask == nil, let pcm = self.up?.output(at: now, generation: stamp) {
+                        self.sendSequence += 1
+                        let binary = try V2ASMPFrame(sessionID: id, direction: 1, sequence: self.sendSequence, pcm: pcm).encode()
+                        self.sendTask = Task { [weak self] in
+                            guard let self else { return }
+                            defer { if self.generation == stamp { self.sendTask = nil } }
+                            guard self.generation == stamp, self.state == .paired, !Task.isCancelled else { return }
+                            do {
+                                try await self.write(.data(binary), socket: socket)
+                                guard self.generation == stamp else { return }
+                                self.counters.sent += 1; self.up?.completed(at: self.clock.now, generation: stamp)
+                            } catch {
+                                if case V2MediaFailure.timeout = error { self.counters.writeTimeouts += 1 }
+                                self.fail(error, stamp: stamp)
+                            }
+                        }
+                    }
+                    if let pcm = self.down?.output(at: now, generation: stamp) {
+                        _ = self.audio.play(pcm); self.down?.completed(at: self.clock.now, generation: stamp)
+                    }
+                } catch { self.fail(error, stamp: stamp); return }
+                if now >= nextPublish {
+                    self.publish(); nextPublish = now + 1_000_000_000
+                }
+                next += 5_000_000
+                if next <= now { next += ((now - next) / 5_000_000 + 1) * 5_000_000 }
+                do { try await self.clock.sleep(until: next) } catch { return }
+            }
+        }
+    }
+    private func publish() {
+        audioMetrics = audio.metrics
+        counters.captureFrames = audio.metrics.captured; counters.rendered = audio.metrics.rendered
+        counters.queueDrops = (up?.queueDrops ?? 0) + (down?.queueDrops ?? 0) + audio.metrics.outputDrops + audio.metrics.playbackDrops + (diagnostic?.echoDrops ?? 0)
+        counters.skippedSlots = (up?.skippedSlots ?? 0) + (down?.skippedSlots ?? 0)
+        counters.playbackZero = down?.zeroFrames ?? 0
+        statistics = counters
+    }
+    private func fail(_ error: Error, stamp: UUID) {
+        guard generation == stamp, state != .stopping else { return }
+        if case .failed = state { return }
+        let message: String
+        if let audio = error as? V2AudioError { message = audio.message }
+        else if error is V2MediaFailure { message = "音频连接中断，请手动恢复音频" }
+        else { message = "音频不可用，请核对连接后恢复音频" }
+        state = .failed(message)
+        Task { [weak self] in
+            guard let self, self.generation == stamp else { return }
+            await self.stop(keepFailure: true)
+        }
+    }
+    func requestStop() {
+        guard state != .stopping else { return }
+        let stamp = generation
+        state = .stopping
+        Task { [weak self] in
+            guard let self, self.generation == stamp else { return }
+            await self.stop()
+        }
+    }
+    func stop(keepFailure: Bool = false) async {
+        if let stopTask { await stopTask.value; return }
+        let failed = state
+        generation = UUID(); state = .stopping
+        let tasks = [startTask, receiveTask, tickTask, sendTask].compactMap { $0 }
+        startTask = nil; receiveTask = nil; tickTask = nil; sendTask = nil
+        tasks.forEach { $0.cancel() }; socket?.cancel(); socket = nil
+        publish()
+        diagnostic?.stop(); diagnostic = nil
+        if let context, let sessionID { Task { await delete(context, sessionID) } }
+        context = nil; sessionID = nil
+        audio.onFailure = nil
+        let task = Task { [self] in
+            await audio.stop()
+            for task in tasks { await task.value }
+            up = nil; down = nil; audioMetrics = audio.metrics
+            state = keepFailure ? failed : .idle
+            stopTask = nil
+        }
+        stopTask = task
+        await task.value
+    }
+    func setMuted(_ value: Bool) { muted = value; audio.setMuted(value) }
+    func setSpeaker(_ value: Bool) {
+        do { try audio.setSpeaker(value); speaker = value } catch { fail(error, stamp: generation) }
+    }
+#if DEBUG && targetEnvironment(simulator)
+    func disconnectForDiagnostics() { socket?.cancel() }
+#endif
+}

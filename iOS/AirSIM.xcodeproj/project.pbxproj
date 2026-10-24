@@ -61,6 +61,10 @@
 		A50000000000000000000066 /* CloudV2View.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000066 /* CloudV2View.swift */; };
 		A50000000000000000000067 /* LegacySwitchFence.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000067 /* LegacySwitchFence.swift */; };
 		A5000000000000000000006C /* V2LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5000000000000000000006C /* V2LocalStore.swift */; };
+		A500000000000000000000C8 /* V2AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000C8 /* V2AudioEngine.swift */; };
+		A500000000000000000000C9 /* V2MediaSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000C9 /* V2MediaSocket.swift */; };
+		A500000000000000000000CA /* V2MediaCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CA /* V2MediaCoordinator.swift */; };
+		A500000000000000000000CB /* V2DiagnosticAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CB /* V2DiagnosticAudio.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -169,6 +173,10 @@
 		B50000000000000000000066 /* CloudV2View.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/CloudV2View.swift; sourceTree = "<group>"; };
 		B50000000000000000000067 /* LegacySwitchFence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/LegacySwitchFence.swift; sourceTree = "<group>"; };
 		B5000000000000000000006C /* V2LocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2LocalStore.swift; sourceTree = "<group>"; };
+		B500000000000000000000C8 /* V2AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2AudioEngine.swift; sourceTree = "<group>"; };
+		B500000000000000000000C9 /* V2MediaSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2MediaSocket.swift; sourceTree = "<group>"; };
+		B500000000000000000000CA /* V2MediaCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2MediaCoordinator.swift; sourceTree = "<group>"; };
+		B500000000000000000000CB /* V2DiagnosticAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2DiagnosticAudio.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -230,6 +238,10 @@
 				B50000000000000000000066 /* CloudV2View.swift */,
 				B50000000000000000000067 /* LegacySwitchFence.swift */,
 				B5000000000000000000006C /* V2LocalStore.swift */,
+				B500000000000000000000CB /* V2DiagnosticAudio.swift */,
+				B500000000000000000000CA /* V2MediaCoordinator.swift */,
+				B500000000000000000000C9 /* V2MediaSocket.swift */,
+				B500000000000000000000C8 /* V2AudioEngine.swift */,
 				B10000000000000000000001 /* AirSIMIPadApp.swift */,
 				B10000000000000000000002 /* APIModels.swift */,
 				B10000000000000000000003 /* AirSIMAPI.swift */,
@@ -482,6 +494,10 @@
 				A50000000000000000000066 /* CloudV2View.swift in Sources */,
 				A50000000000000000000067 /* LegacySwitchFence.swift in Sources */,
 				A5000000000000000000006C /* V2LocalStore.swift in Sources */,
+				A500000000000000000000CB /* V2DiagnosticAudio.swift in Sources */,
+				A500000000000000000000CA /* V2MediaCoordinator.swift in Sources */,
+				A500000000000000000000C9 /* V2MediaSocket.swift in Sources */,
+				A500000000000000000000C8 /* V2AudioEngine.swift in Sources */,
 				A10000000000000000000001 /* AirSIMIPadApp.swift in Sources */,
 				A10000000000000000000002 /* APIModels.swift in Sources */,
 				A10000000000000000000003 /* AirSIMAPI.swift in Sources */,

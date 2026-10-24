@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import Combine
 
 @MainActor
 final class CloudV2Model: ObservableObject {
@@ -19,7 +20,21 @@ final class CloudV2Model: ObservableObject {
     @Published var smsNumber = ""
     @Published var smsText = ""
     @Published var tones = ""
-    @Published var experimentalAudio = false { didSet { defaults.set(experimentalAudio, forKey: "airsim.v2.experimental-audio") } }
+    @Published var experimentalAudio = false {
+        didSet {
+            defaults.set(experimentalAudio, forKey: "airsim.v2.experimental-audio")
+            if !experimentalAudio { media.requestStop() }
+        }
+    }
+    @Published var diagnosticAudio = false
+    @Published private(set) var localAudioResult = "尚未测试"
+    private var localAudioTask: Task<Void, Never>?
+    let media: V2MediaCoordinator
+    private var mediaObservation: AnyCancellable?
+    private var runtimeCallCommandID: String?
+    private var newlyOwnedCall: V2CallContext?
+    private var attemptedAudioCall: V2CallContext?
+
     @Published private(set) var foreground = false
     private let client: V2Client
     private var machine: V2CommandMachine?
@@ -37,10 +52,11 @@ final class CloudV2Model: ObservableObject {
     private var backgroundHangups = Set<String>()
     private var persistenceFailed = false
     private(set) var discovery: V2Discovery?
-    init(client: V2Client? = nil, defaults: UserDefaults = .standard, root: URL = V2LocalPaths.root, tokens: V2TokenStore = V2KeychainTokenStore(), now: @escaping () -> Date = Date.init) {
+    init(client: V2Client? = nil, media: V2MediaCoordinator? = nil, defaults: UserDefaults = .standard, root: URL = V2LocalPaths.root, tokens: V2TokenStore = V2KeychainTokenStore(), now: @escaping () -> Date = Date.init) {
         self.defaults = defaults; self.now = now
         let client = client ?? V2Client(transport: V2URLSessionTransport(), tokens: tokens, now: now)
         self.client = client
+        self.media = media ?? V2MediaCoordinator(create: { context, request in try await client.createMedia(context: context, requestID: request) }, delete: { context, session in try? await client.deleteMedia(context: context, sessionID: session) })
         configurationStore = V2ConfigurationStore(tokens: tokens, defaults: defaults)
         historyFile = V2ProtectedFile(url: root.appendingPathComponent("history.json"))
         do {
@@ -55,8 +71,20 @@ final class CloudV2Model: ObservableObject {
             self?.generation &+= 1
             self?.pollTask?.cancel(); self?.pollTask = nil
             self?.syncStatus = "凭据已过期或撤销，需要重新导入连接配置。"
+            self?.media.requestStop()
         }
-        client.onControlInvalidated = { [weak self] in self?.syncStatus = "模块离线或会话已变化；保留通话上下文，等待核对。" }
+        client.onControlInvalidated = { [weak self] in
+            self?.syncStatus = "模块离线或会话已变化；保留通话上下文，等待核对。"
+            self?.media.requestStop()
+        }
+        mediaObservation = self.media.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        self.media.onDiagnosticTimeout = { [weak self] context in
+            guard let self, self.ownedCall == context else { return }
+            Task {
+                guard self.ownedCall == context else { return }
+                await self.perform(action: "call.hangup", args: ["call_id": context.callID])
+            }
+        }
         refreshCommandStatus()
     }
     var ownedCall: V2CallContext? { machine?.ownedCall }
@@ -66,7 +94,7 @@ final class CloudV2Model: ObservableObject {
         return snapshot?.snapshot?.calls.calls.first { $0.state != "disconnected" }
     }
     var blocksSwitch: Bool {
-        busy || persistenceFailed || hasUnresolvedCommand || ownedCall != nil || snapshot?.snapshot?.calls.calls.contains(where: { $0.state != "disconnected" }) == true
+        media.active || busy || persistenceFailed || hasUnresolvedCommand || ownedCall != nil || snapshot?.snapshot?.calls.calls.contains(where: { $0.state != "disconnected" }) == true
     }
     var selectedModule: V2Module? { modules.first { $0.module_id == selectedModuleID } }
     var freshBinding: V2ControlBinding? {
@@ -146,6 +174,8 @@ final class CloudV2Model: ObservableObject {
         await stop()
     }
     func stop() async {
+        localAudioTask?.cancel(); await localAudioTask?.value; localAudioTask = nil
+        await media.stop()
         await cancelBackgroundCleanup(); await cancelConnection(); await cancelPolling()
         client.stop(); connected = false; busy = actionInFlight
     }
@@ -161,6 +191,10 @@ final class CloudV2Model: ObservableObject {
         case .inactive: break
         case .background:
             foreground = false
+            // Retire a still-verifying connection before the first suspension point.
+            if connectionTask != nil { connectionEpoch &+= 1; connectionTask?.cancel(); client.stop(); connected = false }
+            localAudioTask?.cancel(); await localAudioTask?.value; localAudioTask = nil
+            await media.stop()
             await cancelConnection(); await cancelPolling()
             beginBackgroundCleanup()
         default: break
@@ -230,10 +264,12 @@ final class CloudV2Model: ObservableObject {
                         guard self.generation == stamp, !Task.isCancelled else { return }
                         try self.finishResolvedCommand()
                     }
+                    self.updateMediaEligibility()
                     self.syncStatus = nil
                     delay = backoff.succeeded()
                 } catch {
                     guard self.generation == stamp, !Task.isCancelled else { return }
+                    self.updateMediaEligibility()
                     self.syncStatus = "同步失败，当前状态可能已过期；未自动重发操作。"
                     delay = backoff.failed()
                 }
@@ -292,7 +328,9 @@ final class CloudV2Model: ObservableObject {
         busy = true; actionInFlight = true
         defer { busy = false; actionInFlight = false; objectWillChange.send() }
         do {
+            if action == "call.hangup" { await media.stop() }
             let command = try V2Command(binding: binding, action: action, args: args, now: now())
+            if action == "call.dial" || action == "call.answer" { runtimeCallCommandID = command.command_id }
             try await machine.submit(command, binding: binding)
             try finishResolvedCommand()
         } catch { self.error = "操作未提交：\((error as? V2Error)?.rawValue ?? "request_failed")" }
@@ -300,12 +338,64 @@ final class CloudV2Model: ObservableObject {
     private func finishResolvedCommand() throws {
         refreshCommandStatus()
         guard let machine else { return }
+        if let commandID = machine.pending?.commandID, commandID == runtimeCallCommandID, let owned = machine.ownedCall { newlyOwnedCall = owned }
         switch machine.phase {
         case let .receipt(_, state) where machine.pending?.action == "call.hangup" && (state == "accepted" || state == "observed"): break // Snapshot confirms disconnect before releasing this pending.
         case .receipt, .rejected: try machine.acknowledgeResolved()
         default: break
         }
         objectWillChange.send()
+    }
+#if DEBUG && targetEnvironment(simulator)
+    func testLocalAudio() {
+        guard !busy, !media.active, ownedCall == nil, activeCall == nil, foreground else { return }
+        busy = true; localAudioResult = "正在准备本机麦克风和播放测试…"
+        localAudioTask = Task { [weak self] in
+            guard let self else { return }
+            let audio = V2AudioEngine()
+            do {
+                try await audio.prepare(microphone: true)
+                var pcm = Data()
+                for i in 0..<160 {
+                    let sample = Int16(sin(Double(i) * 2 * .pi * 400 / 8000) * 1200)
+                    pcm.append(UInt8(truncatingIfNeeded: sample)); pcm.append(UInt8(truncatingIfNeeded: sample >> 8))
+                }
+                let deadline = DispatchTime.now().uptimeNanoseconds + 3_000_000_000
+                while !Task.isCancelled, DispatchTime.now().uptimeNanoseconds < deadline {
+                    _ = audio.takeCaptured(); _ = audio.play(pcm)
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                let m = audio.metrics
+                self.localAudioResult = "本机测试：\(Int(m.sampleRate)) Hz / \(m.channels) 声道，语音处理 \(m.voiceProcessing ? "开启" : "关闭")；采集 \(m.captured) 帧，播放 \(m.rendered) 帧。"
+            } catch {
+                self.localAudioResult = (error as? V2AudioError)?.message ?? "本机音频测试已停止"
+            }
+            await audio.stop()
+            self.localAudioResult += " 引擎已停止。"
+            self.busy = false; self.localAudioTask = nil
+        }
+    }
+#endif
+    var audioReady: Bool {
+        guard experimentalAudio, foreground, ownedControlReady,
+              discovery?.capabilities.experimental_audio == true,
+              snapshot?.snapshot?.audio.available == true,
+              activeCall?.state == "active" else { return false }
+        return true
+    }
+    private func updateMediaEligibility() {
+        if media.active, (!audioReady || media.context != ownedCall) {
+            media.requestStop(); return
+        }
+        guard audioReady, let ownedCall, newlyOwnedCall == ownedCall, attemptedAudioCall != ownedCall, !media.active else { return }
+        connectAudio()
+    }
+    func connectAudio() {
+        guard audioReady, let ownedCall, !media.active else { return }
+        attemptedAudioCall = ownedCall
+        media.start(context: ownedCall, diagnosticMode: diagnosticAudio) { [weak self] in
+            self?.audioReady == true && self?.ownedCall == ownedCall
+        }
     }
     private func refreshCommandStatus() {
         guard let machine else { return }

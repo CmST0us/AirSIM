@@ -24,3 +24,5 @@ M1已完成：独立配置/Keychain、严格JSON、HTTPS限额与拒绝跳转、
 当前XcodeBuildMCP构建/测试/截图可用；其AX工具因SimulatorKit路径错误不能工作。CUA通过`com.apple.dt.Devices`（Device Hub）的iPhone 17 Pro窗口可读取并操作模拟器App界面，不修改系统开发工具路径或影响其他项目。
 
 M2已完成：模拟器83/83测试，主控实际验证已有安装v1迁移、v1/v2往返、无效JSON拒绝且不回退、干净安装先选择后启动。首次UI发现ActivityKit取消不返回导致切换卡死；修正为有界只读系统事件源和可结束的业务订阅，最终v2订阅为0。已有v1进程保留2个只读源，纯新装v2全为0，不声称系统observer全部销毁。快照与per-Activity悬挂账本均有界，达到16项时单独提示Live Activity观察需重启。假源24次往返、迟到事件、历史快照清理均覆盖。截图位于docs/evidence/r5。尚未验证实体机APNs、App云端通话/SMS或音频。
+
+M3已完成本地验证：独立WSS、固定20ms音频节拍、真实AVAudioEngine采集/播放、显式恢复与停止屏障；模拟器诊断提示/回声仅在内存中处理。最终98项测试为97通过、0失败、1项硬件XCTest显式跳过，生产提示语生成515帧/10.3秒非静音PCM。iOS26.5的两次真实引擎尝试均在RemoteIO初始化SIGABRT，未取得采集统计，不能归为AEC不支持；没有关闭语音处理或重启全局音频服务。改用独立iOS27.0模拟器后，前台3秒生产引擎探测通过：44.1kHz单声道、VoiceProcessing开启、采集145帧/播放136帧、引擎停止。此证据不代表AEC听感、云端音频或实体iPhone验收。主控开始M4，仍通过App正常导入短期配置和UI完成业务操作。
