@@ -148,7 +148,15 @@
         "ap-southeast-1": 0
       },
       "App_import": "passed_normal_UI_after_standard_simulator_ad_hoc_signing; auto_connect_transport_failure_no_v1_fallback",
-      "calls_or_SMS_attempted": false
+      "calls_or_SMS_attempted": false,
+      "diagnosis_correction": {
+        "trigger": "user reports old iroh HTTPS page worked without filing",
+        "R4_prior_evidence": "R4_ECS_DEPLOYMENT.json already records old curl handshake failure while modern TLS1.3 and Go Agent succeeded",
+        "current_modern_probe": "Python OpenSSL 3.6.4, direct public IP with correct SNI and certificate verification: TLS1.3-enabled handshake timeout; TLS1.2 EOF",
+        "conclusion": "public TLS failure persists, but curl failure is not new evidence of filing interception; provider root cause unconfirmed; do not require migration based on current evidence",
+        "iroh_now": "service remains intentionally disabled; current hostname failure cannot recreate earlier working service",
+        "RM500_latest": "system rebooted again; uptime about 149 seconds, Agent absent; no automatic restart in this read-only diagnostic"
+      }
     },
     "M4_RM500_restore": {
       "reason": "module_uptime_approximately_14_minutes_and_Agent_not_running",
