@@ -1,0 +1,39 @@
+{
+  "phase": "R4 bridge playout local verification; awaiting controller review and deployment",
+  "artifact": {
+    "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/airsim-agent/dist/airsim-agent-r4-playout-grid",
+    "bytes": 7274680,
+    "sha256": "942b2777fcf2979eefb0db08439c2a37b412d625357018ee732f45fac5385641",
+    "elf_machine": "AArch64",
+    "pt_interp": false,
+    "pt_dynamic": false
+  },
+  "toolchain": "Go 1.24.13 CGO_ENABLED=0 GOOS=linux GOARCH=arm64",
+  "build_command": "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 GOPROXY=off GOTOOLCHAIN=local /tmp/airsim-agent-p0-toolchain/go/bin/go build -trimpath -ldflags='-s -w' -o dist/airsim-agent-r4-playout-grid ./cmd/airsim-agent",
+  "validation": {
+    "go_test_race_all": "passed before fixed-grid amendment; affected cloud package rerun after amendment",
+    "go_vet_all": "passed",
+    "deterministic_playout_tests": "passed: burst, per-direction capacity5, 100ms age boundary, shared drops, 40ms initial buffer, 20ms cadence, slow writes, scheduler stall, zeros only downlink, cancellation and write error exit",
+    "tls_unix_input_deadline_tests": "passed: cloud stalls and local stalls independently close bridge near original2s; peer goroutines join",
+    "existing_tls_fake_integration": "passed",
+    "cloud_race_after_fixed_grid": "passed including TLS/fake integration and both real-input deadline cases",
+    "fixed_grid_deterministic": "passed both directions: 501 outputs over10s with each wake+1ms and each write5ms; no drops or zeros;65ms scheduler/write delays skip future grid;10/11/19/20/65ms lateness boundaries enforce >=10ms actual spacing"
+  },
+  "source_sha256": {
+    "internal/cloud/bridge.go": "92582d9b22e6162f4599d0faed637fc65158d97a197cd32cc43559e82e9cae10",
+    "internal/cloud/playout.go": "a2360afa2de0cf304be26a2c74ff722479e259ea039919005f9ac5f84a68f879",
+    "internal/cloud/playout_test.go": "6f8d896e400215dc21be1442171127832d3733b9b4eed86d889b237c207eb201",
+    "internal/cloud/integration_test.go": "4afd8f8b94a804ac2058f1f840f85d7b088071ae905f51821e41920450e28baf"
+  },
+  "scheduling": "base=first real enqueue+40ms; fixed base+n*20ms; whole-slot wake lag skips strictly future grid; write overruns next target skip strictly future grid; actual outputs separated by >=10ms, otherwise skip slot without moving base",
+  "scope": {
+    "c_helper_modified": false,
+    "server_modified": false,
+    "protocol_modified_by_this_execution": false,
+    "device_operations": false,
+    "ecs_operations": false,
+    "deployed": false,
+    "real_audio_verified": false,
+    "git_staged_or_committed": false
+  }
+}

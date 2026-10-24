@@ -458,3 +458,146 @@ func TestTLSControlConnectionEndsAtCertificateExpiry(t *testing.T) {
 		t.Fatal("unexpected command side effect")
 	}
 }
+
+// Keep one input flowing while the other stops after its first real frame.
+// Neither playout ticks nor downlink silence may renew either read deadline.
+func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
+	for _, stallLocal := range []bool{false, true} {
+		name := "cloud_stalls"
+		if stallLocal {
+			name = "local_stalls"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			localID, cloudID := uid(), uid()
+			dir, e := os.MkdirTemp("/tmp", "r4-deadline-")
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer os.RemoveAll(dir)
+			socket := filepath.Join(dir, "media.sock")
+			listener, e := net.Listen("unix", socket)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer listener.Close()
+			fm := &fakeMedia{socket: socket, id: localID, token: strings.Repeat("cd", 32)}
+			localDone := make(chan struct{})
+			go func() {
+				defer close(localDone)
+				conn, e := listener.Accept()
+				if e != nil {
+					return
+				}
+				defer conn.Close()
+				conn.SetDeadline(time.Now().Add(4 * time.Second))
+				if _, e = media.ReadJSON(conn, 1024); e != nil {
+					return
+				}
+				if media.WriteJSON(conn, map[string]any{"ok": true, "sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160}, 1024) != nil {
+					return
+				}
+				sendCtx, stop := context.WithCancel(context.Background())
+				writerDone := make(chan struct{})
+				go func() {
+					defer close(writerDone)
+					tick := time.NewTicker(20 * time.Millisecond)
+					defer tick.Stop()
+					for seq := uint64(1); ; seq++ {
+						out := media.NewFrame(localID, 2, seq)
+						if writeFrame(conn, out[:]) != nil {
+							return
+						}
+						if stallLocal {
+							return
+						}
+						select {
+						case <-sendCtx.Done():
+							return
+						case <-tick.C:
+						}
+					}
+				}()
+				io.Copy(io.Discard, conn)
+				stop()
+				conn.Close()
+				<-writerDone
+			}()
+			cloudDone := make(chan struct{})
+			server := tlsServer(t, f, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer close(cloudDone)
+				ws, e := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"airsim.media.v2"}})
+				if e != nil {
+					return
+				}
+				defer ws.CloseNow()
+				peerCtx, stop := context.WithTimeout(r.Context(), 4*time.Second)
+				defer stop()
+				if _, _, e = ws.Read(peerCtx); e != nil {
+					return
+				}
+				paired, _ := json.Marshal(map[string]any{"type": "paired", "session_id": cloudID, "format": media.Format{SampleRate: 8000, Channels: 1, SampleFormat: "s16le", FrameSamples: 160}})
+				if ws.Write(peerCtx, websocket.MessageText, paired) != nil {
+					return
+				}
+				writerDone := make(chan struct{})
+				go func() {
+					defer close(writerDone)
+					tick := time.NewTicker(20 * time.Millisecond)
+					defer tick.Stop()
+					for seq := uint64(1); ; seq++ {
+						out := media.NewFrame(cloudID, 1, seq)
+						if ws.Write(peerCtx, websocket.MessageBinary, out[:]) != nil {
+							return
+						}
+						if !stallLocal {
+							return
+						}
+						select {
+						case <-peerCtx.Done():
+							return
+						case <-tick.C:
+						}
+					}
+				}()
+				for {
+					if _, _, e = ws.Read(peerCtx); e != nil {
+						break
+					}
+				}
+				stop()
+				ws.CloseNow()
+				<-writerDone
+			}))
+			f.req.API = server.URL
+			f.req.Device = server.URL
+			f.req.Media = server.URL
+			f.prepare(t)
+			f.issue(t)
+			f.p.Activate(f.bundle)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			a := &Agent{P: f.p, Media: fm}
+			c := &connection{agent: a, config: f.p.config, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 32)}
+			start := time.Now()
+			reason := c.bridge(ctx, mediaStart{Request: uid(), Session: cloudID, Call: uid(), Boot: uid(), Epoch: uid(), Ticket: strings.Repeat("ab", 32)})
+			elapsed := time.Since(start)
+			if reason != "media_closed" || elapsed < 1900*time.Millisecond || elapsed > 3*time.Second {
+				t.Fatalf("read deadline: %s %v", reason, elapsed)
+			}
+			if !stallLocal && a.LastBridgeStats().ZeroFrames < 50 {
+				t.Fatal("downlink silence did not exercise read deadline")
+			}
+			if fm.stops.Load() != 1 {
+				t.Fatal("cleanup")
+			}
+			for _, done := range []chan struct{}{localDone, cloudDone} {
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Fatal("peer goroutine leak")
+				}
+			}
+		})
+	}
+}

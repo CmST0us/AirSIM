@@ -201,9 +201,11 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 	if !c.send("media_status", map[string]string{"session_id": r.Session, "state": "streaming", "reason": ""}) {
 		return "control_disconnected"
 	}
-	queue := make(chan media.Frame, 5)
+	down := newPlayoutQueue(counts)
+	up := newPlayoutQueue(counts)
+	clock := realPlayoutClock{}
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		defer cancel()
@@ -220,57 +222,25 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 				return
 			}
 			counts.cloud.Add(gap)
-			select {
-			case queue <- f:
-			default:
-				select {
-				case <-queue:
-					counts.drops.Add(1)
-				default:
-				}
-				select {
-				case queue <- f:
-				case <-ctx.Done():
-					return
-				}
-			}
+			down.push(f, clock.Now())
 		}
 	}()
 	go func() {
 		defer wg.Done()
 		defer cancel()
 		var seq uint64
-		initial := time.NewTicker(20 * time.Millisecond)
-		defer initial.Stop()
-		zeros := 0
-		received := false
-		for {
-			var f media.Frame
-			select {
-			case <-ctx.Done():
-				return
-			case f = <-queue:
-				received = true
-			case <-initial.C:
-				if received || zeros >= 5 {
-					continue
-				}
-				zeros++
-				counts.zeros.Add(1)
-			}
+		playPCM(ctx, down, clock, true, func(f media.Frame) error {
 			seq++
 			out := media.NewFrame(local.ID, 1, seq)
 			copy(out[40:], f[40:])
 			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-			if writeFrame(conn, out[:]) != nil {
-				return
-			}
-		}
+			return writeFrame(conn, out[:])
+		})
 	}()
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		var seq, outseq uint64
+		var seq uint64
 		for {
 			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			f, gap, e := media.ReadFrame(conn, local.ID, 2, &seq)
@@ -278,16 +248,21 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 				return
 			}
 			counts.local.Add(gap)
-			outseq++
-			out := media.NewFrame(r.Session, 2, outseq)
+			up.push(f, clock.Now())
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		defer cancel()
+		var seq uint64
+		playPCM(ctx, up, clock, false, func(f media.Frame) error {
+			seq++
+			out := media.NewFrame(r.Session, 2, seq)
 			copy(out[40:], f[40:])
 			wctx, wcancel := context.WithTimeout(ctx, 100*time.Millisecond)
-			e = ws.Write(wctx, websocket.MessageBinary, out[:])
-			wcancel()
-			if e != nil {
-				return
-			}
-		}
+			defer wcancel()
+			return ws.Write(wctx, websocket.MessageBinary, out[:])
+		})
 	}()
 	<-ctx.Done()
 	conn.Close()
