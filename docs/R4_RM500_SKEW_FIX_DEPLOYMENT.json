@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-24T09:40:33.291146+00:00",
+  "phase": "R4_media_clock_skew_fix_deployed",
+  "commit": "8b54dcb",
+  "pid": 25938,
+  "remote": "/mnt/data/airsim-v2/releases/71f2c3781023dc18/airsim-agent",
+  "sha256": "71f2c3781023dc1847ad5eea5895242c252eb3e906f6b056998650da7e432475",
+  "bytes": 7274680,
+  "helper": "/mnt/data/airsim-v2/releases/ea836044de25662b/airsim-audiod",
+  "helper_sha256": "39ff88dabce16196defdacc72637a15695f171a65f080179dde4382df3cc41dc",
+  "previous_r4_rollback_gzip": "/mnt/data/airsim-v2/releases/6a63c689ccf961da/airsim-agent.rollback.gz",
+  "previous_r4_sha256": "6a63c689ccf961dac9d2b9e7c997f656cf6306be2defb0934ac49aa070981689",
+  "r3_rollback": "/mnt/data/airsim-v2/releases/ea836044de25662b/airsim-agent",
+  "identity_cloud_config_journal_unchanged": true,
+  "cloud": {
+    "configured": true,
+    "connected": true,
+    "server_id": "2def58e8-0a60-4448-87b9-9682a06b9d77",
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "connection_epoch": "8acd9f8e-fedc-48ca-aa5f-c293631bd731",
+    "last_connected_at": "2026-10-24T09:40:32.675758536Z",
+    "last_error": "",
+    "certificate_expires_at": "2026-11-23T09:29:52Z"
+  },
+  "agent_boot_id": "03615612-3ae2-4b8d-8898-3a74f25ee5bb",
+  "backend_epoch": "ba417863-8856-4c94-8e4f-6d7c64ecdfad",
+  "ready": true,
+  "audio": {
+    "available": true,
+    "implementation": "implemented",
+    "verification": "unverified",
+    "voice_ready": false,
+    "reason": ""
+  },
+  "space_after": "Filesystem           1K-blocks      Used Available Use% Mounted on\n/dev/ubi0_userdata       35664     31920      3232  91% /mnt/userdata",
+  "live_audio_acceptance": "pending"
+}

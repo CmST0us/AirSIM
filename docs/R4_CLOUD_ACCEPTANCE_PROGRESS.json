@@ -1,0 +1,897 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-24T09:52:02.732844+00:00",
+  "overall_status": "incomplete_cloud_audio_stability_and_incoming_controls_pending",
+  "public_endpoints": {
+    "api": "https://airsim.eric3u.cc",
+    "device": "https://device.airsim.eric3u.cc",
+    "media": "wss://airsim.eric3u.cc/v2/media"
+  },
+  "sms": {
+    "recorded_at": "2026-10-24T09:31:59.986118+00:00",
+    "command_id": "5b2df6c3-1243-484d-bea6-e9a1147fa0d3",
+    "state": "completed",
+    "receipt": {
+      "state": "accepted",
+      "result_code": "",
+      "message_id": "9c2a5706-0009-4825-9244-c3acaa00930c"
+    },
+    "user_delivery_confirmed": false,
+    "cloud_message": {
+      "message_id": "9c2a5706-0009-4825-9244-c3acaa00930c",
+      "direction": "outgoing",
+      "state": "sent",
+      "delivery": "unknown",
+      "observed_at": "2026-10-24T09:31:59.46513648Z"
+    },
+    "cloud_incoming": [
+      {
+        "message_id": "524b225d-d8d4-49be-84ad-8e40a79e772c",
+        "direction": "incoming",
+        "state": "received",
+        "delivery": "unknown",
+        "observed_at": "2026-10-24T09:33:10.731258352Z",
+        "expected_reply_matches": true
+      }
+    ],
+    "delivery_confirmed_by_roundtrip_reply": true
+  },
+  "outgoing_attempts": [
+    {
+      "schema_version": 1,
+      "phase": "R4",
+      "started_at": "2026-10-24T09:32:07.751782+00:00",
+      "transport": "ECS HTTPS and separate WSS",
+      "audio_storage": "bounded_memory_only",
+      "result": "error",
+      "dial": {
+        "state": "accepted",
+        "result_code": "",
+        "call_id": "ef277c52-fa3d-4989-99ab-b214715ee165"
+      },
+      "error": "RuntimeError:call_ended_before_active",
+      "hangup": "already_disconnected",
+      "controller_correction": "Receipt arrived before snapshot contained the call. Harness incorrectly reported ended; subsequent cloud/local snapshots observed active. No media session created. The call later ended without local guard action."
+    },
+    {
+      "schema_version": 1,
+      "phase": "R4",
+      "started_at": "2026-10-24T09:34:05.199440+00:00",
+      "transport": "ECS HTTPS and separate WSS",
+      "audio_storage": "bounded_memory_only",
+      "result": "error",
+      "error": "RuntimeError:module_offline",
+      "controller_correction": "Preflight module_offline; no dial command submitted in this attempt."
+    },
+    {
+      "schema_version": 1,
+      "phase": "R4",
+      "started_at": "2026-10-24T09:35:35.371323+00:00",
+      "transport": "ECS HTTPS and separate WSS",
+      "audio_storage": "bounded_memory_only",
+      "result": "error",
+      "dial": {
+        "state": "accepted",
+        "result_code": "",
+        "call_id": "f5290777-eb60-49ae-b067-c30b2874e2ca"
+      },
+      "command_id": "defed2f1-a458-4d10-b95c-ff41499dee4d",
+      "resumed_existing_command": false,
+      "active_at": "2026-10-24T09:35:42.447215+00:00",
+      "error": "ConnectionClosedError:no close frame received or sent",
+      "media_delete_http": 204,
+      "hangup_error": "RuntimeError",
+      "emergency_cleanup_required": true,
+      "controller_correction": "media_start was rejected as control_protocol due to strict future expiry bound and device clock skew. Targeted local emergency hangup submitted; later idle verified. Fixed in 8b54dcb."
+    },
+    {
+      "schema_version": 1,
+      "phase": "R4",
+      "started_at": "2026-10-24T09:41:07.203145+00:00",
+      "transport": "ECS HTTPS and separate WSS",
+      "audio_storage": "bounded_memory_only",
+      "result": "error",
+      "dial": {
+        "state": "accepted",
+        "result_code": "",
+        "call_id": "e610ace0-0fb7-49c3-8306-ea98fcc2f611"
+      },
+      "command_id": "eb6f27c3-2dec-4a29-90cc-8096e9a67f52",
+      "resumed_existing_command": false,
+      "duplicate_command": {
+        "http": 200,
+        "same_command_id": true,
+        "same_generation": true
+      },
+      "active_at": "2026-10-24T09:41:16.421358+00:00",
+      "media_session_id": "698ef05a-544a-4c0c-b4ba-4b1184763543",
+      "stage": "duplex_stream",
+      "uplink_frames": 615,
+      "downlink": {
+        "frames": 144,
+        "samples": 23040,
+        "sequence_gaps": 4,
+        "rms": 149.2,
+        "peak": 2533,
+        "span_s": 10.187,
+        "echo_frames": 0,
+        "echo_dropped": 114,
+        "error": "TimeoutError:timed out in 2.0s",
+        "windows": [
+          {
+            "at_s": 5.16,
+            "rms": 171.3,
+            "peak": 2533,
+            "frames": 109
+          },
+          {
+            "at_s": 10.17,
+            "rms": 17.0,
+            "peak": 98,
+            "frames": 29
+          }
+        ]
+      },
+      "duration_s": 12.304,
+      "error": "RuntimeError:media_stream_failed",
+      "media_delete_http": 204,
+      "hangup_error": "RuntimeError",
+      "emergency_cleanup_required": true,
+      "emergency_hangup_http": 202,
+      "controller_correction": "Actual PCM traversed ECS for 12.304 seconds, then a >2 second downlink gap ended test. Targeted local emergency hangup submitted; later idle verified. This is a failed stability test, not audio acceptance."
+    }
+  ],
+  "audio_metrics": [
+    {
+      "at": "2026-10-24T09:41:24.391183+00:00",
+      "agent": {
+        "session_id": "698ef05a-544a-4c0c-b4ba-4b1184763543",
+        "state": "streaming",
+        "reason": "",
+        "cloud_input_gaps": 0,
+        "local_input_gaps": 0,
+        "queue_drops": 0,
+        "zero_frames": 0
+      },
+      "rss": "VmHWM:\t   14464 kB\nVmRSS:\t   14296 kB",
+      "server": {
+        "state": "paired",
+        "reason": "",
+        "frames": [
+          127,
+          404
+        ],
+        "sequence_gaps": [
+          0,
+          0
+        ],
+        "dropped": [
+          4,
+          0
+        ]
+      }
+    }
+  ],
+  "idle_synthetic_transport": {
+    "session_id": "df9c00d3-bce5-4db4-9686-6afa907f22f6",
+    "probe_sha256": "ebcb4fb774dd420f7df54ddc85f8aac489179ecbbb77c909bb074ee931f5f519",
+    "synthetic_pcm": true,
+    "carrier_call_active": false,
+    "started_at": "2026-10-24T09:46:13.497701+00:00",
+    "client_receive": {
+      "frames": 980,
+      "gaps": 17,
+      "max_interval_ms": 537.03
+    },
+    "client_sent": 1000,
+    "duration_s": 20.009,
+    "agent": {
+      "sent_frames": 999,
+      "received_frames": 1000,
+      "gaps": 0,
+      "elapsed_ms": 20002,
+      "max_receive_interval_ms": 148,
+      "reason": "completed"
+    },
+    "server": {
+      "exception": "HTTPError",
+      "samples": [
+        {
+          "state": "waiting",
+          "reason": "",
+          "frames": [
+            0,
+            0
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            0,
+            0
+          ]
+        },
+        {
+          "state": "waiting",
+          "reason": "",
+          "frames": [
+            0,
+            0
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            0,
+            0
+          ]
+        },
+        {
+          "state": "waiting",
+          "reason": "",
+          "frames": [
+            0,
+            0
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            0,
+            0
+          ]
+        },
+        {
+          "state": "waiting",
+          "reason": "",
+          "frames": [
+            0,
+            0
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            0,
+            0
+          ]
+        },
+        {
+          "state": "waiting",
+          "reason": "",
+          "frames": [
+            0,
+            0
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            0,
+            0
+          ]
+        },
+        {
+          "state": "waiting",
+          "reason": "",
+          "frames": [
+            0,
+            0
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            0,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            0,
+            1
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            0,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            24,
+            31
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            0,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            57,
+            61
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            0,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            67,
+            92
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            0,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            104,
+            121
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            1,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            147,
+            153
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            175,
+            183
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            208,
+            213
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            238,
+            243
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            269,
+            274
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            300,
+            304
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            332,
+            331
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            360,
+            365
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            385,
+            395
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            420,
+            426
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            452,
+            456
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            476,
+            486
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            512,
+            515
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            543,
+            546
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            573,
+            576
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            603,
+            607
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            633,
+            637
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            661,
+            668
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            4,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            690,
+            698
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            6,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            721,
+            729
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            6,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            755,
+            759
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            9,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            770,
+            789
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            9,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            803,
+            820
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            11,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            845,
+            850
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            16,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            874,
+            880
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            16,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            899,
+            908
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            16,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            936,
+            941
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            17,
+            0
+          ]
+        },
+        {
+          "state": "paired",
+          "reason": "",
+          "frames": [
+            967,
+            971
+          ],
+          "sequence_gaps": [
+            0,
+            0
+          ],
+          "dropped": [
+            17,
+            0
+          ]
+        }
+      ]
+    },
+    "probe_version_note": "Measured binary is the pre-final ebcb4fb revision. Later final probe only refines read-timeout classification; no result is attributed to the later binary.",
+    "interpretation": "Idle cellular link sustained ~50fps each direction for 20s; 17 downstream sequence gaps and peak 537ms arrival gap. Does not prove call-time transport."
+  },
+  "control_restart": {
+    "recorded_at": "2026-10-24T09:49:57.031994+00:00",
+    "test": "ECS control process restart while module idle",
+    "before_connection_epoch": "8acd9f8e-fedc-48ca-aa5f-c293631bd731",
+    "after_connection_epoch": "4193e912-a77b-45e6-bea2-c449b9b746d2",
+    "transitions": [
+      {
+        "elapsed_s": 0.16,
+        "state": {
+          "online": false,
+          "connection_epoch": ""
+        }
+      },
+      {
+        "elapsed_s": 2.31,
+        "state": {
+          "online": true,
+          "connection_epoch": "4193e912-a77b-45e6-bea2-c449b9b746d2"
+        }
+      }
+    ],
+    "same_agent_boot_and_backend": true,
+    "agent_journal_unchanged": true,
+    "server_command_count_unchanged": true,
+    "commands_count": 4,
+    "active_calls_after": 0,
+    "auto_redial_or_sms_replay_observed": false
+  },
+  "cleanup": {
+    "all_calls_disconnected": true,
+    "local_media_closed": true,
+    "cloud_media": {
+      "session_id": "698ef05a-544a-4c0c-b4ba-4b1184763543",
+      "state": "closed",
+      "reason": "media_closed",
+      "cloud_input_gaps": 0,
+      "local_input_gaps": 0,
+      "queue_drops": 0,
+      "zero_frames": 0
+    },
+    "cloud": {
+      "configured": true,
+      "connected": true,
+      "server_id": "2def58e8-0a60-4448-87b9-9682a06b9d77",
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "connection_epoch": "4193e912-a77b-45e6-bea2-c449b9b746d2",
+      "last_connected_at": "2026-10-24T09:49:55.004034788Z",
+      "last_error": "",
+      "certificate_expires_at": "2026-11-23T09:29:52Z"
+    }
+  },
+  "user_feedback": [
+    {
+      "applies_to": "first silent cloud call",
+      "feedback": "没听到声音"
+    }
+  ],
+  "pending": [
+    "45-second local-audio and simultaneous cloud transport isolation call; user availability question pending",
+    "75-second cloud prompt and self-echo confirmed by user",
+    "cloud incoming answer/reject and DTMF hardware checks",
+    "media fault/recovery real hardware checks"
+  ],
+  "not_claimed": [
+    "75-second cloud audio acceptance",
+    "continuous call-time transport quality",
+    "iOS or APNs completion",
+    "carrier delivery report"
+  ]
+}
