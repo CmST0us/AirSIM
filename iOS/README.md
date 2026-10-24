@@ -1,5 +1,11 @@
 # AirSIM iOS 与 watchOS
 
+## v2 云端入口设计（尚未实现）
+
+2026-10-24 用户确定：启用云端时明确选择 `v1（现有版本）` 或 `v2（新架构）` 并记住选择；已有安装升级后继续使用原 v1 配置。v1 连接现有 Worker/旧设备端；v2 连接新 `service/airsim/` ECS 或后续 `service/airsim-worker/`，通过同一 v2 契约使用账户与多模块能力。App 不另设云厂商协议选项。
+
+版本选择需要与分开的地址、凭据、注册、订阅和历史存储一起实现。首版每个安装实例仅启用一个云端版本；活动通话期间不能切换，在途操作、旧推送注销和新注册必须有明确结果，不自动降级或重发操作。迟到推送依据原版本/服务/会话处理，不能按当前开关重解释。详细设计见 [系统架构](../docs/SYSTEM_ARCHITECTURE.md)。当前界面尚无版本选择器，下文仍描述已存在的 v1 功能与操作。
+
 该目录包含面向三星 Android 电话端的 iPhone、Apple Watch、Live Activity 与共享模型。客户端通过 VoWLAN 直连三星手机，或通过独立 Cloudflare Relay 使用远程通话与短信。
 
 当前应用构建为 `v0.9.6 (79)`，同版本公开 Release 提供 build `79` 的 unsigned IPA；配套 AVF Agent 为 [`v0.4.6`](https://github.com/kai-wu-cortex/AirSIM/releases/tag/v0.4.6)。维护者 `com.eric3u.airsim` 构建使用 `https://airsim-push.remotepilot.site`；自行更换 Bundle ID 后必须使用自己的 Relay 和 APNs 凭据。

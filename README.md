@@ -1,5 +1,7 @@
 # AirSIM — Android 与 iPhone / Apple Watch 跨设备通话、短信和 VoWLAN
 
+> **v2 架构建设（2026-10-24）**：新 [airsim-agent](module/airsim-agent/README.md) 独立放在 `module/airsim-agent/`，RM500 已通过 R1 只读、R2 控制/短信与 R3 当前时钟的本地双向音频验收，范围与证据见 [执行记录](docs/RM500_AGENT_EXECUTION.md)。[ECS 服务端](service/airsim/README.md) 放在 `service/airsim/`，先用 [Docker Compose](service/airsim/deploy/compose/README.md)；[Cloudflare Worker v2](service/airsim-worker/README.md) 放在 `service/airsim-worker/`。R4 Agent/ECS 云端接入已按 [冻结契约](protocol/v2/R4.md) 开始实现，App v1/v2 选择器仍为设计阶段；两个 v2 服务实现共用对外协议。旧 Agent 与旧 Worker 保留。设计见 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)；下文的已发布功能与安装说明仍属于现有版本。
+
 [![Android Standalone](https://img.shields.io/badge/Android-Standalone%20APK-3DDC84?logo=android&logoColor=white)](android-standalone/README.md)
 [![iOS](https://img.shields.io/badge/iOS-16.3%2B-000000?logo=apple&logoColor=white)](iOS/README.md)
 [![watchOS](https://img.shields.io/badge/watchOS-10%2B-000000?logo=apple&logoColor=white)](iOS/README.md)

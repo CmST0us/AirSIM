@@ -1,6 +1,17 @@
 AIRSIM PROJECT CONTEXT
 ======================
 
+V2 ARCHITECTURE OVERRIDE (2026-10-24; RM500 R1-R3 local acceptance passed; R4 cloud work started)
+- New airsim-agent: module/airsim-agent/; independent project for RM500, EG25 and Android AVF.
+- ECS v2 Go backend: service/airsim/; first deployment uses Docker Compose under service/airsim/deploy/compose/.
+- Cloudflare Worker v2: service/airsim-worker/; independent implementation of the same public v2 contract.
+- Preserve module/module-agent/ and push-relay-worker/ as the legacy v1 implementation and preserve existing changes.
+- App cloud activation explicitly selects v1 or v2. ECS and Worker are v2 deployment implementations, not separate App protocol modes. No automatic cross-version fallback.
+- Read docs/SYSTEM_ARCHITECTURE.md, module/ARCHITECTURE.md and the new component READMEs for v2. RM500 R1-R3 acceptance is scoped in docs/RM500_AGENT_EXECUTION.md and module/airsim-agent/R3_TESTING.md. R4 Agent/ECS implementation follows protocol/v2/R4.md and docs/RM500_AGENT_R4.md; cloud acceptance is pending. App version selection remains design only.
+- The published Android/AVF installation contracts below remain valid for v1; they do not prohibit the explicitly authorized v2 embedded targets or authorize overwriting old installations.
+- Commit at verified milestones; the controller alone stages/commits the shared worktree. Preserve unrelated edits; do not mix incomplete work into a completed milestone.
+- Implement ECS first. Execution chats use GPT-6-Astra / medium, execute only controller decisions, escalate all technical decisions, and remain idle until explicitly dispatched.
+
 PURPOSE
 AirSIM is a cross-device calling and messaging project. An Android phone owns the carrier call and SMS capabilities. iPhone and Apple Watch clients use those capabilities over authenticated VoWLAN or an independently deployed Cloudflare Relay. The recommended Android Standalone APK embeds the Agent and does not require AVF Linux.
 

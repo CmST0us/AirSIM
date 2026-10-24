@@ -1,5 +1,11 @@
 # AirSIM 全项目 Codex 部署辅助
 
+## v2 建设覆盖说明（2026-10-24）
+
+用户已明确新建多平台 v2：`module/airsim-agent/`（新 Agent）、`service/airsim/`（ECS Go 服务）、`service/airsim/deploy/compose/`（首版 Docker Compose）、`service/airsim-worker/`（独立 Worker v2）。先读 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)，再读相应新目录 README。App 云端显式选择 v1/v2，ECS 与 Worker v2 共用对外协议。新 Agent 的 RM500 R1–R3 已完成限定范围实机验收，见 [主控决策](docs/RM500_AGENT_EXECUTION.md) 和 [R3 记录](module/airsim-agent/R3_TESTING.md)。R4 Agent/ECS 云端接入按 [公共契约](protocol/v2/R4.md) 实施中，尚未宣称云端通过；App 选择器待实施。
+
+下面有关当前发布、三星 Android、旧 AVF 包/端口和 Worker 的规则继续适用于 v1；不得用这些历史范围禁止用户已确认的 RM500/EG25/Android AVF v2 建设，也不得把旧安装脚本直接用于新 Agent。保留旧 `module/module-agent/`、`push-relay-worker/` 和现有改动。v2 独立建设、ECS 优先；四个执行会话使用 GPT-6-Astra / medium，仅执行主控决定，遇到技术决策交回主控，未明确调度则待命。
+
 本文为 AI 编码代理提供 AirSIM 全仓库的事实来源、构建顺序、部署边界和安全约束。开始任务前先阅读根目录 `README.md`，再阅读所修改组件的 README 和实际源码。涉及 AVF 安装、配对或恢复时，还要阅读 `docs/AVF_INSTALL_GUIDE.md` 和 `LLM.txt`。源码与测试是协议事实来源；本文不能替代它们。
 
 当前发布基线（2026-10-12）：Android AVF/Standalone/iOS Apps `v0.9.6`（build `79`），兼容用 AVF Agent `v0.4.6`（Debian `0.4.6-1`），Relay 协议 `0.2.1`。维护者 AirSIM Relay 为 `https://airsim-push.remotepilot.site`；DJOneHub 的 `https://push.remotepilot.site` 不得用于 AirSIM。历史 Release 文档中的旧版本号属于归档事实，不能机械替换。
