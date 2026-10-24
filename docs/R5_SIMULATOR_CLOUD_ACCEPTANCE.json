@@ -1,0 +1,120 @@
+{
+  "stage": "R5 M4 simulator foreground v2 acceptance",
+  "date": "2026-10-24",
+  "status": "controls_SMS_and_75s_audio_content_passed; controlled_recovery_transport_passed_user_listening_feedback_pending",
+  "platform": "iOS 27.0 simulator; RM500U real carrier call; ECS Compose public HTTPS/WSS 443",
+  "verification_mode": "explicit DEBUG simulator prompt and memory-only delayed echo; no recording; not a real microphone cloud test",
+  "controls": {
+    "outbound_dial": true,
+    "App_hangup": true,
+    "incoming_answer": true,
+    "incoming_reject": true,
+    "background_targeted_hangup": true,
+    "guard_actions": 0
+  },
+  "SMS": {
+    "outgoing_sent_and_user_received": true,
+    "user_reply_visible_in_App": true,
+    "carrier_delivery_report_claimed": false
+  },
+  "audio_content": {
+    "call_id": "66e3bdea-272a-4372-961b-426a94243213",
+    "media_session_id": "fb466357-4515-4f78-a637-48429f4268aa",
+    "duration_seconds": 75,
+    "App_received": 3717,
+    "App_sent": 3638,
+    "sequence_gaps": 0,
+    "write_timeouts": 0,
+    "received_energy": {
+      "rms": 1014.5,
+      "peak": 30444,
+      "nonzero_frames": 2611,
+      "frames": 3717
+    },
+    "echo_energy": {
+      "rms": 1112.0,
+      "peak": 30444,
+      "nonzero_frames": 1675,
+      "frames": 2297
+    },
+    "App_queue_drops_combined": 1411,
+    "App_skipped_slots_combined": 203,
+    "App_playback_zero": 378,
+    "diagnostic_zero": 896,
+    "Agent_bridge_queue_drops": 149,
+    "Agent_bridge_cloud_input_gaps": 9,
+    "Agent_bridge_zero_frames": 214,
+    "user_confirmation": "可以 (in response to prompt and delayed self-echo question)",
+    "automatic_App_hangup": true,
+    "emergency_guard_did_not_act": true
+  },
+  "controlled_recovery": {
+    "call_id": "50020979-4dde-44ec-ae1f-e3253ac93604",
+    "first_session": "98584eb1-40f5-4797-8efa-33d4ee1a8dc8",
+    "failure_trigger": "App DEBUG button closes current media socket",
+    "first_session_reclaimed_HTTP": 404,
+    "new_session": "2d4e74e6-0a5a-4101-a518-7571d9eab9e3",
+    "recovered_stream_seconds_approx": 40,
+    "App_received": 2012,
+    "App_sent": 1936,
+    "sequence_gaps": 0,
+    "write_timeouts": 0,
+    "last_eligibility_failure": null,
+    "last_media_failure": null,
+    "received_energy": {
+      "rms": 1199.5,
+      "peak": 28660,
+      "nonzero_frames": 1101,
+      "frames": 2012
+    },
+    "echo_energy": {
+      "rms": 1334.8,
+      "peak": 28660,
+      "nonzero_frames": 769,
+      "frames": 1064
+    },
+    "App_queue_drops_combined": 720,
+    "App_skipped_slots_combined": 154,
+    "App_playback_zero": 184,
+    "diagnostic_zero": 422,
+    "App_hangup_confirmed": true,
+    "emergency_guard_did_not_act": true,
+    "user_listening_confirmation": "pending"
+  },
+  "known_limits": [
+    "Earlier attempts had a 2-second downlink gap and one stale eligibility failure; no confirmed permanent fix for intermittent transport/timing failures.",
+    "User reported slight interruptions and no echo on an earlier 75-second attempt; later energy-instrumented 75-second attempt was confirmed.",
+    "Nonzero queue drops and inserted silence remain; this is functional acceptance, not voice-quality or long-duration stability certification.",
+    "Physical iPhone/iPad App audio, real-microphone cloud content, APNs, background/terminated incoming calls, Watch v2 and formal login are outside this completed simulator evidence.",
+    "The 400ms/500ms/20-frame diagnostic echo and 2-second/100ms/8-second safeguards were not relaxed."
+  ],
+  "cleanup": {
+    "client_id": "1bfe9106-46af-4e47-8ee0-2b92ac0423fd",
+    "revoked_at": "2026-10-24T14:38:49.541505+00:00",
+    "public_verified_HTTPS_status": 401,
+    "expected_status": 401,
+    "root_created_local_config_files_removed": true,
+    "root_created_remote_client_file_removed": true,
+    "App_401_UI_verified": true,
+    "simulator_App_stopped": true,
+    "diagnostic_injection_disabled": true,
+    "Keychain_profile": "revoked credential retained in app storage; no active permission",
+    "active_calls": 0,
+    "audio_state": "closed",
+    "cloud_connected": true,
+    "checked_at": "2026-10-24T14:41:52.742463+00:00"
+  },
+  "tests": {
+    "new_focused_tests": 6,
+    "failed": 0,
+    "skipped": 0,
+    "earlier_diagnostic_focused_tests": 2
+  },
+  "commits": {
+    "443_recovery": "ce1528d",
+    "bounded_media_failure": "cec5ee8",
+    "App_calls_SMS": "f63e6c1",
+    "statistics_and_energy_diagnostics": "3ce8282"
+  },
+  "privacy": "No phone numbers, SMS bodies, tokens or PCM persisted in this report."
+}

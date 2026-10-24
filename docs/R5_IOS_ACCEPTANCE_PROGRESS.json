@@ -12,7 +12,7 @@
     "M1_protocol": "passed",
     "M2_ui_and_version_isolation": "passed",
     "M3_audio": "local_verification_passed_cloud_acceptance_pending",
-    "M4_app_cloud_rm500_acceptance": "in_progress_public_TLS_restored_audio_interruption_under_diagnosis"
+    "M4_app_cloud_rm500_acceptance": "controls_SMS_75s_audio_content_passed_recovery_listening_feedback_pending"
   },
   "verification": {
     "initial_simulator_build_and_launch": "passed",
@@ -361,13 +361,28 @@
         "skipped": 0,
         "execution_turn": "01a16e4f-4ee6-7c81-aae6-35fdfa02fe4f"
       }
+    },
+    "M4_latest_acceptance_report": "docs/R5_SIMULATOR_CLOUD_ACCEPTANCE.json",
+    "M4_latest_cleanup": {
+      "client_id": "1bfe9106-46af-4e47-8ee0-2b92ac0423fd",
+      "revoked_at": "2026-10-24T14:38:49.541505+00:00",
+      "public_verified_HTTPS_status": 401,
+      "expected_status": 401,
+      "root_created_local_config_files_removed": true,
+      "root_created_remote_client_file_removed": true,
+      "App_401_UI_verified": true,
+      "simulator_App_stopped": true,
+      "diagnostic_injection_disabled": true,
+      "Keychain_profile": "revoked credential retained in app storage; no active permission",
+      "active_calls": 0,
+      "audio_state": "closed",
+      "cloud_connected": true,
+      "checked_at": "2026-10-24T14:41:52.742463+00:00"
     }
   },
   "pending": [
-    "App audio content loop and intermittent downlink interruption diagnosis",
-    "App media failure recovery",
-    "focused verification of retained statistics and eligibility/audio energy diagnostics",
-    "temporary client revocation and final cleanup"
+    "user listening confirmation for final controlled media recovery call",
+    "intermittent audio transport/timing and voice-quality follow-up (not claimed solved)"
   ],
   "not_claimed": [
     "physical iPhone audio",
@@ -381,6 +396,10 @@
   "milestone_commits": {
     "M1": "d077fe2",
     "M2": "ad22d81",
-    "M3": "1521fba"
+    "M3": "1521fba",
+    "443_recovery": "ce1528d",
+    "bounded_media_failure": "cec5ee8",
+    "App_calls_SMS": "f63e6c1",
+    "statistics_and_energy_diagnostics": "3ce8282"
   }
 }
