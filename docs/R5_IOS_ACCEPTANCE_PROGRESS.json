@@ -350,6 +350,17 @@
       "disconnected_at": "2026-10-24T14:26:10.928409215Z",
       "reason": "local",
       "guard_did_not_act": true
+    },
+    "M4_followup_diagnostics": {
+      "scope": "freeze final statistics; retain eligibility failure; DEBUG-only PCM energy summaries",
+      "PCM_persisted": false,
+      "timeouts_and_echo_policy_changed": false,
+      "focused_tests": {
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "execution_turn": "01a16e4f-4ee6-7c81-aae6-35fdfa02fe4f"
+      }
     }
   },
   "pending": [

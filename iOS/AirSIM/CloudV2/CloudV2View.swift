@@ -170,6 +170,9 @@ private struct V2SettingsView: View {
                     Button("断开本次媒体") { model.media.disconnectForDiagnostics() }.disabled(!model.media.active)
                     Button("测试本机音频（3秒）") { model.testLocalAudio() }.disabled(model.busy || model.media.active || model.ownedCall != nil || model.activeCall != nil)
                     Text(model.localAudioResult)
+                    if let failure = model.lastEligibilityFailure {
+                        Text("最后资格失败：\(failure.reason.rawValue) · 当时快照年龄：\(failure.snapshotAgeSeconds.map { String(format: "%.3f s", $0) } ?? "—")")
+                    } else { Text("最后资格失败：无") }
                     if let failure = model.media.lastFailure {
                         Text("最后失败：\(failure.code.rawValue) · 阶段 \(failure.stage.rawValue)")
                         Text("错误域：\(failure.domain ?? "—") · 数字码：\(failure.numericCode.map { String($0) } ?? "—")")
@@ -178,6 +181,8 @@ private struct V2SettingsView: View {
                     Text("快照年龄：\(model.selectedSnapshotAgeSeconds.map { String(format: "%.1f s", $0) } ?? "—")")
                     Text("audioReady=\(model.audioReady ? "true" : "false") · ownedControlReady=\(model.ownedControlReady ? "true" : "false")")
                     let stats = model.media.statistics
+                    Text("下行 PCM：RMS \(String(format: "%.1f", stats.diagnosticReceivedEnergy.rms)) · peak \(stats.diagnosticReceivedEnergy.peak) · 非零帧 \(stats.diagnosticReceivedEnergy.nonzeroFrames)/\(stats.diagnosticReceivedEnergy.frames)")
+                    Text("回声输出：RMS \(String(format: "%.1f", stats.diagnosticEchoEnergy.rms)) · peak \(stats.diagnosticEchoEnergy.peak) · 非零帧 \(stats.diagnosticEchoEnergy.nonzeroFrames) · echo 帧 \(stats.diagnosticEchoEnergy.frames)")
                     Text("接收 \(stats.received) · 发送 \(stats.sent) · 序号缺口 \(stats.sequenceGaps)")
                     Text("队列丢弃 \(stats.queueDrops) · 跳过节拍 \(stats.skippedSlots) · 写超时 \(stats.writeTimeouts)")
                     Text("采集 \(stats.captureFrames) · 已播放 \(stats.rendered) · 播放补零 \(stats.playbackZero) · 注入补零 \(stats.diagnosticZero)")

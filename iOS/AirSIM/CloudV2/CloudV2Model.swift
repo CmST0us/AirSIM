@@ -3,8 +3,19 @@ import SwiftUI
 import UIKit
 import Combine
 
+enum V2EligibilityFailureReason: String {
+    case configuration, foreground, directoryOffline, snapshotOffline, identityEpochMismatch
+    case snapshotExpired, snapshotFuture, snapshotInvalid, controlNotReady, audioUnavailable
+    case callNotActive, ownedContextMismatch, persistenceFailed, experimentalDisabled, unknown
+}
+struct V2EligibilityFailure: Equatable {
+    let reason: V2EligibilityFailureReason
+    let snapshotAgeSeconds: Double?
+}
+
 @MainActor
 final class CloudV2Model: ObservableObject {
+    @Published private(set) var lastEligibilityFailure: V2EligibilityFailure?
     @Published private(set) var configuration: V2Configuration?
     @Published private(set) var modules: [V2Module] = []
     @Published private(set) var selectedModuleID: String?
@@ -400,9 +411,40 @@ final class CloudV2Model: ObservableObject {
     func connectAudio() {
         guard audioReady, let ownedCall, !media.active else { return }
         attemptedAudioCall = ownedCall
+        lastEligibilityFailure = nil
         media.start(context: ownedCall, diagnosticMode: diagnosticAudio) { [weak self] in
-            self?.audioReady == true && self?.ownedCall == ownedCall
+            guard let self else { return false }
+            let valid = self.audioReady == true && self.ownedCall == ownedCall
+            if !valid { self.recordEligibilityFailure(for: ownedCall) }
+            return valid
         }
+    }
+    private func recordEligibilityFailure(for context: V2CallContext) {
+        let age = snapshot?.snapshot.flatMap { try? V2Validation.date($0.observed_at) }.map { now().timeIntervalSince($0) }
+        let reason: V2EligibilityFailureReason
+        if configuration == nil || !connected { reason = .configuration }
+        else if !foreground { reason = .foreground }
+        else if persistenceFailed { reason = .persistenceFailed }
+        else if !experimentalAudio { reason = .experimentalDisabled }
+        else if ownedCall != context { reason = .ownedContextMismatch }
+        else if selectedModule?.online != true { reason = .directoryOffline }
+        else if snapshot?.online != true || snapshot?.snapshot == nil { reason = .snapshotOffline }
+        else if let configuration, let module = selectedModule, let response = snapshot, let value = response.snapshot {
+            if configuration.identity != context.binding.identity || response.server_id != configuration.identity.serverID ||
+                response.module_id != module.module_id || module.module_id != context.binding.moduleID ||
+                response.connection_epoch != module.connection_epoch || response.connection_epoch != context.binding.connectionEpoch ||
+                value.agent_boot_id != module.agent_boot_id || value.agent_boot_id != context.binding.bootID ||
+                value.backend_epoch != module.backend_epoch || value.backend_epoch != context.binding.backendEpoch {
+                reason = .identityEpochMismatch
+            } else if let age, age > 8 { reason = .snapshotExpired }
+            else if let age, age < -3 { reason = .snapshotFuture }
+            else if age == nil { reason = .snapshotInvalid }
+            else if !value.control.ready || !value.control.telephony_ready { reason = .controlNotReady }
+            else if discovery?.capabilities.experimental_audio != true || !value.audio.available { reason = .audioUnavailable }
+            else if activeCall?.state != "active" { reason = .callNotActive }
+            else { reason = .unknown }
+        } else { reason = .unknown }
+        lastEligibilityFailure = V2EligibilityFailure(reason: reason, snapshotAgeSeconds: age)
     }
     private func refreshCommandStatus() {
         guard let machine else { return }

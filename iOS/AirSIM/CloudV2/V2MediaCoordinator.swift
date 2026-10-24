@@ -6,6 +6,10 @@ struct V2MediaStatistics {
     var queueDrops: UInt64 = 0, skippedSlots: UInt64 = 0, playbackZero: UInt64 = 0
     var rendered: UInt64 = 0, captureFrames: UInt64 = 0, writeTimeouts: UInt64 = 0
     var diagnosticZero: UInt64 = 0
+#if DEBUG
+    var diagnosticReceivedEnergy = V2PCMEnergySummary()
+    var diagnosticEchoEnergy = V2PCMEnergySummary()
+#endif
 }
 enum V2MediaState: Equatable {
     case idle, preparing, authenticating, waiting, paired, failed(String), stopping
@@ -97,6 +101,7 @@ final class V2MediaCoordinator: ObservableObject {
     private var lastCapture: UInt64 = 0, lastDownlink: UInt64 = 0, pairedAt: UInt64 = 0
     private var lastDownlinkFrame: UInt64?
     private var counters = V2MediaStatistics()
+    private var statisticsFrozen = true
     private var diagnostic: V2DiagnosticAudio?
     var onDiagnosticTimeout: ((V2CallContext) -> Void)?
     var active: Bool { context != nil || startTask != nil || stopTask != nil || state == .stopping }
@@ -108,6 +113,7 @@ final class V2MediaCoordinator: ObservableObject {
         guard !active else { return }
         let stamp = UUID(); generation = stamp; self.context = context
         lastFailure = nil; lastDownlinkFrame = nil
+        statisticsFrozen = false
         state = .preparing; counters = V2MediaStatistics(); statistics = counters
         muted = false; speaker = false
         audio.onFailure = { [weak self] error in self?.fail(error, stamp: stamp, stage: .audio) }
@@ -241,11 +247,18 @@ final class V2MediaCoordinator: ObservableObject {
         }
     }
     private func publish() {
+        guard !statisticsFrozen else { return }
         audioMetrics = audio.metrics
         counters.captureFrames = audio.metrics.captured; counters.rendered = audio.metrics.rendered
         counters.queueDrops = (up?.queueDrops ?? 0) + (down?.queueDrops ?? 0) + audio.metrics.outputDrops + audio.metrics.playbackDrops + (diagnostic?.echoDrops ?? 0)
         counters.skippedSlots = (up?.skippedSlots ?? 0) + (down?.skippedSlots ?? 0)
         counters.playbackZero = down?.zeroFrames ?? 0
+#if DEBUG
+        if let diagnostic {
+            counters.diagnosticReceivedEnergy = diagnostic.receivedEnergy
+            counters.diagnosticEchoEnergy = diagnostic.echoEnergy
+        }
+#endif
         statistics = counters
     }
     private func fail(_ error: Error, stamp: UUID, stage: V2MediaFailureStage) {
@@ -281,6 +294,7 @@ final class V2MediaCoordinator: ObservableObject {
         startTask = nil; receiveTask = nil; tickTask = nil; sendTask = nil
         tasks.forEach { $0.cancel() }; socket?.cancel(); socket = nil
         publish()
+        statisticsFrozen = true
         diagnostic?.stop(); diagnostic = nil
         if let context, let sessionID { Task { await delete(context, sessionID) } }
         context = nil; sessionID = nil

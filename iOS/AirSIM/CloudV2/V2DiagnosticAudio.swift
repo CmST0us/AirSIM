@@ -37,6 +37,32 @@ private final class V2SpeechCollector: @unchecked Sendable {
     }
 }
 
+#if DEBUG
+struct V2PCMEnergySummary: Equatable {
+    private(set) var frames: UInt64 = 0
+    private(set) var nonzeroFrames: UInt64 = 0
+    private(set) var samples: UInt64 = 0
+    private(set) var peak: Int = 0
+    private var energy: Double = 0
+    var rms: Double { samples == 0 ? 0 : sqrt(energy / Double(samples)) }
+    mutating func record(_ pcm: Data) {
+        guard pcm.count == 320 else { return }
+        var framePeak = 0
+        pcm.withUnsafeBytes { bytes in
+            let bytes = bytes.bindMemory(to: UInt8.self)
+            for index in stride(from: 0, to: bytes.count, by: 2) {
+                let sample = Int(Int16(bitPattern: UInt16(bytes[index]) | UInt16(bytes[index + 1]) << 8))
+                framePeak = max(framePeak, abs(sample))
+                energy += Double(sample) * Double(sample)
+            }
+        }
+        frames += 1; samples += 160
+        if framePeak > 0 { nonzeroFrames += 1 }
+        peak = max(peak, framePeak)
+    }
+}
+#endif
+
 @MainActor
 final class V2DiagnosticAudio {
     private var synthesizer: AVSpeechSynthesizer?
@@ -48,6 +74,10 @@ final class V2DiagnosticAudio {
     private(set) var sourceFormat = "no_buffer"
     private(set) var zeroFrames: UInt64 = 0
     private(set) var echoDrops: UInt64 = 0
+#if DEBUG
+    private(set) var receivedEnergy = V2PCMEnergySummary()
+    private(set) var echoEnergy = V2PCMEnergySummary()
+#endif
     var echoCount: Int { echoes.count }
     init(prompt: [Data] = []) { self.prompt = Array(prompt.prefix(1500)) }
     func prepare() async throws {
@@ -68,9 +98,18 @@ final class V2DiagnosticAudio {
         throw V2MediaFailure.inactive
 #endif
     }
-    func start(at now: UInt64) { deadline = now }
+    func start(at now: UInt64) {
+        deadline = now
+#if DEBUG
+        receivedEnergy = V2PCMEnergySummary(); echoEnergy = V2PCMEnergySummary()
+#endif
+    }
     func receive(_ pcm: Data, at now: UInt64) {
-        guard deadline != nil, promptIndex >= prompt.count, pcm.count == 320 else { return }
+        guard deadline != nil, pcm.count == 320 else { return }
+#if DEBUG
+        receivedEnergy.record(pcm)
+#endif
+        guard promptIndex >= prompt.count else { return }
         discardExpired(at: now)
         guard echoes.count < 20 else { echoDrops += 1; return }
         echoes.append((now, pcm))
@@ -85,7 +124,13 @@ final class V2DiagnosticAudio {
         }
         self.deadline = deadline + 20_000_000
         if promptIndex < prompt.count { defer { promptIndex += 1 }; return prompt[promptIndex] }
-        if let first = echoes.first, now >= first.0 + 400_000_000 { echoes.removeFirst(); return first.1 }
+        if let first = echoes.first, now >= first.0 + 400_000_000 {
+            echoes.removeFirst()
+#if DEBUG
+            echoEnergy.record(first.1)
+#endif
+            return first.1
+        }
         zeroFrames += 1; return Data(repeating: 0, count: 320)
     }
     private func discardExpired(at now: UInt64) {
