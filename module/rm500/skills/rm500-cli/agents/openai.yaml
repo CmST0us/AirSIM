@@ -1,0 +1,4 @@
+interface:
+  display_name: "RM500 CLI"
+  short_description: "通过 Go CLI 操作 RM500 模块，检查控制、蜂窝数据与语音能力"
+  default_prompt: "使用 $rm500-cli 检查当前 RM500 的网络、IMS 与通话状态，并说明语音能力的实测边界。"
