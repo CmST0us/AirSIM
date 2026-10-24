@@ -16,7 +16,7 @@
 - 本地集成使用独立 `airsim-r4-test` project name、随机/显式loopback高端口、测试CA，证书严格校验；不把本机CA安装到系统信任、不触碰其他Docker项目。
 - Secrets全部文件注入，源码只占位；CA签发私钥只挂admin，数据库密码只挂postgres/control/migrate/admin，edge-token仅edge/control，media内部token仅control/media，客户端token不进Compose环境日志。禁止运行期打印完整env/inspect secret/HTTP body。
 - Compose healthcheck区分liveness/readiness，postgres healthy→migrate successful→control ready→media/edge ready；迁移使用PG advisory lock及显式版本，失败停止发布。提供backup/restore到隔离库验证脚本；禁止对生产volume执行down -v。
-- 首次云部署到新目录、独立project/volumes，保留回滚产物。用户已明确授权暂时停止 iroh-relay（服务名 `iroh-relay.service`）并优先部署 AirSIM；主控已停止并禁用其开机启动，保留原配置，80/443 用于 AirSIM。域名仍待用户配置，不接管旧 v1 域名。
+- 首次云部署到新目录、独立project/volumes，保留回滚产物。用户已明确授权暂时停止 iroh-relay（服务名 `iroh-relay.service`）并优先部署 AirSIM；主控已停止并禁用其开机启动，保留原配置，80/443 用于 AirSIM。后续由用户授权使用 eric3u.cc，API/媒体使用 airsim.eric3u.cc，设备 mTLS 使用 device.airsim.eric3u.cc；不接管旧 v1 域名。
 - 官方 Caddy 2.11.7 二进制带 `cap_net_bind_service=ep`。edge 在 `cap_drop: ALL` 基础上仅 `cap_add: NET_BIND_SERVICE`，保留 non-root/read_only/no-new-privileges；control/media 不放宽权限。生产使用标准 80/443，本机测试仍只绑定 loopback 高端口。
 
 ## 验收次序
@@ -40,3 +40,10 @@
 - `499a60c` 提交 Agent 实现。主控再次运行全量 Go race/vet 与本地引导脚本验证，通过后将 SHA256 `6a63c689ccf961dac9d2b9e7c997f656cf6306be2defb0934ac49aa070981689` 部署到 RM500 独立 release。原 R3 Agent/helper、设备身份和命令 journal 保留，哈希核对不变；本机 control ready、audio available，云端未配置，voice_ready 仍为 false。详见 [部署证据](R4_RM500_DEPLOYMENT.json)。数据分区剩余 1664KiB，不把单次空闲 RSS 样本当云端运行资源结论。
 - ECS 已通过本机下载固定官方 amd64 镜像→Workbench传送→校验归档→Docker load→比对全部 rootfs layer identity→运行版本检查，准备 Caddy 2.11.7 与 PostgreSQL 17.11。完整来源、配置、归档与 ECS 实际镜像 ID 见 [ECS准备证据](R4_ECS_PREPARATION.json)。离线生产使用 ECS 实际验证的 `sha256:...` content-addressed image ID 与 `pull_policy: never`；Docker save/load 的 OCI manifest digest 不等于原 registry 压缩 manifest digest，不混称。
 - 服务端正在完成最终 Compose/故障验证；公网域名仍待用户给出。主控已准备独立 HTTPS/WSS 验收客户端，但尚未通过云端拨号、发送短信或传输实机音频。
+
+## 公网部署与设备接入里程碑
+
+- `ba30a26` 已提交服务实现与完整本地 Compose 验证。主控在 Cloudflare 添加上述两个 DNS-only A 记录，解析至已授权 ECS；见 [DNS 证据](R4_DNS_DEPLOYMENT.json)。
+- 固定 amd64 业务镜像传到 ECS 后校验归档与 rootfs，初始化独立数据库、身份及设备 CA。四个常驻服务均已启动；公开信任证书的 TLS 1.3 / discovery 正常，设备入口拒绝无客户端证书。旧版 curl 的 TLS 握手失败单独记录，未以关闭证书校验绕过。
+- RM500 使用原设备私钥生成 CSR/持有证明，ECS 一次性签发 30 天设备证书，原 Agent 原位激活成功，已通过公网 mTLS/WSS 连接，cloud configured/connected 均为 true。设备私钥未导出。业务云端验收尚未执行，不能将登记在线等同通话/短信/音频通过。
+- 实际部署发现证书卷初始化第二次递归 chown 会失败。修正为仅处理顶层目录，保留最小 CHOWN/FOWNER，隔离真实卷重复初始化及已有文件不变验证通过；不改变业务镜像。所有一次性 Compose 命令显式关闭 stdin，避免远程 shell 后续命令被消费。

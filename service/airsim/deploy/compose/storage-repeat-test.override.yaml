@@ -1,0 +1,6 @@
+# Only for repeat-initialization tests under project airsim-r4-test.
+volumes:
+  tls-state:
+    name: airsim-r4-test-repeat-tls
+  edge-config:
+    name: airsim-r4-test-repeat-config

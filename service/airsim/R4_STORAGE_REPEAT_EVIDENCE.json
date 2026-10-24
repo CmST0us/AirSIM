@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-24",
+  "project": "airsim-r4-test",
+  "compose_version": "2.26.1",
+  "initialization_runs": 2,
+  "production_compose_sha256": "84a9faba785df99d3ce494635acdd982ab7c4fcba2a50426ff44407c7afd7f11",
+  "second_run_existing_files": true,
+  "directories": "65532:65532:0700",
+  "files": "65532:65532:0600",
+  "content_and_file_metadata_unchanged": true,
+  "comparison_sha256": "5a5ac2290a26d145c8ca0c038667337772f4ecc42ecad4c14b3f3ccb1b482ea2",
+  "stdin": "DEVNULL; run -T --interactive=false",
+  "cloud_or_device_operations": false,
+  "volumes": [
+    "airsim-r4-test-repeat-tls",
+    "airsim-r4-test-repeat-config"
+  ]
+}

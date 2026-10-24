@@ -14,13 +14,13 @@ cd "$(dirname "$0")/../../.."
 compose() { docker compose -p airsim-r4-test -f deploy/compose/compose.yaml "$@"; }
 compose build control
 compose up -d postgres
-compose run --rm migrate
-compose run --rm admin --operation init --secrets-dir /protected/identity
+compose run -T --interactive=false --rm migrate </dev/null
+compose run -T --interactive=false --rm admin --operation init --secrets-dir /protected/identity </dev/null
 export AIRSIM_SERVER_ID=$(python3 -c 'import json,os;print(json.load(open(os.path.join(os.environ["AIRSIM_SECRET_DIR"],"identity/identity.json")))["server_id"])')
 "$GO" run ./cmd/airsim-test-setup --dir "$AIRSIM_SECRET_DIR" --operation modules --port "$AIRSIM_EDGE_PORT"
 for n in 1 2; do
- compose run --rm admin --operation issue-module --secrets-dir /protected/identity --request "/protected/module$n-request.json" --response "/protected/module$n-response.json" --output "/protected/module$n-bundle.json"
- compose run --rm admin --operation issue-client --output "/protected/client$n.json"
+ compose run -T --interactive=false --rm admin --operation issue-module --secrets-dir /protected/identity --request "/protected/module$n-request.json" --response "/protected/module$n-response.json" --output "/protected/module$n-bundle.json" </dev/null
+ compose run -T --interactive=false --rm admin --operation issue-client --output "/protected/client$n.json" </dev/null
 done
 python3 deploy/compose/scripts/render-test-edge.py
 compose up -d control media edge

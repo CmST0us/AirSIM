@@ -23,29 +23,30 @@ After loading/validating images and exporting configuration, run the following f
 ```sh
 scripts/production-compose.sh config --quiet
 scripts/production-compose.sh up -d postgres
-scripts/production-compose.sh run --rm migrate
-scripts/production-compose.sh run --rm admin --operation init --secrets-dir /protected/identity
+scripts/production-compose.sh run -T --interactive=false --rm migrate </dev/null
+scripts/production-compose.sh run -T --interactive=false --rm admin --operation init --secrets-dir /protected/identity </dev/null
 ```
 
 `init` creates `identity/identity.json`, the five-year device CA, independent edge/media bearers and command-HMAC key. It refuses an existing identity directory. Read only the public `server_id` from `identity.json` into `AIRSIM_SERVER_ID`; never dump the directory. Initialization failure must be inspected rather than deleting existing identity material.
 
 ```sh
 python3 scripts/render-production-edge.py
-scripts/production-compose.sh run --rm edge-storage-init
-scripts/production-compose.sh run --rm --no-deps --entrypoint /bin/sh edge -ec 'test -w /data; test -w /config'
-scripts/production-compose.sh run --rm --no-deps edge caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+chown 65532:65532 "$AIRSIM_SECRET_DIR/Caddyfile"
+scripts/production-compose.sh run -T --interactive=false --rm edge-storage-init </dev/null
+scripts/production-compose.sh run -T --interactive=false --rm --no-deps --entrypoint /bin/sh edge -ec 'test -w /data; test -w /config' </dev/null
+scripts/production-compose.sh run -T --interactive=false --rm --no-deps edge caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile </dev/null
 scripts/production-compose.sh up -d control media edge
 ```
 
-The explicit root storage initializer mounts **only this project's** `tls-state` and `edge-config` named volumes, applies 65532:65532 ownership and 0700 mode and checks both. It has no network or secrets and exits. Edge remains nonroot/read-only/no-new-privileges, with `cap_drop: ALL` and the controller-approved sole `NET_BIND_SERVICE` capability. The fixed official Caddy executable carries that file capability and fails to execute when it is absent. Do not broaden capabilities.
+The explicit root storage initializer mounts **only this project's** `tls-state` and `edge-config` named volumes, applies 65532:65532 ownership and 0700 mode to the two top-level mount directories only and checks both. It does not recurse into, chown, or rewrite existing certificates/files; Caddy creates their contents as uid 65532. This makes repeat initialization safe without DAC traversal capabilities. It has no network or secrets and exits. Edge remains nonroot/read-only/no-new-privileges, with `cap_drop: ALL` and the controller-approved sole `NET_BIND_SERVICE` capability. The fixed official Caddy executable carries that file capability and fails to execute when it is absent. Do not broaden capabilities.
 
 Healthchecks distinguish process liveness (`/healthz`) from database schema readiness (`/readyz`); edge health uses an actual verified TLS request. PostgreSQL health precedes migration, then control health, then media/edge. Caddy obtains publicly trusted TLS only after the controller has provided working DNS and public ACME reachability. Local fixture certificates do not establish that production prerequisite.
 
 ## Controlled test-client and module provisioning
 
 ```sh
-scripts/production-compose.sh run --rm admin --operation issue-client --output /protected/client-test.json
-scripts/production-compose.sh run --rm admin --operation revoke-client --client-id '<installation UUID>'
+scripts/production-compose.sh run -T --interactive=false --rm admin --operation issue-client --output /protected/client-test.json </dev/null
+scripts/production-compose.sh run -T --interactive=false --rm admin --operation revoke-client --client-id '<installation UUID>' </dev/null
 ```
 
 The output file is 0600 and must not already exist. Token validity is 60 minutes; there is no refresh/login claim. Transfer it only through an authorized protected channel, never a URL, terminal output or ordinary logs.
@@ -53,11 +54,11 @@ The output file is 0600 and must not already exist. Token validity is 60 minutes
 The controller calls the Agent's local Unix `cloud/prepare` endpoint using the frozen request. Preserve the exact request and response as 0600 files under the protected directory. Do not copy the device private key; the response contains public key/CSR/proof only.
 
 ```sh
-scripts/production-compose.sh run --rm admin --operation issue-module \
+scripts/production-compose.sh run -T --interactive=false --rm admin --operation issue-module \
  --secrets-dir /protected/identity \
  --request /protected/prepare-request.json \
  --response /protected/prepare-response.json \
- --output /protected/activation-bundle.json
+ --output /protected/activation-bundle.json </dev/null
 ```
 
 Issuance verifies proof, CSR/public key/SAN, pending expiry and exact configured server/origins. Send only the resulting bundle to the Agent's local activation endpoint. A retry uses the same request/response and a new output filename; no private device material is exported. A distinct reissuance/automatic renewal workflow is outside R4. Device certificates are 30-day ClientAuth-only; live control sockets also close at certificate expiration.
@@ -71,3 +72,5 @@ Back up PostgreSQL with `pg_dump -Fc` into a newly created 0600 external file, a
 `scripts/backup-restore-test.sh` is intentionally restricted to the local `airsim-r4-test` project. It restores to a separately named `airsim_r4_restore*` database and compares every R4 table without printing rows, token hashes or certificates. It is not a production restore command. No provided wrapper supports `down -v` on production.
 
 Run migrations explicitly before starting a new control version. An unsupported higher schema fails closed. Image rollback is only valid if the controller has checked compatibility with the retained database; otherwise restore the corresponding isolated verified backup under an explicit recovery plan. Never reset a production volume to make a migration pass.
+
+All one-shot `docker compose run` commands use `-T --interactive=false`. Remote script invocations also redirect stdin from `/dev/null` so they cannot consume subsequent commands.

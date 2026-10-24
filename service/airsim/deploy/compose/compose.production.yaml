@@ -109,7 +109,7 @@ services:
     user: "0:0"
     entrypoint: [/bin/sh, -ec]
     command:
-      - 'chown -R 65532:65532 /data /config; chmod 0700 /data /config; test "$$(stat -c %u:%g:%a /data)" = 65532:65532:700; test "$$(stat -c %u:%g:%a /config)" = 65532:65532:700'
+      - 'chown 65532:65532 /data /config; chmod 0700 /data /config; test "$$(stat -c %u:%g:%a /data)" = 65532:65532:700; test "$$(stat -c %u:%g:%a /config)" = 65532:65532:700'
     network_mode: none
     read_only: true
     cap_drop: [ALL]

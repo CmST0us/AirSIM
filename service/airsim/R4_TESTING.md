@@ -44,3 +44,11 @@ External synthetic credentials: `/tmp/airsim-r4-test-20261024` (0700, files 0600
 No ECS business deployment, public ACME issuance, real Agent-to-ECS interoperability, real carrier call/SMS, 75-second content listening, iOS/Watch/APNs, interactive login, certificate renewal, long-duration qualification or production backup recovery has been performed by this chat. The configured production origins (`airsim.eric3u.cc`, `device.airsim.eric3u.cc`) were supplied and managed by the controller. Local synthetic frame success is not real audio-content acceptance.
 
 The controller must review and stage the service directory for the milestone commit, then deploy and perform the remaining real-device acceptance.
+
+## Deployment correction: repeatable edge storage initialization
+
+Following the controller's ECS finding, `edge-storage-init` now chowns only `/data` and `/config` themselves, without `-R`. It retains only CHOWN/FOWNER and verifies 65532:65532/0700. Existing contents are neither traversed nor rewritten.
+
+`deploy/compose/scripts/test-storage-repeat.py` exercised real dedicated volumes under `airsim-r4-test` using Compose 2.26.1: initialize, create a uid/gid 65532-owned 0600 sentinel inside each volume, initialize again, then compare content hashes and file ownership/mode/size/timestamps. Both runs succeeded and existing files remained unchanged. Evidence is in `R4_STORAGE_REPEAT_EVIDENCE.json`; no ECS/device operations occurred. The script can be rerun without overwriting the expected sentinels.
+
+All provided Compose run examples and fixture setup commands now use `-T --interactive=false`; shell invocations redirect from `/dev/null`, and the regression test uses `subprocess.DEVNULL`. No Go code or business-image input changed in this correction.
