@@ -1,0 +1,707 @@
+{
+  "pid": 9588,
+  "remote": "/mnt/data/airsim-v2/releases/b603f0cf5958a0ad/airsim-agent",
+  "sha256": "b603f0cf5958a0adfd131b5a52bb7eb359d9a5a93c56923ee4000e4022803cb8",
+  "r1_pid": 6367,
+  "r1_release": "/mnt/data/airsim-v2/releases/b9659d09758375ba/airsim-agent",
+  "identity_unchanged": true,
+  "previous_r2_pid": 9414,
+  "graceful_shutdown_seconds": 0.058,
+  "previous_boot": "8d999287-cad1-4460-8187-067220a852ae",
+  "previous_epoch": "5710eae8-7ef4-47a9-a45a-12f066fd4c02",
+  "unconfirmed_launch_pid": 9508,
+  "launch": "nohup setsid with one-second survival check",
+  "version": "2.0.0-dev.r2",
+  "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+  "samples": [
+    {
+      "elapsed_seconds": 0.23,
+      "revision": 1,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 7548,
+        "VmHWM": 7548,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 10.293,
+      "revision": 2,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 8116,
+        "VmHWM": 8116,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 20.301,
+      "revision": 3,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 8700,
+        "VmHWM": 8700,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 30.28,
+      "revision": 4,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 9224,
+        "VmHWM": 9224,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 40.283,
+      "revision": 5,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 9756,
+        "VmHWM": 9756,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 50.291,
+      "revision": 6,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 10388,
+        "VmHWM": 10388,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 60.283,
+      "revision": 7,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 10548,
+        "VmHWM": 10548,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 70.293,
+      "revision": 8,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 10592,
+        "VmHWM": 10592,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 80.296,
+      "revision": 9,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 10636,
+        "VmHWM": 10636,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 90.291,
+      "revision": 10,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 10700,
+        "VmHWM": 10700,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 100.293,
+      "revision": 11,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 11284,
+        "VmHWM": 11284,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 110.265,
+      "revision": 12,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 11580,
+        "VmHWM": 11580,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 120.291,
+      "revision": 13,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 11788,
+        "VmHWM": 11788,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 130.279,
+      "revision": 14,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 11852,
+        "VmHWM": 11852,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 140.249,
+      "revision": 15,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 11896,
+        "VmHWM": 11896,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 150.27,
+      "revision": 16,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 11932,
+        "VmHWM": 11932,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 160.262,
+      "revision": 17,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 11992,
+        "VmHWM": 11992,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 170.257,
+      "revision": 18,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 11644,
+        "VmHWM": 12056,
+        "Threads": 8,
+        "FD": 11
+      }
+    },
+    {
+      "elapsed_seconds": 180.27,
+      "revision": 19,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "freshness": "fresh",
+      "readonly": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "control": {
+        "schema_version": 1,
+        "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+        "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 1024
+      },
+      "resources": {
+        "VmRSS": 11644,
+        "VmHWM": 12056,
+        "Threads": 9,
+        "FD": 11
+      }
+    }
+  ],
+  "capabilities": {
+    "schema_version": 1,
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "profile": "rm500u-embedded",
+    "capabilities": {
+      "audio": {
+        "support": "unknown",
+        "readiness": "unavailable",
+        "reason": "not_implemented"
+      },
+      "messaging": {
+        "support": "supported",
+        "readiness": "ready",
+        "reason": ""
+      },
+      "network": {
+        "support": "supported",
+        "readiness": "ready",
+        "reason": ""
+      },
+      "platform": {
+        "support": "supported",
+        "readiness": "ready",
+        "reason": ""
+      },
+      "radio_sim": {
+        "support": "supported",
+        "readiness": "ready",
+        "reason": ""
+      },
+      "telephony": {
+        "support": "supported",
+        "readiness": "ready",
+        "reason": ""
+      }
+    }
+  },
+  "permissions": [
+    "700 /mnt/data/airsim-v2",
+    "700 /mnt/data/airsim-v2/state",
+    "600 /mnt/data/airsim-v2/config/identity.json",
+    "700 /run/airsim-v2",
+    "600 /run/airsim-v2/control.sock"
+  ],
+  "log_bytes": 0,
+  "r1_release_unchanged": true,
+  "free_space": "/dev/ubi0_userdata       35664     17016     18140  48% /mnt/userdata",
+  "command_journal_absent_before_business": true,
+  "handoff": {
+    "pid": 9588,
+    "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+    "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "active_call_count": 0,
+    "business_command_count": 0,
+    "ready": true,
+    "telephony_ready": true,
+    "messaging_ready": true,
+    "voice_ready": false,
+    "device_control": "returned_to_main_controller",
+    "no_further_executor_device_writes": true
+  }
+}

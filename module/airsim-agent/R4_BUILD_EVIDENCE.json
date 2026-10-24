@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "phase": "R4_agent_local_implementation_verified_not_deployed",
+  "protocol": "airsim-v2-r4.1",
+  "version": "2.0.0-dev.r4",
+  "artifact": {
+    "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/airsim-agent/dist/airsim-agent",
+    "sha256": "6a63c689ccf961dac9d2b9e7c997f656cf6306be2defb0934ac49aa070981689",
+    "bytes": 7274680,
+    "kib": 7104.1796875,
+    "elf_machine": "AArch64",
+    "pt_interp": false,
+    "pt_dynamic": false
+  },
+  "r3_baseline": {
+    "bytes": 6553784,
+    "sha256": "ea836044de25662bb92dad365d49cac3ce3686fb3de232b1526f7d87d443c171",
+    "preserved_path": "/Users/eki/Project/Embedded_Project/AirSIM/module/airsim-agent/dist/airsim-agent-r3-ea836044de25662b"
+  },
+  "binary_delta_bytes": 720896,
+  "c_helper_unchanged": true,
+  "c_helper_sha256": "39ff88dabce16196defdacc72637a15695f171a65f080179dde4382df3cc41dc",
+  "toolchain": "Go 1.24.13 CGO_ENABLED=0 GOOS=linux GOARCH=arm64",
+  "dependencies": {
+    "github.com/coder/websocket": "v1.8.15",
+    "github.com/godbus/dbus/v5": "v5.2.2",
+    "golang.org/x/sys": "v0.27.0"
+  },
+  "validation": {
+    "full_go_race": "passed",
+    "full_go_vet": "passed",
+    "tls_mtls_control_fake_integration": "passed",
+    "tls_unix_media_payload_mapping_cleanup": "passed",
+    "provisioning_crypto_persistence_boundaries": "passed",
+    "queue_generation_owner_and_epoch_bounds": "passed",
+    "python_bootstrap_loopback_permissions": "passed",
+    "accepted_over_64_no_slot_exhaustion": "passed",
+    "answer_hangup_11_second_release_without_receipt_mutation": "passed",
+    "local_media_stats_exact_schema_lifecycle_race": "passed",
+    "cloud_messages_epoch_filter_local_history_preserved": "passed",
+    "short_lived_certificate_real_mtls_connection_deadline": "passed",
+    "cloud_package_race_after_certificate_deadline": "passed"
+  },
+  "memory": {
+    "measurement_environment": "darwin arm64 Apple M1 Max; synthetic read-only snapshot and messages pair; 100 iterations",
+    "snapshot_benchmark_bytes_per_operation": 9917,
+    "snapshot_benchmark_allocations_per_operation": 97,
+    "control_outgoing_queue_items": 32,
+    "control_encoded_frame_max_bytes": 131072,
+    "media_uplink_queue_frames": 5,
+    "media_frame_bytes": 360,
+    "receipt_tracking_items": 64,
+    "cloud_command_binding_max_source": "bounded by existing 1024-record journal; no automatic journal eviction",
+    "device_rss_delta": "not_measured",
+    "interpretation": "allocation benchmark and configured bounds are not device RSS or endurance evidence"
+  },
+  "bridge_stats": "protected Unix GET /v2/local/cloud/media-stats; independent current/last bridge counters; idle/start/stream/closed lifecycle",
+  "deployment": false,
+  "device_operations": false,
+  "ecs_resources_changed": false,
+  "cloud_real_call_sms_audio_verified": false,
+  "voice_ready": false,
+  "scope_files": [
+    "cmd/airsim-agent/main.go",
+    "internal/identity/signing.go",
+    "internal/control/coordinator.go",
+    "internal/control/coordinator_test.go",
+    "internal/cloud/",
+    "go.mod",
+    "go.sum",
+    "scripts/cloud_local.py",
+    "scripts/test_cloud_local.py",
+    "R4_TESTING.md",
+    "R4_BUILD_EVIDENCE.json"
+  ],
+  "certificate_lifetime": {
+    "connection_deadline": "validated_device_leaf_NotAfter",
+    "expiry_result": "certificate_expired",
+    "reconnect_with_expired_certificate": "certificate_invalid",
+    "media_children": "inherit_control_connection_deadline",
+    "automatic_renewal": false
+  }
+}

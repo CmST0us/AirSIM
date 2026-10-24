@@ -1,0 +1,302 @@
+{
+  "binary": "/mnt/data/airsim-v2/releases/b9659d09758375ba/airsim-agent",
+  "sha256": "b9659d09758375ba8597654339d7b76f63603c7588134b478e7a9b3481569707",
+  "before": {
+    "pid": 6124,
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "agent_boot_id": "f9689542-7d19-483f-9d08-c33a9914d30b"
+  },
+  "duplicate_instances_rejected": true,
+  "sigterm_exit_seconds": 0.095,
+  "after_sigterm_restart": {
+    "pid": 6177,
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "agent_boot_id": "c10ba0ce-61ee-44c0-a042-5f7503d3e7f4"
+  },
+  "sigkill_at_idle_revision": 2,
+  "after_sigkill_restart": {
+    "pid": 6367,
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "agent_boot_id": "52aea688-0f77-443c-8b0b-310f2f0045c6"
+  },
+  "health": {
+    "status": "ok",
+    "version": "2.0.0-dev.r1",
+    "agent_boot_id": "52aea688-0f77-443c-8b0b-310f2f0045c6"
+  },
+  "ready": {
+    "ready": true,
+    "scope": "read_only",
+    "degraded": false,
+    "voice_ready": false,
+    "reasons": []
+  },
+  "capabilities": {
+    "schema_version": 1,
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "profile": "rm500u-embedded",
+    "capabilities": {
+      "audio": {
+        "support": "unknown",
+        "readiness": "unavailable",
+        "reason": "not_implemented"
+      },
+      "messaging": {
+        "support": "unknown",
+        "readiness": "unavailable",
+        "reason": "not_implemented"
+      },
+      "network": {
+        "support": "supported",
+        "readiness": "ready",
+        "reason": ""
+      },
+      "platform": {
+        "support": "supported",
+        "readiness": "ready",
+        "reason": ""
+      },
+      "radio_sim": {
+        "support": "supported",
+        "readiness": "ready",
+        "reason": ""
+      },
+      "telephony": {
+        "support": "supported",
+        "readiness": "ready",
+        "reason": ""
+      }
+    }
+  },
+  "snapshot": {
+    "schema_version": 1,
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "agent_boot_id": "52aea688-0f77-443c-8b0b-310f2f0045c6",
+    "revision": 1,
+    "observed_at": "2026-10-24T05:30:54.555915711Z",
+    "freshness": "fresh",
+    "scope": "read_only",
+    "voice_ready": false,
+    "identity_state": "unenrolled",
+    "fields": {
+      "calls": {
+        "status": "available",
+        "observed_at": "2026-10-24T05:30:54.549009749Z",
+        "source": "at",
+        "error_code": "",
+        "data": {
+          "count": 0,
+          "states": []
+        }
+      },
+      "ims": {
+        "status": "available",
+        "observed_at": "2026-10-24T05:30:54.53850498Z",
+        "source": "at",
+        "error_code": "",
+        "data": {
+          "registration": 1
+        }
+      },
+      "network": {
+        "status": "available",
+        "observed_at": "2026-10-24T05:30:54.554442865Z",
+        "source": "linux",
+        "error_code": "",
+        "data": {
+          "interfaces": [
+            {
+              "name": "lo",
+              "up": true,
+              "loopback": true
+            },
+            {
+              "name": "sipa_eth0",
+              "up": true,
+              "loopback": false
+            },
+            {
+              "name": "sipa_eth1",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_eth2",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_eth3",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_eth4",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_eth5",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_eth6",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_eth7",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "vpcie0",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "vpcie1",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "vpcie2",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "vpcie3",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_usb0",
+              "up": true,
+              "loopback": false
+            },
+            {
+              "name": "sipa_mbim0",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_mbim1",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_mbim2",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_mbim3",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_mbim4",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_mbim5",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_mbim6",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sipa_mbim7",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "tunl0",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "ip_vti0",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "ip6_vti0",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "sit0",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "ip6tnl0",
+              "up": false,
+              "loopback": false
+            },
+            {
+              "name": "usb0",
+              "up": true,
+              "loopback": false
+            },
+            {
+              "name": "tether",
+              "up": true,
+              "loopback": false
+            }
+          ]
+        }
+      },
+      "platform": {
+        "status": "available",
+        "observed_at": "2026-10-24T05:30:54.555877365Z",
+        "source": "linux",
+        "error_code": "",
+        "data": {
+          "os": "linux",
+          "arch": "arm64",
+          "kernel": "4.14.98",
+          "mem_total_kib": 197284,
+          "mem_available_kib": 96340
+        }
+      },
+      "registration": {
+        "status": "available",
+        "observed_at": "2026-10-24T05:30:54.527868634Z",
+        "source": "at",
+        "error_code": "",
+        "data": {
+          "cs": 0,
+          "packet": 0,
+          "eps": 1
+        }
+      },
+      "signal": {
+        "status": "available",
+        "observed_at": "2026-10-24T05:30:54.495455134Z",
+        "source": "at",
+        "error_code": "",
+        "data": {
+          "rssi": 21,
+          "ber": 99,
+          "dbm": -71
+        }
+      },
+      "sim": {
+        "status": "available",
+        "observed_at": "2026-10-24T05:30:54.485118288Z",
+        "source": "at",
+        "error_code": "",
+        "data": {
+          "state": "READY"
+        }
+      }
+    }
+  }
+}

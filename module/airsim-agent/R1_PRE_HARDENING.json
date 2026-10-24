@@ -1,0 +1,1924 @@
+{
+  "sha256": "78b3a202b4256679c5b4b4c28a241b364e3ca69756b8e6b3a7e58be84636d336",
+  "binary": "/mnt/data/airsim-v2/releases/78b3a202b4256679/airsim-agent",
+  "pid": 5600,
+  "samples": [
+    {
+      "elapsed_seconds": 0.224,
+      "revision": 2,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 7392,
+        "VmHWM": 7392,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:10.314204487Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:10.325441833Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:10.358227525Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:10.368798217Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:10.379473179Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:10.386552717Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 95988
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 10.24,
+      "revision": 3,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 7960,
+        "VmHWM": 7960,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:20.304917672Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:20.316114056Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:20.349954172Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:20.36064421Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:20.371222287Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:20.377264749Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 95408
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 20.238,
+      "revision": 4,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 8460,
+        "VmHWM": 8460,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:30.311964626Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:30.32418478Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:30.356874511Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:30.367567203Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:30.378259934Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:30.384310434Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 95048
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 30.3,
+      "revision": 5,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 8964,
+        "VmHWM": 8964,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:40.312924427Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:40.323800696Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:40.356391465Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:40.367479196Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:40.378405734Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:40.385066696Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 94388
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 40.199,
+      "revision": 6,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 9952,
+        "VmHWM": 9952,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:50.310725266Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:50.321649458Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:50.354175535Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:50.365133919Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:50.375834073Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:50.385626381Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 93908
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 50.186,
+      "revision": 7,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 10388,
+        "VmHWM": 10388,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:00.312588874Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:00.323797912Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:00.356595412Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:00.367304028Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:00.377932874Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:00.38454072Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 93068
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 60.244,
+      "revision": 8,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 10496,
+        "VmHWM": 10496,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:10.304758867Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:10.315223328Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:10.347705021Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:10.358635098Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:10.369193482Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:10.374827828Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 92708
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 70.217,
+      "revision": 9,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 10576,
+        "VmHWM": 10576,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:20.309350052Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:20.320246513Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:20.352596244Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:20.364492052Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:20.375290936Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:20.380558436Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 92536
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 80.214,
+      "revision": 10,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 10628,
+        "VmHWM": 10628,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:30.307844352Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:30.318767929Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:30.351763968Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:30.362852852Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:30.373879545Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:30.379089506Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 92476
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 90.254,
+      "revision": 11,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 10712,
+        "VmHWM": 10712,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:40.305337038Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:40.31769173Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:40.351187845Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:40.361866268Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:40.372548191Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:40.378197499Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 92416
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 100.209,
+      "revision": 12,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 11072,
+        "VmHWM": 11072,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:50.310298992Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:50.32082153Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:50.354594261Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:50.365436954Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:50.375905761Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:28:50.386693607Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 92480
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 110.219,
+      "revision": 13,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 11100,
+        "VmHWM": 11100,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:00.306745946Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:00.317415485Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:00.349595946Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:00.360286023Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:00.370851908Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:00.376393677Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 91892
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 120.236,
+      "revision": 14,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 11112,
+        "VmHWM": 11112,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:10.305092747Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:10.316021208Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:10.347959978Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:10.358605478Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:10.369139093Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:10.374582016Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 91940
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 130.219,
+      "revision": 15,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 11132,
+        "VmHWM": 11132,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:20.306808394Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:20.31901724Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:20.351544932Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:20.362550047Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:20.374334086Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:20.379679509Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 91880
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 140.213,
+      "revision": 16,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 11148,
+        "VmHWM": 11148,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:30.311772579Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:30.324059617Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 21,
+            "ber": 99,
+            "dbm": -71
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:30.356444463Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 0
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:30.367177425Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:30.377602079Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:30.382359233Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 91820
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 150.229,
+      "revision": 17,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 11168,
+        "VmHWM": 11168,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:40.308629072Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:40.319435302Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 21,
+            "ber": 99,
+            "dbm": -71
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:40.351418572Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 0
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:40.362031149Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:40.372423302Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:40.377635956Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 92064
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 160.22,
+      "revision": 18,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 11204,
+        "VmHWM": 11204,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:50.312637988Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:50.32332868Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 21,
+            "ber": 99,
+            "dbm": -71
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:50.357167257Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 0
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:50.368252949Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:50.379175911Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:29:50.384566757Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 91888
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 170.234,
+      "revision": 19,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 11264,
+        "VmHWM": 11264,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:00.314381711Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:00.32495275Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 21,
+            "ber": 99,
+            "dbm": -71
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:00.357263557Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 0
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:00.368565403Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:00.379557057Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:00.384568634Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 91828
+          }
+        }
+      }
+    },
+    {
+      "elapsed_seconds": 180.245,
+      "revision": 20,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "freshness": "fresh",
+      "ready": {
+        "ready": true,
+        "scope": "read_only",
+        "degraded": false,
+        "voice_ready": false,
+        "reasons": []
+      },
+      "resources": {
+        "VmRSS": 11268,
+        "VmHWM": 11268,
+        "Threads": 7,
+        "FD": 10
+      },
+      "fields": {
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:10.303976935Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:10.314600666Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 21,
+            "ber": 99,
+            "dbm": -71
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:10.346653973Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 0
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:10.357261358Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:10.367770512Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:30:10.372931473Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 91888
+          }
+        }
+      }
+    }
+  ],
+  "lifecycle": {
+    "binary": "/mnt/data/airsim-v2/releases/78b3a202b4256679/airsim-agent",
+    "sha256": "78b3a202b4256679c5b4b4c28a241b364e3ca69756b8e6b3a7e58be84636d336",
+    "before": {
+      "pid": 5350,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "d41b4c2a-38d2-4c23-b2bd-7116dc91b110"
+    },
+    "duplicate_instances_rejected": true,
+    "sigterm_exit_seconds": 0.072,
+    "after_sigterm_restart": {
+      "pid": 5402,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "9c04516e-9794-4dad-99a9-2277ff82958b"
+    },
+    "sigkill_at_idle_revision": 2,
+    "after_sigkill_restart": {
+      "pid": 5600,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6"
+    },
+    "health": {
+      "status": "ok",
+      "version": "2.0.0-dev.r1",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6"
+    },
+    "ready": {
+      "ready": true,
+      "scope": "read_only",
+      "degraded": false,
+      "voice_ready": false,
+      "reasons": []
+    },
+    "capabilities": {
+      "schema_version": 1,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "profile": "rm500u-embedded",
+      "capabilities": {
+        "audio": {
+          "support": "unknown",
+          "readiness": "unavailable",
+          "reason": "not_implemented"
+        },
+        "messaging": {
+          "support": "unknown",
+          "readiness": "unavailable",
+          "reason": "not_implemented"
+        },
+        "network": {
+          "support": "supported",
+          "readiness": "ready",
+          "reason": ""
+        },
+        "platform": {
+          "support": "supported",
+          "readiness": "ready",
+          "reason": ""
+        },
+        "radio_sim": {
+          "support": "supported",
+          "readiness": "ready",
+          "reason": ""
+        },
+        "telephony": {
+          "support": "supported",
+          "readiness": "ready",
+          "reason": ""
+        }
+      }
+    },
+    "snapshot": {
+      "schema_version": 1,
+      "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+      "agent_boot_id": "192900bd-c855-45f9-8d91-247ad72f94c6",
+      "revision": 1,
+      "observed_at": "2026-10-24T05:27:00.297066686Z",
+      "freshness": "fresh",
+      "scope": "read_only",
+      "voice_ready": false,
+      "identity_state": "unenrolled",
+      "fields": {
+        "calls": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:00.29040884Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "count": 0,
+            "states": []
+          }
+        },
+        "ims": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:00.279844763Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "registration": 1
+          }
+        },
+        "network": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:00.295711225Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "interfaces": [
+              {
+                "name": "lo",
+                "up": true,
+                "loopback": true
+              },
+              {
+                "name": "sipa_eth0",
+                "up": true,
+                "loopback": false
+              },
+              {
+                "name": "sipa_eth1",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_eth2",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_eth3",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_eth4",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_eth5",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_eth6",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_eth7",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "vpcie0",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "vpcie1",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "vpcie2",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "vpcie3",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_usb0",
+                "up": true,
+                "loopback": false
+              },
+              {
+                "name": "sipa_mbim0",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_mbim1",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_mbim2",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_mbim3",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_mbim4",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_mbim5",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_mbim6",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sipa_mbim7",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "tunl0",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "ip_vti0",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "ip6_vti0",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "sit0",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "ip6tnl0",
+                "up": false,
+                "loopback": false
+              },
+              {
+                "name": "usb0",
+                "up": true,
+                "loopback": false
+              },
+              {
+                "name": "tether",
+                "up": true,
+                "loopback": false
+              }
+            ]
+          }
+        },
+        "platform": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:00.297029648Z",
+          "source": "linux",
+          "error_code": "",
+          "data": {
+            "os": "linux",
+            "arch": "arm64",
+            "kernel": "4.14.98",
+            "mem_total_kib": 197284,
+            "mem_available_kib": 96288
+          }
+        },
+        "registration": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:00.269146417Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "cs": 0,
+            "packet": 0,
+            "eps": 1
+          }
+        },
+        "signal": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:00.235399148Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "rssi": 8,
+            "ber": 99,
+            "dbm": -97
+          }
+        },
+        "sim": {
+          "status": "available",
+          "observed_at": "2026-10-24T05:27:00.223046917Z",
+          "source": "at",
+          "error_code": "",
+          "data": {
+            "state": "READY"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,405 @@
+{
+  "build": "b603f0cf5958a0adfd131b5a52bb7eb359d9a5a93c56923ee4000e4022803cb8",
+  "events": [
+    {
+      "kind": "outbound_attempt",
+      "command_id": "b4d0a401-7216-40f0-9156-e5402cb41dcd",
+      "call_id": "7e6ab997-f913-4e0b-9b6d-b3cb4dcdb328",
+      "started_at": "2026-10-24T06:45:16Z",
+      "ended_at": "2026-10-24T06:45:34.695833083Z",
+      "states_observed": [
+        "dialing",
+        "disconnected"
+      ],
+      "disconnect_reason": "remote",
+      "mac_incoming_ui_seen": false,
+      "cleanup": "call_ended_no_action",
+      "connected": false
+    },
+    {
+      "kind": "sms_outbound",
+      "command_id": "1ad0eae5-70cd-401a-931f-0cf347370875",
+      "message_id": "60f94448-2a65-4005-a6bf-58ec0f6e74c6",
+      "peer_ui_nonce_matched": true,
+      "peer_ui_transport": "SMS",
+      "duplicate": {
+        "duplicate": {
+          "http": 200,
+          "record": {
+            "command_id": "1ad0eae5-70cd-401a-931f-0cf347370875",
+            "action": "sms.send",
+            "state": "accepted",
+            "result_code": "",
+            "message_id": "60f94448-2a65-4005-a6bf-58ec0f6e74c6",
+            "updated_at": "2026-10-24T06:48:06.958349551Z"
+          },
+          "command_id": "1ad0eae5-70cd-401a-931f-0cf347370875"
+        },
+        "matching_message_count_before": 1,
+        "matching_message_count_after": 1,
+        "message_states": [
+          {
+            "message_id": "60f94448-2a65-4005-a6bf-58ec0f6e74c6",
+            "direction": "outgoing",
+            "state": "sent",
+            "delivery": "unknown",
+            "observed_at": "2026-10-24T06:48:07.809298243Z"
+          }
+        ],
+        "control": {
+          "schema_version": 1,
+          "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+          "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+          "ready": true,
+          "reason": "",
+          "scope": "local_control",
+          "voice_ready": false,
+          "telephony_ready": true,
+          "messaging_ready": true,
+          "inbox_gap": false,
+          "inbox_dropped": 0,
+          "command_capacity_remaining": 1022
+        }
+      }
+    },
+    {
+      "kind": "sms_inbound",
+      "incoming_count": 2,
+      "messages": [
+        {
+          "message_id": "2a4cbde4-4dd7-4167-b760-a23e7505b399",
+          "state": "received",
+          "observed_at": "2026-10-24T06:50:11.836112808Z",
+          "nonce_matched": true,
+          "peer_matched": true,
+          "text_length": 21
+        },
+        {
+          "message_id": "6e19fda7-dbb9-46fe-b603-beedcf4e33b9",
+          "state": "received",
+          "observed_at": "2026-10-24T06:51:24.545739179Z",
+          "nonce_matched": true,
+          "peer_matched": true,
+          "text_length": 21
+        }
+      ],
+      "inbox_gap": false,
+      "inbox_dropped": 0
+    },
+    {
+      "kind": "outbound_connected",
+      "command_id": "adfd0e00-036c-4e2b-a0b7-37eb4f67e9f4",
+      "call_id": "f156fafa-93a7-4ea1-ba66-ec310c6ab842",
+      "start": "2026-10-24T06:52:26.876378212Z",
+      "states": [
+        {
+          "elapsed": 0.25,
+          "state": "dialing"
+        },
+        {
+          "elapsed": 11.378,
+          "state": "alerting"
+        },
+        {
+          "elapsed": 33.085,
+          "state": "active"
+        },
+        {
+          "elapsed": 40.645,
+          "state": "disconnected",
+          "reason": "remote"
+        }
+      ],
+      "dtmf_sent": false,
+      "targeted_hangup_sent": false,
+      "mac_answer_ui_seen": false
+    },
+    {
+      "kind": "outbound_dtmf_targeted_hangup",
+      "dial_command_id": "16dfa005-9afa-49dc-b5b1-5ff9c24f951c",
+      "call_id": "4fc07730-32e3-46e0-b34e-3a779b8417f8",
+      "start": "2026-10-24T06:58:30.109195183Z",
+      "states": [
+        {
+          "elapsed": 0.244,
+          "state": "dialing"
+        },
+        {
+          "elapsed": 14.607,
+          "state": "alerting"
+        },
+        {
+          "elapsed": 17.592,
+          "state": "active"
+        },
+        {
+          "elapsed": 21.288,
+          "state": "disconnected",
+          "reason": "local"
+        }
+      ],
+      "dtmf": {
+        "command_id": "45b0e101-c9b7-4c43-9223-dae6afaf41ad",
+        "state": "accepted",
+        "remote_audio_verified": false
+      },
+      "hangup": {
+        "command_id": "346478ca-08e5-4efa-8c27-14201d549711",
+        "state": "observed",
+        "at": "2026-10-24T06:58:51.033305437Z"
+      }
+    },
+    {
+      "kind": "incoming_answer_and_hangup",
+      "peer_matched": true,
+      "call_id": "2074d8a2-2ef1-4c79-accf-a40afde59b25",
+      "incoming_at": "2026-10-24T07:00:25.3615596Z",
+      "active_at": "2026-10-24T07:00:25.849675638Z",
+      "answer": {
+        "command_id": "08f621c4-718e-4a44-82c2-bee735545520",
+        "state": "observed"
+      },
+      "hangup": {
+        "command_id": "af9d8e81-e14b-44e5-b5b5-f49be5ee635c",
+        "submitted_at": "2026-10-24T07:00:29.282402136Z"
+      },
+      "final_call_state": "disconnected",
+      "disconnect_reason": "local"
+    },
+    {
+      "kind": "incoming_reject",
+      "peer_matched": true,
+      "call_id": "1ab89944-52ee-4bba-963f-c4045a784677",
+      "incoming_at": "2026-10-24T07:01:45.07663612Z",
+      "final_state": "disconnected",
+      "disconnect_reason": "local",
+      "ended_at": "2026-10-24T07:01:45.558024389Z",
+      "command": {
+        "command_id": "ff9fdf05-2ec8-44f6-8b53-68758be903e1",
+        "action": "call.hangup",
+        "state": "observed",
+        "result_code": "",
+        "call_id": "1ab89944-52ee-4bba-963f-c4045a784677",
+        "updated_at": "2026-10-24T07:01:45.554178812Z"
+      }
+    }
+  ],
+  "journal_audit": {
+    "journal_schema": 1,
+    "records": 3,
+    "states": [
+      {
+        "action": "call.dial",
+        "state": "accepted"
+      },
+      {
+        "action": "sms.send",
+        "state": "accepted"
+      },
+      {
+        "action": "call.dial",
+        "state": "accepted"
+      }
+    ],
+    "contains_test_peer": false,
+    "contains_outbound_text": false,
+    "contains_inbound_text": false,
+    "state_permissions": [
+      "700",
+      "600",
+      "600"
+    ],
+    "control": {
+      "schema_version": 1,
+      "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+      "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+      "ready": true,
+      "reason": "",
+      "scope": "local_control",
+      "voice_ready": false,
+      "telephony_ready": true,
+      "messaging_ready": true,
+      "inbox_gap": false,
+      "inbox_dropped": 0,
+      "command_capacity_remaining": 1021
+    }
+  },
+  "status": "functional_hardware_loops_passed_reliability_caveat",
+  "peer_ui": {
+    "outbound_test_visible_copies": 1,
+    "inbound_reply_visible_copies": 1
+  },
+  "user_confirmations": {
+    "first_outbound_answered": true,
+    "second_outbound_answered": true,
+    "manual_callback": true
+  },
+  "final_before_restart": {
+    "control": {
+      "schema_version": 1,
+      "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+      "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+      "ready": true,
+      "reason": "",
+      "scope": "local_control",
+      "voice_ready": false,
+      "telephony_ready": true,
+      "messaging_ready": true,
+      "inbox_gap": false,
+      "inbox_dropped": 0,
+      "command_capacity_remaining": 1015
+    },
+    "active_calls": 0,
+    "reject_final": {
+      "command_id": "ff9fdf05-2ec8-44f6-8b53-68758be903e1",
+      "action": "call.hangup",
+      "state": "observed",
+      "result_code": "",
+      "call_id": "1ab89944-52ee-4bba-963f-c4045a784677",
+      "updated_at": "2026-10-24T07:01:45.554178812Z"
+    },
+    "incoming_hangup_final": {
+      "command_id": "af9d8e81-e14b-44e5-b5b5-f49be5ee635c",
+      "action": "call.hangup",
+      "state": "observed",
+      "result_code": "",
+      "call_id": "2074d8a2-2ef1-4c79-accf-a40afde59b25",
+      "updated_at": "2026-10-24T07:00:29.376612136Z"
+    },
+    "outgoing_pending": 0,
+    "incoming_nonce_matches": [
+      {
+        "message_id": "2a4cbde4-4dd7-4167-b760-a23e7505b399",
+        "state": "received",
+        "observed_at": "2026-10-24T06:50:11.836112808Z",
+        "peer_matched": true
+      },
+      {
+        "message_id": "6e19fda7-dbb9-46fe-b603-beedcf4e33b9",
+        "state": "received",
+        "observed_at": "2026-10-24T06:51:24.545739179Z",
+        "peer_matched": true
+      },
+      {
+        "message_id": "f1b86e63-42a2-4cd3-8e75-40032098f5d7",
+        "state": "received",
+        "observed_at": "2026-10-24T06:52:27.349954788Z",
+        "peer_matched": true
+      }
+    ],
+    "resources": {
+      "VmRSS": 12020,
+      "VmHWM": 12492,
+      "Threads": 9,
+      "fd_count": 11
+    },
+    "free_data": [
+      "35664",
+      "17020",
+      "18132",
+      "48%"
+    ]
+  },
+  "restart_retry": {
+    "retry": {
+      "http": 200,
+      "record": {
+        "command_id": "1ad0eae5-70cd-401a-931f-0cf347370875",
+        "action": "sms.send",
+        "state": "accepted",
+        "result_code": "",
+        "message_id": "60f94448-2a65-4005-a6bf-58ec0f6e74c6",
+        "updated_at": "2026-10-24T06:48:06.958349551Z"
+      },
+      "command_id": "1ad0eae5-70cd-401a-931f-0cf347370875"
+    },
+    "boot_changed": true,
+    "epoch_changed": true,
+    "journal_unchanged": true,
+    "capacity_unchanged": true,
+    "messages_after_retry": 0,
+    "active_calls": 0,
+    "control": {
+      "schema_version": 1,
+      "agent_boot_id": "390e3983-b60d-4df6-971e-4ed04bc27d33",
+      "backend_epoch": "c44cf913-4fb7-4807-9259-83465faecb11",
+      "ready": true,
+      "reason": "",
+      "scope": "local_control",
+      "voice_ready": false,
+      "telephony_ready": true,
+      "messaging_ready": true,
+      "inbox_gap": false,
+      "inbox_dropped": 0,
+      "command_capacity_remaining": 1015
+    },
+    "readonly": {
+      "ready": true,
+      "scope": "read_only",
+      "degraded": false,
+      "voice_ready": false,
+      "reasons": []
+    },
+    "health": {
+      "status": "ok",
+      "version": "2.0.0-dev.r2",
+      "agent_boot_id": "390e3983-b60d-4df6-971e-4ed04bc27d33"
+    }
+  },
+  "provenance": {
+    "source": "/tmp/airsim-r2-live-evidence.json",
+    "source_sha256": "854ace7a59a34015aaba6c408d8f84a8bdd754be8ddec10a305833e3ab79cee7",
+    "collector": "main_controller",
+    "scope": "sanitized_snapshot_after_functional_loops_and_post_restart_retry",
+    "timestamps": "UTC in source; human report uses Asia/Shanghai"
+  },
+  "readonly_diagnostic_findings": {
+    "actual_agent_bus_connection_count": 1,
+    "installed_match_rule_count": 7,
+    "incoming_message_signature": "sa{sv}",
+    "immediate_message_signature": "sa{sv}",
+    "call_added_signature": "oa{sv}",
+    "voice_property_changed_signature": "sv",
+    "disconnect_reason_signature": "s",
+    "unhandled_vendor_signals": {
+      "MessagePDU": "sv",
+      "IoTDMMessage": "sa{sv}"
+    },
+    "vendor_signal_involvement_proven": false,
+    "retained_incoming_metadata_limit": "No original signal member, sequence, or complete property metadata is retained; observed_at is local coordinator processing time. The two received records cannot establish retransmission source or delay location.",
+    "network_registration_observed": {
+      "Status": "registered",
+      "Technology": "LTE"
+    },
+    "ims_observed": {
+      "Registered": true,
+      "VoiceCapable": true,
+      "SmsCapable": true
+    },
+    "later_at_sample": {
+      "observed_at": "2026-10-24T06:52:48.844582927Z",
+      "cs": 0,
+      "packet": 0,
+      "eps": 1,
+      "ims": 1
+    }
+  },
+  "acceptance_summary": {
+    "overall": "functional_hardware_loops_passed_reliability_caveat",
+    "outbound_active_observed": true,
+    "inbound_answer_observed": true,
+    "inbound_reject_observed": true,
+    "agent_targeted_hangup_observed": true,
+    "dtmf_backend_accepted": true,
+    "audio_verified": false,
+    "sms_outbound_peer_nonce_matched": true,
+    "sms_inbound_nonce_and_peer_matched": true,
+    "same_command_retry_http": 200,
+    "same_command_retry_same_message_id": true,
+    "inbound_duplicate_cause": "unknown",
+    "exactly_once_claimed": false,
+    "post_restart_original_sms_retry": "passed_same_receipt_no_new_message_journal_unchanged",
+    "restart_evidence": "R2_RESTART_EVIDENCE.json",
+    "boot_epoch_deadline_retry_conditions": "Main controller reused original complete request with old boot/epoch and expired deadline."
+  }
+}

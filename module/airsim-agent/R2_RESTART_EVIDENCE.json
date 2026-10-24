@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "build": "b603f0cf5958a0adfd131b5a52bb7eb359d9a5a93c56923ee4000e4022803cb8",
+  "executable": "/mnt/data/airsim-v2/releases/b603f0cf5958a0ad/airsim-agent",
+  "before": {
+    "pid": 9588,
+    "agent_boot_id": "ae08a58a-a1f5-4626-97f6-70e59ffeaa3f",
+    "backend_epoch": "5404b15d-5c7c-4af4-986f-bbba22b3a224",
+    "active_calls": 0,
+    "outgoing_pending": 0,
+    "in_memory_incoming": 4,
+    "command_records": 9,
+    "command_states": [
+      {
+        "action": "call.hangup",
+        "state": "observed"
+      },
+      {
+        "action": "sms.send",
+        "state": "accepted"
+      },
+      {
+        "action": "call.hangup",
+        "state": "observed"
+      },
+      {
+        "action": "call.answer",
+        "state": "observed"
+      },
+      {
+        "action": "call.dtmf",
+        "state": "accepted"
+      },
+      {
+        "action": "call.hangup",
+        "state": "observed"
+      },
+      {
+        "action": "call.dial",
+        "state": "accepted"
+      },
+      {
+        "action": "call.dial",
+        "state": "accepted"
+      },
+      {
+        "action": "call.dial",
+        "state": "accepted"
+      }
+    ]
+  },
+  "authorization": "one idle SIGTERM and same-binary restart; no business commands",
+  "sigterm_exit_seconds": 0.062,
+  "after": {
+    "pid": 14054,
+    "agent_boot_id": "390e3983-b60d-4df6-971e-4ed04bc27d33",
+    "backend_epoch": "c44cf913-4fb7-4807-9259-83465faecb11",
+    "control": {
+      "schema_version": 1,
+      "agent_boot_id": "390e3983-b60d-4df6-971e-4ed04bc27d33",
+      "backend_epoch": "c44cf913-4fb7-4807-9259-83465faecb11",
+      "ready": true,
+      "reason": "",
+      "scope": "local_control",
+      "voice_ready": false,
+      "telephony_ready": true,
+      "messaging_ready": true,
+      "inbox_gap": false,
+      "inbox_dropped": 0,
+      "command_capacity_remaining": 1015
+    },
+    "readonly": {
+      "ready": true,
+      "scope": "read_only",
+      "degraded": false,
+      "voice_ready": false,
+      "reasons": []
+    },
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "command_records": 9,
+    "in_memory_incoming": 0,
+    "in_memory_messages": 0,
+    "active_call_count": 0
+  },
+  "verification": {
+    "binary_hash_unchanged": true,
+    "identity_file_hash_unchanged": true,
+    "module_id_unchanged": true,
+    "journal_file_hash_unchanged": true,
+    "journal_records_identical": true,
+    "boot_changed": true,
+    "epoch_changed": true,
+    "in_memory_incoming_empty": true,
+    "no_business_commands_sent": true
+  },
+  "permissions": [
+    "700 /mnt/data/airsim-v2/state",
+    "600 /mnt/data/airsim-v2/state/commands.json",
+    "600 /mnt/data/airsim-v2/config/identity.json",
+    "600 /run/airsim-v2/control.sock"
+  ],
+  "device_control": "returned_to_main_controller",
+  "post_restart_original_sms_retry": "pending_main_controller"
+}
