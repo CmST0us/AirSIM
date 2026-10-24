@@ -2,6 +2,9 @@
 """Render public-TLS Caddy config; creates a new 0600 file and does not deploy."""
 import os,pathlib,re,urllib.parse
 root=pathlib.Path(os.environ['AIRSIM_SECRET_DIR'])
+check_html=(pathlib.Path(__file__).resolve().parent.parent/'https-check.html').read_text(encoding='utf-8')
+if '`' in check_html:
+    raise SystemExit('https_check_template_backtick_forbidden')
 hosts=[]
 for name in ('API','DEVICE','MEDIA'):
     origin=os.environ['AIRSIM_'+name+'_ORIGIN']
@@ -35,6 +38,16 @@ def proxy(host, target, path=''):
 }}
 """
 config+=f"""https://{api} {{
+"""
+config+=""" handle / {
+  header {
+   Content-Type "text/html; charset=utf-8"
+   Cache-Control "no-store"
+   X-Content-Type-Options "nosniff"
+   Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }
+  respond `"""+check_html+"""` 200
+ }
 """
 if media==api:
     config+=""" handle /v2/media {

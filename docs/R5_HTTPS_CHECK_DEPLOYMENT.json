@@ -1,0 +1,46 @@
+{
+  "stage": "R5 HTTPS check page",
+  "backup_directory": "/opt/airsim-v2/backups/r5-https-check-20261024T132350Z",
+  "config_before_sha256": "181086b709a88278886863a87cc08ec992801e853e4fd762b49de672425616de",
+  "config_after_sha256": "3b48dc7860dfe42da03e59856f19fc980737a2e036f2e85d4427c76aa0ee8989",
+  "only_exact_root_route_added": true,
+  "edge_health": "healthy",
+  "deployed_at": "2026-10-24T13:23:55.284918+00:00",
+  "url": "https://airsim.eric3u.cc/",
+  "page_marker": "R5-HTTPS-20261024",
+  "page_sha256": "3f0f5a6a64a9792b8b75b083a6f61eec820528bd3df69de2fecba6e48d616906",
+  "validation": {
+    "caddy_validate": "passed",
+    "edge_recreated_only": true,
+    "all_four_containers": "healthy",
+    "ECS_loopback_valid_TLS": {
+      "/": 200,
+      "/.well-known/airsim": 200,
+      "/v2/modules_without_token": 401,
+      "/r5-path-does-not-exist": 404
+    },
+    "html_marker_present": true,
+    "headers": [
+      "Content-Type: text/html; charset=utf-8",
+      "Cache-Control: no-store",
+      "X-Content-Type-Options: nosniff",
+      "Content-Security-Policy: default-src none with inline styles only"
+    ],
+    "public_in_app_browser": "ERR_TIMED_OUT; page content not received"
+  },
+  "security_group_check": {
+    "source": "read-only ECS DescribeInstances and DescribeSecurityGroupAttribute using existing Workbench account; CLI does not expose security-group inspection",
+    "checked_at": "2026-10-24T13:26:34.340730+00:00",
+    "security_group_id": "sg-wz96deau4b9kklhxm4iy",
+    "TCP_443_ingress": {
+      "policy": "Accept",
+      "source": "0.0.0.0/0",
+      "priority": 100,
+      "higher_priority_deny": false
+    },
+    "TCP_80_ingress": "no_allow_rule",
+    "modified": false,
+    "host_firewall": "Docker explicitly accepts published container TCP 8443 and 8080; DOCKER-USER empty",
+    "conclusion": "HTTPS failure not explained by current security-group ingress rules; HTTP/80 probe timeout is expected"
+  }
+}
