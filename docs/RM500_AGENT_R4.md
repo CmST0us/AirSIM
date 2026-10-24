@@ -16,7 +16,8 @@
 - 本地集成使用独立 `airsim-r4-test` project name、随机/显式loopback高端口、测试CA，证书严格校验；不把本机CA安装到系统信任、不触碰其他Docker项目。
 - Secrets全部文件注入，源码只占位；CA签发私钥只挂admin，数据库密码只挂postgres/control/migrate/admin，edge-token仅edge/control，media内部token仅control/media，客户端token不进Compose环境日志。禁止运行期打印完整env/inspect secret/HTTP body。
 - Compose healthcheck区分liveness/readiness，postgres healthy→migrate successful→control ready→media/edge ready；迁移使用PG advisory lock及显式版本，失败停止发布。提供backup/restore到隔离库验证脚本；禁止对生产volume执行down -v。
-- 首次云部署到新目录、独立project/volumes，保留回滚产物；不替换现有系统服务。发现当前候选ECS的443由iroh-relay占用，用户已确认使用该ECS，域名待用户稍后配置；由主控确定入口并存部署清单；禁止擅自停止该服务、改其配置或接管旧v1域名。
+- 首次云部署到新目录、独立project/volumes，保留回滚产物。用户已明确授权暂时停止 iroh-relay（服务名 `iroh-relay.service`）并优先部署 AirSIM；主控已停止并禁用其开机启动，保留原配置，80/443 用于 AirSIM。域名仍待用户配置，不接管旧 v1 域名。
+- 官方 Caddy 2.11.7 二进制带 `cap_net_bind_service=ep`。edge 在 `cap_drop: ALL` 基础上仅 `cap_add: NET_BIND_SERVICE`，保留 non-root/read_only/no-new-privileges；control/media 不放宽权限。生产使用标准 80/443，本机测试仍只绑定 loopback 高端口。
 
 ## 验收次序
 
@@ -30,4 +31,6 @@
 
 ## 目标确认
 
-用户已确认深圳 ECS `i-wz93dhbsy21quebidepg`（worker，120.25.235.237）作为本轮目标，域名稍后配置。只读预检为 Alibaba Cloud Linux 4.0.6 / x86_64，约3.5GiB内存、根分区余9.9GiB，尚无Docker，TCP443由既有iroh-relay占用。主控先做独立Docker部署准备；不停止既有服务，不擅自接管443。公网TLS/域名联通未验证前不得宣称ECS业务闭环完成。
+用户已确认深圳 ECS `i-wz93dhbsy21quebidepg`（worker，120.25.235.237）作为本轮目标，域名稍后配置。只读预检为 Alibaba Cloud Linux 4.0.6 / x86_64，约3.5GiB内存、根分区余9.9GiB。2026-10-24 主控从 Alibaba Cloud Linux 官方仓库安装 Docker/Moby 29.5.1、Compose 2.26.1、containerd 1.7.34，并启用 Docker 服务。创建 `/opt/airsim-v2/{releases,secrets,backups}`（0700）。
+
+按用户后续指令执行 `systemctl disable --now iroh-relay.service`，确认 inactive/disabled 且 TCP80/443 空闲；服务配置不变。需要恢复时，在 AirSIM 释放冲突端口后执行 `systemctl enable --now iroh-relay.service`。ECS 直接拉取固定 Caddy 镜像发生 Docker Hub 连接超时，改为准备本机验证镜像后传送；公网TLS/域名联通及实际容器部署尚待验证，不得宣称ECS业务闭环完成。
