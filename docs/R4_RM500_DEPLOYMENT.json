@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-24T09:09:05.716991+00:00",
+  "phase": "R4_binary_deployed_cloud_not_configured",
+  "commit": "499a60c",
+  "pid": 23728,
+  "remote": "/mnt/data/airsim-v2/releases/6a63c689ccf961da/airsim-agent",
+  "sha256": "6a63c689ccf961dac9d2b9e7c997f656cf6306be2defb0934ac49aa070981689",
+  "bytes": 7274680,
+  "helper": "/mnt/data/airsim-v2/releases/ea836044de25662b/airsim-audiod",
+  "helper_sha256": "39ff88dabce16196defdacc72637a15695f171a65f080179dde4382df3cc41dc",
+  "rollback": "/mnt/data/airsim-v2/releases/ea836044de25662b/airsim-agent",
+  "rollback_sha256": "ea836044de25662bb92dad365d49cac3ce3686fb3de232b1526f7d87d443c171",
+  "identity_unchanged": true,
+  "journal_unchanged": true,
+  "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+  "agent_boot_id": "eb06907d-7d2d-4705-a3b1-414fdc143bbc",
+  "backend_epoch": "4c5c77e8-1e59-4458-ae6f-98e5a9db26c9",
+  "ready": true,
+  "audio": {
+    "available": true,
+    "implementation": "implemented",
+    "verification": "unverified",
+    "voice_ready": false,
+    "reason": ""
+  },
+  "cloud": {
+    "configured": false,
+    "connected": false,
+    "server_id": "",
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "connection_epoch": "",
+    "last_connected_at": null,
+    "last_error": "",
+    "certificate_expires_at": null
+  },
+  "cloud_media_stats": {
+    "session_id": "",
+    "state": "idle",
+    "reason": "",
+    "cloud_input_gaps": 0,
+    "local_input_gaps": 0,
+    "queue_drops": 0,
+    "zero_frames": 0
+  },
+  "space_before": "Filesystem           1K-blocks      Used Available Use% Mounted on\n/dev/ubi0_userdata       35664     25776      9376  73% /mnt/userdata",
+  "space_after": "Filesystem           1K-blocks      Used Available Use% Mounted on\n/dev/ubi0_userdata       35664     33488      1664  95% /mnt/userdata",
+  "r3_rss_before": "VmHWM:\t   12840 kB\nVmRSS:\t   12840 kB",
+  "r4_rss_after": "VmHWM:\t    8972 kB\nVmRSS:\t    8972 kB",
+  "rss_interpretation": "Single idle samples only; not steady-state cloud RSS or startup peak.",
+  "cloud_real_call_sms_audio_verified": false
+}

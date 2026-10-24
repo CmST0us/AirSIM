@@ -34,3 +34,9 @@
 用户已确认深圳 ECS `i-wz93dhbsy21quebidepg`（worker，120.25.235.237）作为本轮目标，域名稍后配置。只读预检为 Alibaba Cloud Linux 4.0.6 / x86_64，约3.5GiB内存、根分区余9.9GiB。2026-10-24 主控从 Alibaba Cloud Linux 官方仓库安装 Docker/Moby 29.5.1、Compose 2.26.1、containerd 1.7.34，并启用 Docker 服务。创建 `/opt/airsim-v2/{releases,secrets,backups}`（0700）。
 
 按用户后续指令执行 `systemctl disable --now iroh-relay.service`，确认 inactive/disabled 且 TCP80/443 空闲；服务配置不变。需要恢复时，在 AirSIM 释放冲突端口后执行 `systemctl enable --now iroh-relay.service`。ECS 直接拉取固定 Caddy 镜像发生 Docker Hub 连接超时，改为准备本机验证镜像后传送；公网TLS/域名联通及实际容器部署尚待验证，不得宣称ECS业务闭环完成。
+
+## 已完成的部署准备里程碑
+
+- `499a60c` 提交 Agent 实现。主控再次运行全量 Go race/vet 与本地引导脚本验证，通过后将 SHA256 `6a63c689ccf961dac9d2b9e7c997f656cf6306be2defb0934ac49aa070981689` 部署到 RM500 独立 release。原 R3 Agent/helper、设备身份和命令 journal 保留，哈希核对不变；本机 control ready、audio available，云端未配置，voice_ready 仍为 false。详见 [部署证据](R4_RM500_DEPLOYMENT.json)。数据分区剩余 1664KiB，不把单次空闲 RSS 样本当云端运行资源结论。
+- ECS 已通过本机下载固定官方 amd64 镜像→Workbench传送→校验归档→Docker load→比对全部 rootfs layer identity→运行版本检查，准备 Caddy 2.11.7 与 PostgreSQL 17.11。完整来源、配置、归档与 ECS 实际镜像 ID 见 [ECS准备证据](R4_ECS_PREPARATION.json)。离线生产使用 ECS 实际验证的 `sha256:...` content-addressed image ID 与 `pull_policy: never`；Docker save/load 的 OCI manifest digest 不等于原 registry 压缩 manifest digest，不混称。
+- 服务端正在完成最终 Compose/故障验证；公网域名仍待用户给出。主控已准备独立 HTTPS/WSS 验收客户端，但尚未通过云端拨号、发送短信或传输实机音频。

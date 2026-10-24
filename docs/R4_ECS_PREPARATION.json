@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-24T09:06:30.078789+00:00",
+  "stage": "ECS_environment_and_images_prepared_no_application_deployment",
+  "instance_id": "i-wz93dhbsy21quebidepg",
+  "region": "cn-shenzhen",
+  "ip": "120.25.235.237",
+  "os": "Alibaba Cloud Linux 4.0.6 x86_64",
+  "docker": "29.5.1",
+  "compose": "2.26.1",
+  "containerd": "1.7.34",
+  "iroh_relay": {
+    "user_authorized_stop": true,
+    "active": false,
+    "enabled": false,
+    "configuration_preserved": true,
+    "restore_after_releasing_conflicting_ports": "systemctl enable --now iroh-relay.service"
+  },
+  "tcp_80_443_available": true,
+  "directories": {
+    "path": "/opt/airsim-v2/{releases,secrets,backups}",
+    "mode": "0700"
+  },
+  "images": {
+    "caddy": {
+      "index": "caddy:2.11.7@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489",
+      "amd64": "caddy@sha256:04913b1da43339a40ad1ea87827d70a576ac5aa6cf674c6e24fdca675887533a",
+      "config_id": "sha256:3067cc4e02c091399edbd5d65f85a3ff4d511574aecadb47f280c3761e68852e",
+      "architecture": "amd64",
+      "archive_sha256": "3c57e959002dc41059e627aa9f5604cb83202355a3493828ad81421a186554df",
+      "archive_bytes": 66900992,
+      "archive_manifest_digest": "sha256:ef0695b8da247e06b96cf4e341a5035d07dfb98679ed69a5e1a479df1dda6b0a",
+      "rootfs_diff_ids": [
+        "sha256:54ea9baa1bbd7651dbda5c61569dad60fa601c73e5b784e154e8ba0f314e84fd",
+        "sha256:ffe3f66a572836b76678fc7bd0f6cc19a2ef8585cca6fe0ba7c2e1037d2e1159",
+        "sha256:4bb692fe970995252617470d76a9c95d18cd822a52a59558822b5f1d29d6cf2f",
+        "sha256:d08f1a0adb5011e488b16040328bb140738ff8248022d359170147464b656e5b",
+        "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+      ],
+      "rootfs_matches_source": true,
+      "ecs_runtime_image_id": "sha256:ef0695b8da247e06b96cf4e341a5035d07dfb98679ed69a5e1a479df1dda6b0a",
+      "version_executable_verified": true
+    },
+    "postgres": {
+      "index": "postgres:17.11-alpine3.24@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb",
+      "amd64": "postgres@sha256:e4cb93687b062cd25a0e8f672d85a7708235009d70d31f8a7698d9370092a9c4",
+      "config_id": "sha256:ab20e934b27ba3ff927c1b4c9ff8cf6c32f315f743efe68dd3441182a87fb085",
+      "architecture": "amd64",
+      "archive_sha256": "330ce70b08edc9e13940e0b6bfcb7eeff9ac01887b51733cee90e75082223217",
+      "archive_bytes": 300061184,
+      "archive_manifest_digest": "sha256:04997dc6db8ad887d2cdb999cc7c690d2be8a167bc71ddd373ab014cea397bb8",
+      "rootfs_diff_ids": [
+        "sha256:75c137aedfb2760f88629236cb7b797630aed0c3d91d626d1d1bb694878fc2ba",
+        "sha256:a46a3bafcb603dc97670597201246506f98e5a6372d6dd6bff95fbe82c2daaaf",
+        "sha256:957d26e53b1ed5152079038cf0de8c6d0bd52a816ad3e20cc4cdbd7cd55bf9d8",
+        "sha256:b9f6ca12141f3136dbd518d2a9ed11e7129b12951b8984be8a9477e064048831",
+        "sha256:fa51465d1f6a9413b09529e99f73b7154a15db7457fcc0fe0a11f875d919212f",
+        "sha256:b2711a83336c81a02ba25e3c640502b1a00e597add8ac44ef3231ca00cf46f48",
+        "sha256:9087553371de5b60cd2b27440cc4d6ee9da8bb1db1e9cf4cd684f8c91ffa5ef5",
+        "sha256:65a170ef4c1b8d8abe86b5f7b0ccc2f643f2d4f347545125b4d3632c409e136b",
+        "sha256:1da1a2dfe2071240acddfd3e74e462ce03490d59416a4cb3eef8e48a8b3ca37b",
+        "sha256:3936a53132a14ee4a433e0b6c5185bc6df36fb0b2b61196cf97890bdd7fa85de"
+      ],
+      "rootfs_matches_source": true,
+      "ecs_runtime_image_id": "sha256:04997dc6db8ad887d2cdb999cc7c690d2be8a167bc71ddd373ab014cea397bb8",
+      "version_executable_verified": true,
+      "transferred_gzip_sha256": "cdaf93636021887c52797169d1c2cc5ef9948300868065072d50f318ee5dbccd"
+    }
+  },
+  "image_transport": "Official registry pinned index/amd64 child pulled locally, Docker save, Workbench upload, archive checksum verified, Docker load, rootfs layer identities compared and executable versions checked. Runtime IDs on ECS refer to saved OCI manifests, not original compressed registry manifests.",
+  "application_deployed": false,
+  "public_tls_verified": false,
+  "domain_names": "awaiting_user",
+  "cloud_real_call_sms_audio_verified": false
+}
