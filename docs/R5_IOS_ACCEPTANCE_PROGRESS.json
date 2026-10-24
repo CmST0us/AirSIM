@@ -264,6 +264,20 @@
       "audio_passed": false,
       "root_cause": "unconfirmed; bounded diagnostic instrumentation pending",
       "SMS": "one inbound message visible in App; outgoing not yet submitted"
+    },
+    "M4_media_diagnostics": {
+      "bounded_failure_code_and_stage": true,
+      "retains_failure_across_stop": true,
+      "clears_on_next_start": true,
+      "last_downlink_age_ms": true,
+      "snapshot_age_and_readiness_debug_UI": true,
+      "changed_timeouts_or_recovery_policy": false,
+      "focused_tests": {
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "execution_turn": "01a16e40-6d2e-7220-9a6e-4fb4fe7bc01f"
+      }
     }
   },
   "pending": [

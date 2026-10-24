@@ -170,6 +170,13 @@ private struct V2SettingsView: View {
                     Button("断开本次媒体") { model.media.disconnectForDiagnostics() }.disabled(!model.media.active)
                     Button("测试本机音频（3秒）") { model.testLocalAudio() }.disabled(model.busy || model.media.active || model.ownedCall != nil || model.activeCall != nil)
                     Text(model.localAudioResult)
+                    if let failure = model.media.lastFailure {
+                        Text("最后失败：\(failure.code.rawValue) · 阶段 \(failure.stage.rawValue)")
+                        Text("错误域：\(failure.domain ?? "—") · 数字码：\(failure.numericCode.map { String($0) } ?? "—")")
+                        Text("失败距最近下行：\(failure.downlinkAgeMilliseconds.map { String($0) + " ms" } ?? "尚无有效帧")")
+                    } else { Text("最后失败：无") }
+                    Text("快照年龄：\(model.selectedSnapshotAgeSeconds.map { String(format: "%.1f s", $0) } ?? "—")")
+                    Text("audioReady=\(model.audioReady ? "true" : "false") · ownedControlReady=\(model.ownedControlReady ? "true" : "false")")
                     let stats = model.media.statistics
                     Text("接收 \(stats.received) · 发送 \(stats.sent) · 序号缺口 \(stats.sequenceGaps)")
                     Text("队列丢弃 \(stats.queueDrops) · 跳过节拍 \(stats.skippedSlots) · 写超时 \(stats.writeTimeouts)")

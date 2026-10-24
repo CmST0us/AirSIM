@@ -376,6 +376,13 @@ final class CloudV2Model: ObservableObject {
         }
     }
 #endif
+#if DEBUG
+    var selectedSnapshotAgeSeconds: Double? {
+        guard let value = snapshot?.snapshot?.observed_at,
+              let observed = try? V2Validation.date(value) else { return nil }
+        return now().timeIntervalSince(observed)
+    }
+#endif
     var audioReady: Bool {
         guard experimentalAudio, foreground, ownedControlReady,
               discovery?.capabilities.experimental_audio == true,

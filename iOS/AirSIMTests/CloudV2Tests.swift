@@ -987,6 +987,33 @@ extension CloudV2Tests {
         XCTAssertFalse(media.active); XCTAssertFalse(audio.metrics.running)
         await media.stop()
     }
+    @MainActor func testV2DownlinkFailureEvidenceSurvivesStopAndResetsOnNewStart() async throws {
+        let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
+        socket.messages = v2HandshakeMessages()
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
+        let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        media.start(context: context, diagnosticMode: false, validate: { true })
+        await v2Yield(); XCTAssertEqual(media.state, .paired)
+        clock.advance(500_000_000)
+        socket.deliver(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, pcm: Data(repeating: 0, count: 320)).encode()))
+        await v2Yield()
+        audio.frames = [Data(repeating: 0, count: 320)]
+        clock.advance(2_500_000_000); await v2Yield(100)
+        let failure = try XCTUnwrap(media.lastFailure)
+        XCTAssertEqual(failure.code, .downlinkStopped)
+        XCTAssertEqual(failure.stage, .ticking)
+        XCTAssertEqual(failure.downlinkAgeMilliseconds, 2000)
+        XCTAssertNil(failure.domain); XCTAssertNil(failure.numericCode)
+        await media.stop()
+        XCTAssertEqual(media.lastFailure, failure)
+        media.requestStop(); await v2Yield(100)
+        XCTAssertEqual(media.lastFailure, failure)
+        socket.messages = v2HandshakeMessages()
+        media.start(context: context, diagnosticMode: false, validate: { true })
+        XCTAssertNil(media.lastFailure)
+        await v2Yield(); XCTAssertEqual(media.state, .paired)
+        await media.stop()
+    }
     @MainActor func testV2TwoSecondWatchdogRequiresRealCaptureAndValidDownlink() async throws {
         for missingInput in [true, false] {
             let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
