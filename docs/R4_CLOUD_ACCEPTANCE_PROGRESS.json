@@ -139,6 +139,28 @@
       "emergency_cleanup_required": true,
       "emergency_hangup_http": 202,
       "controller_correction": "Actual PCM traversed ECS for 12.304 seconds, then a >2 second downlink gap ended test. Targeted local emergency hangup submitted; later idle verified. This is a failed stability test, not audio acceptance."
+    },
+    {
+      "schema_version": 1,
+      "phase": "R4",
+      "started_at": "2026-10-24T10:18:33.072277+00:00",
+      "transport": "ECS HTTPS and separate WSS",
+      "audio_storage": "bounded_memory_only",
+      "result": "error",
+      "dial": {
+        "state": "accepted",
+        "result_code": "",
+        "call_id": "d885a200-0f21-4999-a0fd-96cbcf4ad832"
+      },
+      "command_id": "2b35325a-5a49-4482-a7d9-34bd1d6c6931",
+      "resumed_existing_command": false,
+      "duplicate_command": {
+        "http": 200,
+        "same_command_id": true,
+        "same_generation": true
+      },
+      "error": "RuntimeError:call_ended_before_active",
+      "hangup": "already_disconnected"
     }
   ],
   "audio_metrics": [
@@ -892,7 +914,7 @@
     }
   ],
   "pending": [
-    "Resolve call-time cellular uplink backlog, then repeat cloud audio acceptance",
+    "Intermittent upload backlog not resolved; later call-time low/high synthetic probes passed. Real cloud content acceptance still required.",
     "75-second cloud prompt and self-echo confirmed by user",
     "cloud incoming answer/reject and DTMF hardware checks",
     "media fault/recovery real hardware checks"
@@ -2708,7 +2730,8 @@
     },
     "interpretation": "Call-time cellular uplink backlogs even with audio manager closed and standalone synthetic WSS process. Observed TCP transmit queue reaches 128960 bytes. Idle recheck completes 20s but has jitter and 31 dropped sequence frames. This isolates beyond PCM/helper and cloud bridge; it does not yet distinguish radio/carrier/firmware or explain the mechanism.",
     "privacy": "No telephone numbers, message bodies, credentials or PCM recordings retained.",
-    "http_error_note": "Internal session polling can return 404 after peer close; preceding live samples are retained."
+    "http_error_note": "Internal session polling can return 404 after peer close; preceding live samples are retained.",
+    "followup_note": "Later same-call low/high rate probes both completed without gaps/retransmissions. Initial backlog is intermittent; see R4_TRANSPORT_DIAGNOSTIC.json."
   },
   "transport_diagnostic_followup": "R4_TRANSPORT_DIAGNOSTIC.json"
 }
