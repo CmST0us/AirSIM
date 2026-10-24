@@ -24,7 +24,7 @@
     "policy": "Accept",
     "priority": 100,
     "created_at": "2026-10-24T13:35:28.792885+00:00",
-    "cleanup": "Listener stops automatically; security-group rule remains pending explicit removal by its recorded rule ID. No other rule changed."
+    "cleanup": "Completed: exact temporary rule removed; all other rules unchanged."
   },
   "ECS_loopback": [
     {
@@ -124,5 +124,17 @@
       ]
     },
     "interpretation": "Mac received no TLS bytes after sending ClientHello on either port. Failure occurred before the client could receive or validate a server certificate. No expired certificate, wrong DNS SAN or chain validation failure was found. This does not establish which network component or server-side handling caused the missing response."
+  },
+  "cleanup_completed": {
+    "sg-cleanup": {
+      "removed_rule_id": "sgr-wz9aq9tcq9vga2qs4ax4",
+      "other_rules_unchanged": true,
+      "checked_at": "2026-10-24T13:51:18.105440+00:00"
+    },
+    "listener-cleanup": {
+      "unit": "airsim-r5-https-port-probe.service",
+      "8443_listener_removed": true,
+      "checked_at": "2026-10-24T13:51:32.554488+00:00"
+    }
   }
 }

@@ -12,7 +12,7 @@
     "M1_protocol": "passed",
     "M2_ui_and_version_isolation": "passed",
     "M3_audio": "local_verification_passed_cloud_acceptance_pending",
-    "M4_app_cloud_rm500_acceptance": "blocked_public_TLS_requires_usable_endpoint"
+    "M4_app_cloud_rm500_acceptance": "in_progress_public_TLS_restored_audio_interruption_under_diagnosis"
   },
   "verification": {
     "initial_simulator_build_and_launch": "passed",
@@ -192,6 +192,78 @@
       "audio_session_active": false,
       "simulator_App_stopped": true,
       "public_cloud_calls_SMS_audio": "not_attempted"
+    },
+    "M4_443_recovery": {
+      "user_report": "account had overdue balance; restored by user; billing not independently inspected",
+      "public_verified_TLS": {
+        "checked_at": "2026-10-24T13:50:32.273851+00:00",
+        "target": "120.25.235.237:443",
+        "hostname": "airsim.eric3u.cc",
+        "tls": "TLSv1.3",
+        "certificate_validated": true,
+        "status": "HTTP/1.1 200 OK",
+        "page_marker": true,
+        "seconds": 0.07
+      },
+      "normal_domain": {
+        "checked_at": "2026-10-24T13:52:05.960310+00:00",
+        "access": "normal domain resolution, verified HTTPS, no credentials",
+        "results": [
+          {
+            "path": "/",
+            "status": 200,
+            "marker": true
+          },
+          {
+            "path": "/.well-known/airsim",
+            "status": 200,
+            "discovery": {
+              "api_origin": "https://airsim.eric3u.cc",
+              "capabilities": {
+                "apns": false,
+                "controlled_test_client": true,
+                "experimental_audio": true,
+                "interactive_login": false,
+                "messaging": true,
+                "telephony": true
+              },
+              "device_origin": "https://device.airsim.eric3u.cc",
+              "media_origin": "https://airsim.eric3u.cc",
+              "profile": "airsim-v2-r4.1",
+              "protocol_version": 2,
+              "server_id": "2def58e8-0a60-4448-87b9-9682a06b9d77"
+            }
+          },
+          {
+            "path": "/v2/modules",
+            "status": 401
+          }
+        ]
+      },
+      "temporary_8443_listener_and_rule_removed": true,
+      "TLS_DNS_or_certificate_changes": false
+    },
+    "M4_first_App_outbound": {
+      "call_id": "c1d05e24-9567-45c4-998c-cc2a776419af",
+      "active_at": "2026-10-24T13:58:28.988Z",
+      "disconnected_at": "2026-10-24T13:59:32.740Z",
+      "dial_answer_observed": true,
+      "hangup": "App UI; local disconnect; emergency guard did not act",
+      "user_feedback": "heard beginning of prompt, then interrupted",
+      "App_frames": {
+        "sent": 138,
+        "received": 7,
+        "write_timeouts": 0,
+        "sequence_gaps": 0
+      },
+      "Agent_local_frames": {
+        "uplink": 141,
+        "downlink": 146,
+        "sequence_gaps": 0
+      },
+      "audio_passed": false,
+      "root_cause": "unconfirmed; bounded diagnostic instrumentation pending",
+      "SMS": "one inbound message visible in App; outgoing not yet submitted"
     }
   },
   "pending": [
