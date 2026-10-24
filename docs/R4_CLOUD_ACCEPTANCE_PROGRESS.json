@@ -2709,5 +2709,6 @@
     "interpretation": "Call-time cellular uplink backlogs even with audio manager closed and standalone synthetic WSS process. Observed TCP transmit queue reaches 128960 bytes. Idle recheck completes 20s but has jitter and 31 dropped sequence frames. This isolates beyond PCM/helper and cloud bridge; it does not yet distinguish radio/carrier/firmware or explain the mechanism.",
     "privacy": "No telephone numbers, message bodies, credentials or PCM recordings retained.",
     "http_error_note": "Internal session polling can return 404 after peer close; preceding live samples are retained."
-  }
+  },
+  "transport_diagnostic_followup": "R4_TRANSPORT_DIAGNOSTIC.json"
 }

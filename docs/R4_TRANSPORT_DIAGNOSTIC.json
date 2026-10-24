@@ -1,0 +1,575 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-24T10:12:54.672493+00:00",
+  "purpose": "Call-time transport diagnosis, synthetic zero PCM only; not audio acceptance",
+  "probe_build": {
+    "artifact": "/tmp/airsim-r4-netprobe/airsim-netprobe-tcpinfo",
+    "bytes": 5898424,
+    "sha256": "5c0b2347c86cc412e9d6a7d9f7d587b5e78cc5e13e5c5f4296d4efcfc414a8dc",
+    "original_preserved_sha256": "5a5c1daa8108f9e568679b31fae44143c9420d40435bd59083c770f34ba8cc7d",
+    "toolchain": "Go 1.24.13 CGO_ENABLED=0 GOOS=linux GOARCH=arm64",
+    "elf": "static AArch64, no PT_INTERP or PT_DYNAMIC",
+    "sources": {
+      "main.go": "17355b3e8c81e2699843ab4dfbe1e3a0babed81bb560a7dce378ca03502a3617",
+      "tcp.go": "2b79bc2e205c2ae2654b17e224b9beda10fa1b1b8911b17d405d2dffb07e5318",
+      "tcp_linux.go": "00fd9c8010e23ca8ebc3096a65588f7e10525a0052deec16e7bea81aa4d5411e",
+      "tcp_stub.go": "095750a84864133aa76453600ce36993e6b4773a2dcdef398a640307b59a3c6c",
+      "main_test.go": "9939ca37cbcc0a467cc11aa0a208b79dace7eacc9138c75a0371c03e398babec",
+      "tcp_test.go": "5d1e1b5e8b83e2970cb2a5cef03914b035c7aa4ba85fb808113e769daec89477"
+    },
+    "verification": {
+      "mac_race_config_tls_cadence_read_timeout": "passed",
+      "mac_race_tcp_collector": "passed (platform stub)",
+      "mac_vet": "passed",
+      "linux_arm64_vet": "passed",
+      "linux_arm64_build": "passed",
+      "linux_tcp_info_runtime": "not executed"
+    },
+    "fixtures": [
+      {
+        "interval_ms": 20,
+        "sent": 1000,
+        "received": 999,
+        "gaps": 1,
+        "elapsed_ms": 20001,
+        "max_receive_interval_ms": 32
+      },
+      {
+        "interval_ms": 200,
+        "sent": 100,
+        "received": 99,
+        "gaps": 1,
+        "elapsed_ms": 20002,
+        "max_receive_interval_ms": 212
+      }
+    ],
+    "production_network_execution": false,
+    "device_execution": false,
+    "repository_files_modified": false,
+    "tcp_sampling": "1 second; at most 35 records; final JSON tcp_samples; unsupported fields omitted; local port only, no IP",
+    "limits": "seconds20, hard35s, graceful34900ms, connect5s, write100ms, read2s, application frame queue0"
+  },
+  "idle_200ms": {
+    "started_at": "2026-10-24T10:09:36.057924+00:00",
+    "send_interval_ms_both_directions": 200,
+    "carrier_call_active": false,
+    "local_audio_state": "closed",
+    "session_id": "79a98a80-9604-4f1f-bf66-509398ec5ec9",
+    "probe_sha256": "5c0b2347c86cc412e9d6a7d9f7d587b5e78cc5e13e5c5f4296d4efcfc414a8dc",
+    "client_receive": {
+      "frames": 99,
+      "gaps": 0,
+      "max_interval_ms": 754.43
+    },
+    "client_sent": 100,
+    "duration_s": 20.007,
+    "agent": {
+      "tcp_samples": [
+        {
+          "elapsed_ms": 1000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 306385,
+          "rto_us": 970000,
+          "snd_cwnd": 10,
+          "unacked": 2,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 2002,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 224294,
+          "rto_us": 810000,
+          "snd_cwnd": 10,
+          "unacked": 2,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 3001,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 291462,
+          "rto_us": 920000,
+          "snd_cwnd": 10,
+          "unacked": 2,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 4000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 295576,
+          "rto_us": 820000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 5000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 234354,
+          "rto_us": 670000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 6000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 200175,
+          "rto_us": 570000,
+          "snd_cwnd": 10,
+          "unacked": 3,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 7000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 173763,
+          "rto_us": 610000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 8001,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 145021,
+          "rto_us": 520000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 9000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 113960,
+          "rto_us": 410000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 10000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 113306,
+          "rto_us": 370000,
+          "snd_cwnd": 10,
+          "unacked": 4,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 11000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 210894,
+          "rto_us": 880000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 12001,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 146945,
+          "rto_us": 660000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 13001,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 109857,
+          "rto_us": 470000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 14000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 94703,
+          "rto_us": 340000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 15001,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 95589,
+          "rto_us": 310000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 16001,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 106727,
+          "rto_us": 310000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 17001,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 90901,
+          "rto_us": 300000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 18000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 110616,
+          "rto_us": 370000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 19000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 128255,
+          "rto_us": 420000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 20001,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 103329,
+          "rto_us": 360000,
+          "snd_cwnd": 10,
+          "unacked": 2,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 21000,
+          "local_port": 33554,
+          "tcp_info_available": true,
+          "rtt_us": 113887,
+          "rto_us": 480000,
+          "snd_cwnd": 10,
+          "unacked": 1,
+          "total_retrans": 2
+        }
+      ],
+      "sent_frames": 99,
+      "received_frames": 100,
+      "gaps": 0,
+      "elapsed_ms": 20003,
+      "max_receive_interval_ms": 280,
+      "reason": "completed"
+    },
+    "last_live_server_sample": {
+      "state": "paired",
+      "reason": "",
+      "frames": [
+        98,
+        99
+      ],
+      "sequence_gaps": [
+        0,
+        0
+      ],
+      "dropped": [
+        0,
+        0
+      ]
+    },
+    "max_tcp_tx_queue_bytes": 2638
+  },
+  "idle_20ms": {
+    "started_at": "2026-10-24T10:11:01.104295+00:00",
+    "send_interval_ms_both_directions": 20,
+    "carrier_call_active": false,
+    "local_audio_state": "closed",
+    "session_id": "2edeccfb-12a5-44c8-b86d-cf872ca4d191",
+    "probe_sha256": "5c0b2347c86cc412e9d6a7d9f7d587b5e78cc5e13e5c5f4296d4efcfc414a8dc",
+    "client_receive": {
+      "frames": 943,
+      "gaps": 48,
+      "max_interval_ms": 860.73
+    },
+    "client_sent": 1000,
+    "duration_s": 20.008,
+    "agent": {
+      "tcp_samples": [
+        {
+          "elapsed_ms": 1002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 99695,
+          "rto_us": 380000,
+          "snd_cwnd": 10,
+          "unacked": 8,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 2001,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 228749,
+          "rto_us": 780000,
+          "snd_cwnd": 11,
+          "unacked": 5,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 3001,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 105204,
+          "rto_us": 380000,
+          "snd_cwnd": 11,
+          "unacked": 4,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 4002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 82380,
+          "rto_us": 290000,
+          "snd_cwnd": 11,
+          "unacked": 2,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 5001,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 97529,
+          "rto_us": 300000,
+          "snd_cwnd": 17,
+          "unacked": 5,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 6002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 170838,
+          "rto_us": 680000,
+          "snd_cwnd": 19,
+          "unacked": 16,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 7001,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 377160,
+          "rto_us": 1580000,
+          "snd_cwnd": 29,
+          "unacked": 22,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 8002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 116569,
+          "rto_us": 450000,
+          "snd_cwnd": 29,
+          "unacked": 3,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 9002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 138939,
+          "rto_us": 380000,
+          "snd_cwnd": 29,
+          "unacked": 8,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 10002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 115699,
+          "rto_us": 350000,
+          "snd_cwnd": 29,
+          "unacked": 10,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 11002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 137413,
+          "rto_us": 370000,
+          "snd_cwnd": 26,
+          "unacked": 24,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 12002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 142001,
+          "rto_us": 570000,
+          "snd_cwnd": 43,
+          "unacked": 4,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 13002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 127943,
+          "rto_us": 360000,
+          "snd_cwnd": 43,
+          "unacked": 4,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 14002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 122267,
+          "rto_us": 350000,
+          "snd_cwnd": 33,
+          "unacked": 34,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 15002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 726588,
+          "rto_us": 2980000,
+          "snd_cwnd": 54,
+          "unacked": 34,
+          "total_retrans": 0
+        },
+        {
+          "elapsed_ms": 16002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 236901,
+          "rto_us": 1780000,
+          "snd_cwnd": 22,
+          "unacked": 5,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 17002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 87672,
+          "rto_us": 550000,
+          "snd_cwnd": 22,
+          "unacked": 22,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 18002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 705653,
+          "rto_us": 2930000,
+          "snd_cwnd": 30,
+          "unacked": 23,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 19001,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 588307,
+          "rto_us": 2660000,
+          "snd_cwnd": 37,
+          "unacked": 21,
+          "total_retrans": 1
+        },
+        {
+          "elapsed_ms": 20002,
+          "local_port": 33556,
+          "tcp_info_available": true,
+          "rtt_us": 121923,
+          "rto_us": 720000,
+          "snd_cwnd": 37,
+          "unacked": 2,
+          "total_retrans": 1
+        }
+      ],
+      "sent_frames": 999,
+      "received_frames": 1000,
+      "gaps": 0,
+      "elapsed_ms": 19991,
+      "max_receive_interval_ms": 800,
+      "reason": "read"
+    },
+    "last_live_server_sample": {
+      "state": "paired",
+      "reason": "",
+      "frames": [
+        989,
+        996
+      ],
+      "sequence_gaps": [
+        0,
+        0
+      ],
+      "dropped": [
+        48,
+        0
+      ]
+    },
+    "max_tcp_tx_queue_bytes": 22090
+  },
+  "interpretation": "Both idle probes ran ~20s; 200ms had 99 received and no gaps. 20ms had 943 received and 48 sequence gaps from relay drops during burst arrival; TCP total retransmission count reached 1, RTT samples peaked at 726588us. Queue/timing behavior cannot be explained by retransmission count alone; active-call comparison still required. High-rate reason read at 19991ms is peer closure at the controller 20s end, not a 2s receive timeout.",
+  "active_call_attempt": {
+    "started_at": "2026-10-24T10:10:07.525862+00:00",
+    "active_at": "2026-10-24T10:10:25.853889+00:00",
+    "duration_s": 11.808,
+    "result": "error",
+    "error": "RuntimeError:EOFError:media_closed",
+    "hangup": {
+      "state": "already_ended_or_ownership_changed"
+    },
+    "call_ended_before_transport_probe": true,
+    "network_probes_run": 0,
+    "audio_close_reason": "lease_revoked",
+    "caller_ended_reason": "unknown; no attribution to user or network",
+    "next_step": "Await user availability for one ~60s call with both rates while local audio is closed."
+  },
+  "cleanup": {
+    "recorded_at": "2026-10-24T10:13:38.126220+00:00",
+    "active_calls": 0,
+    "audio_state": "closed",
+    "cloud_connected": true,
+    "cloud_configured": true,
+    "temporary_probe_binaries_removed_sha256": [
+      "5a5c1daa8108f9e568679b31fae44143c9420d40435bd59083c770f34ba8cc7d",
+      "5c0b2347c86cc412e9d6a7d9f7d587b5e78cc5e13e5c5f4296d4efcfc414a8dc"
+    ],
+    "production_agent_unchanged": true,
+    "next_real_call_waits_for_user_availability": true
+  }
+}
