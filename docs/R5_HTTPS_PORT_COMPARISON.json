@@ -81,5 +81,48 @@
   "rollback": {
     "listener": "systemctl stop airsim-r5-https-port-probe.service",
     "security_group": "ECS RevokeSecurityGroup for sg-wz96deau4b9kklhxm4iy, SecurityGroupRuleId.1=sgr-wz9aq9tcq9vga2qs4ax4; verify exact rule first"
+  },
+  "certificate_audit": {
+    "checked_at_utc": "2026-10-24T13:38:54.806715+00:00",
+    "sha256": "f47e08cab21cbad36dc36d381a294604dfca47e20107e20d23c4fce489165341",
+    "issuer": "Let's Encrypt YE2",
+    "DNS_SAN": [
+      "airsim.eric3u.cc"
+    ],
+    "not_before_UTC": "Oct 24 08:28:39 2026 GMT",
+    "not_after_UTC": "Jan 22 08:28:38 2027 GMT",
+    "ECS_default_CA_chain_and_hostname_verification": "passed",
+    "Mac_OpenSSL_3_chain_hostname_and_sslserver_purpose_verification": "passed using Homebrew OpenSSL CA bundle",
+    "Mac_public_handshake": {
+      "checked_at": "2026-10-24T13:39:02.659643+00:00",
+      "TLS": "OpenSSL 3.6.4 25 Aug 2026",
+      "probes": [
+        {
+          "port": 443,
+          "sni": "airsim.eric3u.cc",
+          "target_ip": "120.25.235.237",
+          "certificate_verification": true,
+          "sent_bytes": 1521,
+          "received_bytes": 0,
+          "received_record_types": [],
+          "error": "timed out",
+          "elapsed_seconds": 7.05,
+          "certificate_received_if_no_server_bytes": false
+        },
+        {
+          "port": 8443,
+          "sni": "airsim.eric3u.cc",
+          "target_ip": "120.25.235.237",
+          "certificate_verification": true,
+          "sent_bytes": 1521,
+          "received_bytes": 0,
+          "received_record_types": [],
+          "error": "timed out",
+          "elapsed_seconds": 7.05,
+          "certificate_received_if_no_server_bytes": false
+        }
+      ]
+    },
+    "interpretation": "Mac received no TLS bytes after sending ClientHello on either port. Failure occurred before the client could receive or validate a server certificate. No expired certificate, wrong DNS SAN or chain validation failure was found. This does not establish which network component or server-side handling caused the missing response."
   }
 }
