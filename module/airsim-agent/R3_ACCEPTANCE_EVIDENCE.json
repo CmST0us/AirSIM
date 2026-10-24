@@ -1,0 +1,1993 @@
+{
+  "schema_version": 1,
+  "phase": "R3_local_audio_acceptance",
+  "result": "passed_current_16khz_vendor_voice_clock",
+  "deployment": {
+    "pid": 20616,
+    "remote": "/mnt/data/airsim-v2/releases/ea836044de25662b/airsim-agent",
+    "sha256": "ea836044de25662bb92dad365d49cac3ce3686fb3de232b1526f7d87d443c171",
+    "helper": "/mnt/data/airsim-v2/releases/ea836044de25662b/airsim-audiod",
+    "helper_sha256": "39ff88dabce16196defdacc72637a15695f171a65f080179dde4382df3cc41dc",
+    "previous_pid": 19211,
+    "previous_release": "/mnt/data/airsim-v2/releases/7592a3b5e8176d43/airsim-agent",
+    "identity_unchanged": true,
+    "journal_unchanged": true,
+    "boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+    "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+    "space_before": "Filesystem           1K-blocks      Used Available Use% Mounted on\n/dev/ubi0_userdata       35664     21088     14064  60% /mnt/userdata",
+    "space_after": "Filesystem           1K-blocks      Used Available Use% Mounted on\n/dev/ubi0_userdata       35664     28076      7076  80% /mnt/userdata",
+    "audio": {
+      "available": true,
+      "implementation": "implemented",
+      "verification": "unverified",
+      "voice_ready": false,
+      "reason": ""
+    },
+    "helper_version": "airsim-audiod 0.3.0 tinyalsa-1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d"
+  },
+  "user_feedback": {
+    "audio_quality": "听清楚了！声音质量还可以",
+    "own_voice_echo": "是，听到了自己的回声",
+    "source": "explicit_user_replies_in_controller_chat"
+  },
+  "acceptance": {
+    "schema_version": 1,
+    "started_at": "2026-10-24T08:14:32.924748+00:00",
+    "mode": "tts_and_bounded_echo",
+    "audio_storage": "memory_only",
+    "prompt_seconds": 19.16,
+    "dial": {
+      "http": 202,
+      "state": "accepted",
+      "result_code": ""
+    },
+    "active_at": "2026-10-24T08:14:43.165242+00:00",
+    "media_format": {
+      "ok": true,
+      "sample_rate": 8000,
+      "channels": 1,
+      "sample_format": "s16le",
+      "frame_samples": 160
+    },
+    "uplink_frames": 3750,
+    "downlink": {
+      "frames": 3750,
+      "samples": 600000,
+      "sequence_gaps": 0,
+      "rms": 437.6,
+      "peak": 9141,
+      "span_s": 74.984,
+      "echo_frames": 2285,
+      "echo_dropped": 1435,
+      "error": null,
+      "windows": [
+        {
+          "at_s": 5.02,
+          "rms": 84.6,
+          "peak": 1373,
+          "frames": 251
+        },
+        {
+          "at_s": 10.02,
+          "rms": 128.5,
+          "peak": 1644,
+          "frames": 251
+        },
+        {
+          "at_s": 15.02,
+          "rms": 162.4,
+          "peak": 1772,
+          "frames": 249
+        },
+        {
+          "at_s": 20.06,
+          "rms": 210.4,
+          "peak": 2565,
+          "frames": 252
+        },
+        {
+          "at_s": 25.1,
+          "rms": 659.7,
+          "peak": 6668,
+          "frames": 252
+        },
+        {
+          "at_s": 30.1,
+          "rms": 463.1,
+          "peak": 7305,
+          "frames": 250
+        },
+        {
+          "at_s": 35.1,
+          "rms": 1045.1,
+          "peak": 9141,
+          "frames": 251
+        },
+        {
+          "at_s": 40.13,
+          "rms": 667.7,
+          "peak": 5557,
+          "frames": 247
+        },
+        {
+          "at_s": 45.14,
+          "rms": 369.3,
+          "peak": 4624,
+          "frames": 254
+        },
+        {
+          "at_s": 50.14,
+          "rms": 567.6,
+          "peak": 5566,
+          "frames": 250
+        },
+        {
+          "at_s": 55.18,
+          "rms": 348.6,
+          "peak": 4047,
+          "frames": 252
+        },
+        {
+          "at_s": 60.19,
+          "rms": 63.0,
+          "peak": 1387,
+          "frames": 250
+        },
+        {
+          "at_s": 65.22,
+          "rms": 4.4,
+          "peak": 200,
+          "frames": 252
+        },
+        {
+          "at_s": 70.23,
+          "rms": 0.0,
+          "peak": 0,
+          "frames": 250
+        }
+      ]
+    },
+    "duration_s": 75.004,
+    "audio_status_before_stop": {
+      "available": true,
+      "implementation": "implemented",
+      "verification": "unverified",
+      "voice_ready": false,
+      "reason": "",
+      "session": {
+        "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+        "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+        "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+        "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+        "state": "streaming",
+        "reason": "",
+        "created_at": "2026-10-24T08:14:42.67935572Z",
+        "uplink_frames": 3750,
+        "downlink_frames": 3750,
+        "uplink_sequence_gaps": 0,
+        "downlink_sequence_gaps": 0,
+        "last_uplink": "2026-10-24T08:15:57.721497781Z",
+        "last_downlink": "2026-10-24T08:15:57.719128551Z",
+        "actual": {
+          "type": "ready",
+          "sample_rate": 8000,
+          "channels": 1,
+          "sample_format": "s16le",
+          "frame_samples": 160,
+          "capture": {
+            "sample_rate": 8000,
+            "period_size": 320,
+            "period_count": 2,
+            "buffer_frames": 640
+          },
+          "playback": {
+            "sample_rate": 16000,
+            "period_size": 320,
+            "period_count": 2,
+            "buffer_frames": 640
+          }
+        },
+        "helper_stats": {
+          "type": "stats",
+          "capture_samples": 598720,
+          "playback_samples": 1198400,
+          "input_drops": 14,
+          "silence_samples": 5760,
+          "queue_peak": 2,
+          "elapsed_ms": 74873,
+          "capture_progress_ms": 74840,
+          "playback_progress_ms": 74863
+        }
+      }
+    },
+    "real_fault_checks": {
+      "killed_owned_helper": 20772,
+      "helper_failure": {
+        "available": true,
+        "implementation": "implemented",
+        "verification": "unverified",
+        "voice_ready": false,
+        "reason": "",
+        "session": {
+          "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+          "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+          "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+          "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+          "state": "closed",
+          "reason": "helper_exit",
+          "created_at": "2026-10-24T08:14:42.67935572Z",
+          "closed_at": "2026-10-24T08:15:57.893605666Z",
+          "uplink_frames": 3750,
+          "downlink_frames": 3758,
+          "uplink_sequence_gaps": 0,
+          "downlink_sequence_gaps": 0,
+          "last_uplink": "2026-10-24T08:15:57.721497781Z",
+          "last_downlink": "2026-10-24T08:15:57.87865805Z",
+          "actual": {
+            "type": "ready",
+            "sample_rate": 8000,
+            "channels": 1,
+            "sample_format": "s16le",
+            "frame_samples": 160,
+            "capture": {
+              "sample_rate": 8000,
+              "period_size": 320,
+              "period_count": 2,
+              "buffer_frames": 640
+            },
+            "playback": {
+              "sample_rate": 16000,
+              "period_size": 320,
+              "period_count": 2,
+              "buffer_frames": 640
+            }
+          },
+          "helper_stats": {
+            "type": "stats",
+            "capture_samples": 598720,
+            "playback_samples": 1198400,
+            "input_drops": 14,
+            "silence_samples": 5760,
+            "queue_peak": 2,
+            "elapsed_ms": 74873,
+            "capture_progress_ms": 74840,
+            "playback_progress_ms": 74863
+          }
+        }
+      },
+      "helper_reaped": true,
+      "pcm_closed_after_fault": true,
+      "old_token_rejected": true,
+      "client_eof_flow": {
+        "frames": 120,
+        "samples": 19200,
+        "sequence_gaps": 0,
+        "rms": 0.0,
+        "peak": 0,
+        "span_s": 2.389,
+        "echo_frames": 0,
+        "echo_dropped": 90,
+        "error": null,
+        "windows": [],
+        "wall_s": 2.401
+      },
+      "client_eof_closed": {
+        "available": true,
+        "implementation": "implemented",
+        "verification": "unverified",
+        "voice_ready": false,
+        "reason": "",
+        "session": {
+          "session_id": "a1df76f3-d821-460e-bf4d-1a42ae54b904",
+          "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+          "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+          "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+          "state": "closed",
+          "reason": "media_read",
+          "created_at": "2026-10-24T08:15:57.980981243Z",
+          "closed_at": "2026-10-24T08:16:00.421782856Z",
+          "uplink_frames": 120,
+          "downlink_frames": 120,
+          "uplink_sequence_gaps": 0,
+          "downlink_sequence_gaps": 0,
+          "last_uplink": "2026-10-24T08:16:00.394385626Z",
+          "last_downlink": "2026-10-24T08:16:00.392992933Z",
+          "actual": {
+            "type": "ready",
+            "sample_rate": 8000,
+            "channels": 1,
+            "sample_format": "s16le",
+            "frame_samples": 160,
+            "capture": {
+              "sample_rate": 8000,
+              "period_size": 320,
+              "period_count": 2,
+              "buffer_frames": 640
+            },
+            "playback": {
+              "sample_rate": 16000,
+              "period_size": 320,
+              "period_count": 2,
+              "buffer_frames": 640
+            }
+          },
+          "helper_stats": {
+            "type": "stats",
+            "capture_samples": 16000,
+            "playback_samples": 32960,
+            "silence_samples": 1600,
+            "queue_peak": 2,
+            "elapsed_ms": 2018,
+            "capture_progress_ms": 2006,
+            "playback_progress_ms": 2006
+          }
+        }
+      },
+      "call_end_flow": {
+        "frames": 120,
+        "samples": 19200,
+        "sequence_gaps": 0,
+        "rms": 0.0,
+        "peak": 0,
+        "span_s": 2.399,
+        "echo_frames": 0,
+        "echo_dropped": 90,
+        "error": null,
+        "windows": [],
+        "wall_s": 2.404
+      },
+      "hangup_during_media": {
+        "state": "accepted",
+        "result_code": ""
+      },
+      "call_end_closed": {
+        "available": true,
+        "implementation": "implemented",
+        "verification": "unverified",
+        "voice_ready": false,
+        "reason": "",
+        "session": {
+          "session_id": "e2490d53-0199-4495-a8b6-d5118f3289d5",
+          "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+          "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+          "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+          "state": "closed",
+          "reason": "lease_revoked",
+          "created_at": "2026-10-24T08:16:00.475087741Z",
+          "closed_at": "2026-10-24T08:16:03.177931662Z",
+          "uplink_frames": 120,
+          "downlink_frames": 132,
+          "uplink_sequence_gaps": 0,
+          "downlink_sequence_gaps": 0,
+          "last_uplink": "2026-10-24T08:16:02.866328085Z",
+          "last_downlink": "2026-10-24T08:16:03.117041278Z",
+          "actual": {
+            "type": "ready",
+            "sample_rate": 8000,
+            "channels": 1,
+            "sample_format": "s16le",
+            "frame_samples": 160,
+            "capture": {
+              "sample_rate": 8000,
+              "period_size": 320,
+              "period_count": 2,
+              "buffer_frames": 640
+            },
+            "playback": {
+              "sample_rate": 16000,
+              "period_size": 320,
+              "period_count": 2,
+              "buffer_frames": 640
+            }
+          },
+          "helper_stats": {
+            "type": "stats",
+            "capture_samples": 16000,
+            "playback_samples": 32960,
+            "silence_samples": 1280,
+            "queue_peak": 1,
+            "elapsed_ms": 2005,
+            "capture_progress_ms": 2003,
+            "playback_progress_ms": 2000
+          }
+        }
+      }
+    },
+    "audio_after_call_end": {
+      "available": true,
+      "implementation": "implemented",
+      "verification": "unverified",
+      "voice_ready": false,
+      "reason": "",
+      "session": {
+        "session_id": "e2490d53-0199-4495-a8b6-d5118f3289d5",
+        "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+        "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+        "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+        "state": "closed",
+        "reason": "lease_revoked",
+        "created_at": "2026-10-24T08:16:00.475087741Z",
+        "closed_at": "2026-10-24T08:16:03.177931662Z",
+        "uplink_frames": 120,
+        "downlink_frames": 132,
+        "uplink_sequence_gaps": 0,
+        "downlink_sequence_gaps": 0,
+        "last_uplink": "2026-10-24T08:16:02.866328085Z",
+        "last_downlink": "2026-10-24T08:16:03.117041278Z",
+        "actual": {
+          "type": "ready",
+          "sample_rate": 8000,
+          "channels": 1,
+          "sample_format": "s16le",
+          "frame_samples": 160,
+          "capture": {
+            "sample_rate": 8000,
+            "period_size": 320,
+            "period_count": 2,
+            "buffer_frames": 640
+          },
+          "playback": {
+            "sample_rate": 16000,
+            "period_size": 320,
+            "period_count": 2,
+            "buffer_frames": 640
+          }
+        },
+        "helper_stats": {
+          "type": "stats",
+          "capture_samples": 16000,
+          "playback_samples": 32960,
+          "silence_samples": 1280,
+          "queue_peak": 1,
+          "elapsed_ms": 2005,
+          "capture_progress_ms": 2003,
+          "playback_progress_ms": 2000
+        }
+      }
+    },
+    "result": "media_loop_completed",
+    "media_stop_http": 204,
+    "hangup": {
+      "state": "already_ended_or_ownership_changed"
+    },
+    "audio_final": {
+      "available": true,
+      "implementation": "implemented",
+      "verification": "unverified",
+      "voice_ready": false,
+      "reason": "",
+      "session": {
+        "session_id": "e2490d53-0199-4495-a8b6-d5118f3289d5",
+        "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+        "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+        "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+        "state": "closed",
+        "reason": "lease_revoked",
+        "created_at": "2026-10-24T08:16:00.475087741Z",
+        "closed_at": "2026-10-24T08:16:03.177931662Z",
+        "uplink_frames": 120,
+        "downlink_frames": 132,
+        "uplink_sequence_gaps": 0,
+        "downlink_sequence_gaps": 0,
+        "last_uplink": "2026-10-24T08:16:02.866328085Z",
+        "last_downlink": "2026-10-24T08:16:03.117041278Z",
+        "actual": {
+          "type": "ready",
+          "sample_rate": 8000,
+          "channels": 1,
+          "sample_format": "s16le",
+          "frame_samples": 160,
+          "capture": {
+            "sample_rate": 8000,
+            "period_size": 320,
+            "period_count": 2,
+            "buffer_frames": 640
+          },
+          "playback": {
+            "sample_rate": 16000,
+            "period_size": 320,
+            "period_count": 2,
+            "buffer_frames": 640
+          }
+        },
+        "helper_stats": {
+          "type": "stats",
+          "capture_samples": 16000,
+          "playback_samples": 32960,
+          "silence_samples": 1280,
+          "queue_peak": 1,
+          "elapsed_ms": 2005,
+          "capture_progress_ms": 2003,
+          "playback_progress_ms": 2000
+        }
+      }
+    }
+  },
+  "post_checks": {
+    "control_ready": true,
+    "active_calls": 0,
+    "identity_module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "helper_children": [],
+    "pcm": {
+      "pcm5c": "closed",
+      "pcm5p": "closed",
+      "pcm9c": "closed",
+      "pcm55p": "closed"
+    },
+    "agent_resources": {
+      "VmHWM": "12704 kB",
+      "VmRSS": "12300 kB",
+      "Threads": "9",
+      "fd_count": 12
+    },
+    "space": "Filesystem           1K-blocks      Used Available Use% Mounted on\n/dev/ubi0_userdata       35664     25776      9376  73% /mnt/userdata",
+    "checked_at": "2026-10-24T08:18:15.078274+00:00"
+  },
+  "resource_summary": {
+    "agent": {
+      "observations": 21,
+      "rss_kib_min": 8516,
+      "rss_kib_max": 12696,
+      "fd_counts": [
+        12,
+        16
+      ],
+      "thread_counts": [
+        7,
+        9
+      ],
+      "sampled_cpu_percent_one_core_mean": 12.44,
+      "sampled_cpu_percent_one_core_max": 15.32
+    },
+    "helper": {
+      "observations": 15,
+      "rss_kib_min": 152,
+      "rss_kib_max": 152,
+      "fd_counts": [
+        7
+      ],
+      "thread_counts": [
+        4
+      ],
+      "sampled_cpu_percent_one_core_mean": 3.51,
+      "sampled_cpu_percent_one_core_max": 3.74
+    }
+  },
+  "clock_ticks_per_second": 100,
+  "resources": {
+    "samples": [
+      {
+        "elapsed_s": 0.202,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": ""
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 30,
+            "stime_ticks": 20,
+            "fd_count": 12,
+            "VmHWM": "8516 kB",
+            "VmRSS": "8516 kB",
+            "Threads": "7"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 5.399,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": ""
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 50,
+            "stime_ticks": 36,
+            "fd_count": 12,
+            "VmHWM": "9432 kB",
+            "VmRSS": "9432 kB",
+            "Threads": "9"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 10.617,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": ""
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 73,
+            "stime_ticks": 53,
+            "fd_count": 12,
+            "VmHWM": "9744 kB",
+            "VmRSS": "9744 kB",
+            "Threads": "9"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 15.941,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 83,
+            "downlink_frames": 84,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:14:44.381614142Z",
+            "last_downlink": "2026-10-24T08:14:44.394435603Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 8000,
+              "playback_samples": 16960,
+              "silence_samples": 1280,
+              "queue_peak": 2,
+              "elapsed_ms": 1021,
+              "capture_progress_ms": 999,
+              "playback_progress_ms": 1020
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 98,
+            "stime_ticks": 80,
+            "fd_count": 16,
+            "VmHWM": "10960 kB",
+            "VmRSS": "10960 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 0,
+            "stime_ticks": 7,
+            "fd_count": 7,
+            "VmHWM": "152 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 21.274,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 349,
+            "downlink_frames": 350,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:14:49.701400638Z",
+            "last_downlink": "2026-10-24T08:14:49.710462253Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 48000,
+              "playback_samples": 96960,
+              "silence_samples": 1280,
+              "queue_peak": 2,
+              "elapsed_ms": 6022,
+              "capture_progress_ms": 5998,
+              "playback_progress_ms": 6018
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 137,
+            "stime_ticks": 117,
+            "fd_count": 16,
+            "VmHWM": "11480 kB",
+            "VmRSS": "11480 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 4,
+            "stime_ticks": 21,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 26.592,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 616,
+            "downlink_frames": 616,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:14:55.041425288Z",
+            "last_downlink": "2026-10-24T08:14:55.032234826Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 96320,
+              "playback_samples": 193600,
+              "silence_samples": 1280,
+              "queue_peak": 2,
+              "elapsed_ms": 12072,
+              "capture_progress_ms": 12040,
+              "playback_progress_ms": 12060
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 181,
+            "stime_ticks": 153,
+            "fd_count": 16,
+            "VmHWM": "11664 kB",
+            "VmRSS": "11664 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 8,
+            "stime_ticks": 36,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 31.887,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 882,
+            "downlink_frames": 882,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:00.359171707Z",
+            "last_downlink": "2026-10-24T08:15:00.357848092Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 137280,
+              "playback_samples": 275200,
+              "input_drops": 3,
+              "silence_samples": 2240,
+              "queue_peak": 2,
+              "elapsed_ms": 17173,
+              "capture_progress_ms": 17158,
+              "playback_progress_ms": 17159
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 222,
+            "stime_ticks": 192,
+            "fd_count": 16,
+            "VmHWM": "12444 kB",
+            "VmRSS": "12444 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 9,
+            "stime_ticks": 53,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 37.277,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 1148,
+            "downlink_frames": 1148,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:05.680578549Z",
+            "last_downlink": "2026-10-24T08:15:05.674093434Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 177920,
+              "playback_samples": 356800,
+              "input_drops": 3,
+              "silence_samples": 2240,
+              "queue_peak": 2,
+              "elapsed_ms": 22272,
+              "capture_progress_ms": 22243,
+              "playback_progress_ms": 22263
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 267,
+            "stime_ticks": 222,
+            "fd_count": 16,
+            "VmHWM": "12468 kB",
+            "VmRSS": "12468 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 13,
+            "stime_ticks": 67,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 42.628,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 1417,
+            "downlink_frames": 1416,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:11.061089892Z",
+            "last_downlink": "2026-10-24T08:15:11.03721043Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 226560,
+              "playback_samples": 453760,
+              "input_drops": 3,
+              "silence_samples": 2240,
+              "queue_peak": 2,
+              "elapsed_ms": 28324,
+              "capture_progress_ms": 28322,
+              "playback_progress_ms": 28319
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 316,
+            "stime_ticks": 255,
+            "fd_count": 16,
+            "VmHWM": "12556 kB",
+            "VmRSS": "12488 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 18,
+            "stime_ticks": 82,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 47.986,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 1684,
+            "downlink_frames": 1684,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:16.398886349Z",
+            "last_downlink": "2026-10-24T08:15:16.394032888Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 266880,
+              "playback_samples": 534400,
+              "input_drops": 3,
+              "silence_samples": 2240,
+              "queue_peak": 2,
+              "elapsed_ms": 33374,
+              "capture_progress_ms": 33361,
+              "playback_progress_ms": 33356
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 353,
+            "stime_ticks": 292,
+            "fd_count": 16,
+            "VmHWM": "12556 kB",
+            "VmRSS": "12492 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 21,
+            "stime_ticks": 98,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 53.345,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 1952,
+            "downlink_frames": 1952,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:21.758030922Z",
+            "last_downlink": "2026-10-24T08:15:21.756757076Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 307520,
+              "playback_samples": 616000,
+              "input_drops": 3,
+              "silence_samples": 2240,
+              "queue_peak": 2,
+              "elapsed_ms": 38473,
+              "capture_progress_ms": 38437,
+              "playback_progress_ms": 38461
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 395,
+            "stime_ticks": 327,
+            "fd_count": 16,
+            "VmHWM": "12568 kB",
+            "VmRSS": "12568 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 21,
+            "stime_ticks": 116,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 58.699,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 2221,
+            "downlink_frames": 2220,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:27.141373842Z",
+            "last_downlink": "2026-10-24T08:15:27.114427226Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 348480,
+              "playback_samples": 697600,
+              "input_drops": 7,
+              "silence_samples": 3520,
+              "queue_peak": 2,
+              "elapsed_ms": 43572,
+              "capture_progress_ms": 43558,
+              "playback_progress_ms": 43563
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 437,
+            "stime_ticks": 362,
+            "fd_count": 16,
+            "VmHWM": "12652 kB",
+            "VmRSS": "12652 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 26,
+            "stime_ticks": 130,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 64.101,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 2489,
+            "downlink_frames": 2488,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:32.504941876Z",
+            "last_downlink": "2026-10-24T08:15:32.480503453Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 396800,
+              "playback_samples": 794240,
+              "input_drops": 9,
+              "silence_samples": 4160,
+              "queue_peak": 2,
+              "elapsed_ms": 49622,
+              "capture_progress_ms": 49601,
+              "playback_progress_ms": 49602
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 476,
+            "stime_ticks": 401,
+            "fd_count": 16,
+            "VmHWM": "12704 kB",
+            "VmRSS": "12192 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 30,
+            "stime_ticks": 146,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 69.437,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 2758,
+            "downlink_frames": 2758,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:37.87992618Z",
+            "last_downlink": "2026-10-24T08:15:37.870877373Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 437760,
+              "playback_samples": 875840,
+              "input_drops": 10,
+              "silence_samples": 4480,
+              "queue_peak": 2,
+              "elapsed_ms": 54722,
+              "capture_progress_ms": 54716,
+              "playback_progress_ms": 54704
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 506,
+            "stime_ticks": 446,
+            "fd_count": 16,
+            "VmHWM": "12704 kB",
+            "VmRSS": "12192 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 32,
+            "stime_ticks": 163,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 74.769,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 3024,
+            "downlink_frames": 3024,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:43.200740907Z",
+            "last_downlink": "2026-10-24T08:15:43.195946984Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 478080,
+              "playback_samples": 956800,
+              "input_drops": 12,
+              "silence_samples": 5120,
+              "queue_peak": 2,
+              "elapsed_ms": 59772,
+              "capture_progress_ms": 59756,
+              "playback_progress_ms": 59759
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 547,
+            "stime_ticks": 481,
+            "fd_count": 16,
+            "VmHWM": "12704 kB",
+            "VmRSS": "12312 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 35,
+            "stime_ticks": 178,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 80.142,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 3291,
+            "downlink_frames": 3290,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:48.538447173Z",
+            "last_downlink": "2026-10-24T08:15:48.517194903Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 526080,
+              "playback_samples": 1052800,
+              "input_drops": 12,
+              "silence_samples": 5120,
+              "queue_peak": 2,
+              "elapsed_ms": 65772,
+              "capture_progress_ms": 65761,
+              "playback_progress_ms": 65762
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 583,
+            "stime_ticks": 519,
+            "fd_count": 16,
+            "VmHWM": "12704 kB",
+            "VmRSS": "12696 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 37,
+            "stime_ticks": 195,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 85.486,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "0b6fa86d-c07e-4b1c-92de-42c71994e98b",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:14:42.67935572Z",
+            "uplink_frames": 3559,
+            "downlink_frames": 3558,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:53.901334092Z",
+            "last_downlink": "2026-10-24T08:15:53.875162784Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 566400,
+              "playback_samples": 1133760,
+              "input_drops": 14,
+              "silence_samples": 5760,
+              "queue_peak": 2,
+              "elapsed_ms": 70822,
+              "capture_progress_ms": 70802,
+              "playback_progress_ms": 70822
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 632,
+            "stime_ticks": 548,
+            "fd_count": 16,
+            "VmHWM": "12704 kB",
+            "VmRSS": "12192 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 20772,
+            "role": "helper",
+            "utime_ticks": 39,
+            "stime_ticks": 212,
+            "fd_count": 7,
+            "VmHWM": "156 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 90.792,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "a1df76f3-d821-460e-bf4d-1a42ae54b904",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "streaming",
+            "reason": "",
+            "created_at": "2026-10-24T08:15:57.980981243Z",
+            "uplink_frames": 63,
+            "downlink_frames": 62,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:15:59.251749088Z",
+            "last_downlink": "2026-10-24T08:15:59.234274434Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 8000,
+              "playback_samples": 16960,
+              "silence_samples": 1600,
+              "queue_peak": 2,
+              "elapsed_ms": 1019,
+              "capture_progress_ms": 1012,
+              "playback_progress_ms": 1011
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 669,
+            "stime_ticks": 587,
+            "fd_count": 16,
+            "VmHWM": "12704 kB",
+            "VmRSS": "12192 kB",
+            "Threads": "9"
+          },
+          {
+            "pid": 21493,
+            "role": "helper",
+            "utime_ticks": 1,
+            "stime_ticks": 4,
+            "fd_count": 7,
+            "VmHWM": "152 kB",
+            "VmRSS": "152 kB",
+            "Threads": "4"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 96.042,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "e2490d53-0199-4495-a8b6-d5118f3289d5",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "closed",
+            "reason": "lease_revoked",
+            "created_at": "2026-10-24T08:16:00.475087741Z",
+            "closed_at": "2026-10-24T08:16:03.177931662Z",
+            "uplink_frames": 120,
+            "downlink_frames": 132,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:16:02.866328085Z",
+            "last_downlink": "2026-10-24T08:16:03.117041278Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 16000,
+              "playback_samples": 32960,
+              "silence_samples": 1280,
+              "queue_peak": 1,
+              "elapsed_ms": 2005,
+              "capture_progress_ms": 2003,
+              "playback_progress_ms": 2000
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 700,
+            "stime_ticks": 624,
+            "fd_count": 12,
+            "VmHWM": "12704 kB",
+            "VmRSS": "12224 kB",
+            "Threads": "9"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 101.29,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "e2490d53-0199-4495-a8b6-d5118f3289d5",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "closed",
+            "reason": "lease_revoked",
+            "created_at": "2026-10-24T08:16:00.475087741Z",
+            "closed_at": "2026-10-24T08:16:03.177931662Z",
+            "uplink_frames": 120,
+            "downlink_frames": 132,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:16:02.866328085Z",
+            "last_downlink": "2026-10-24T08:16:03.117041278Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 16000,
+              "playback_samples": 32960,
+              "silence_samples": 1280,
+              "queue_peak": 1,
+              "elapsed_ms": 2005,
+              "capture_progress_ms": 2003,
+              "playback_progress_ms": 2000
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 709,
+            "stime_ticks": 641,
+            "fd_count": 12,
+            "VmHWM": "12704 kB",
+            "VmRSS": "12224 kB",
+            "Threads": "9"
+          }
+        ]
+      },
+      {
+        "elapsed_s": 106.516,
+        "audio": {
+          "available": true,
+          "implementation": "implemented",
+          "verification": "unverified",
+          "voice_ready": false,
+          "reason": "",
+          "session": {
+            "session_id": "e2490d53-0199-4495-a8b6-d5118f3289d5",
+            "call_id": "7457c819-cc5a-4937-a416-a741ce14982d",
+            "agent_boot_id": "6542579f-d105-40fa-885f-162f7dd3cef7",
+            "backend_epoch": "af4ecb9f-6839-44ed-908a-72943995a6ab",
+            "state": "closed",
+            "reason": "lease_revoked",
+            "created_at": "2026-10-24T08:16:00.475087741Z",
+            "closed_at": "2026-10-24T08:16:03.177931662Z",
+            "uplink_frames": 120,
+            "downlink_frames": 132,
+            "uplink_sequence_gaps": 0,
+            "downlink_sequence_gaps": 0,
+            "last_uplink": "2026-10-24T08:16:02.866328085Z",
+            "last_downlink": "2026-10-24T08:16:03.117041278Z",
+            "actual": {
+              "type": "ready",
+              "sample_rate": 8000,
+              "channels": 1,
+              "sample_format": "s16le",
+              "frame_samples": 160,
+              "capture": {
+                "sample_rate": 8000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              },
+              "playback": {
+                "sample_rate": 16000,
+                "period_size": 320,
+                "period_count": 2,
+                "buffer_frames": 640
+              }
+            },
+            "helper_stats": {
+              "type": "stats",
+              "capture_samples": 16000,
+              "playback_samples": 32960,
+              "silence_samples": 1280,
+              "queue_peak": 1,
+              "elapsed_ms": 2005,
+              "capture_progress_ms": 2003,
+              "playback_progress_ms": 2000
+            }
+          }
+        },
+        "processes": [
+          {
+            "pid": 20616,
+            "role": "agent",
+            "utime_ticks": 725,
+            "stime_ticks": 651,
+            "fd_count": 12,
+            "VmHWM": "12704 kB",
+            "VmRSS": "12248 kB",
+            "Threads": "9"
+          }
+        ]
+      }
+    ],
+    "error": null,
+    "audio_storage": "none",
+    "wall_s": 111.635
+  },
+  "publication_gate": {
+    "voice_ready": false,
+    "reason": "Experimental local acceptance; 8k vendor voice clock and long soak not hardware validated"
+  },
+  "limits": [
+    "75-second content loop plus two 2.4-second recovery streams, not 30-minute/100-session soak",
+    "Vendor voice clock 16k only hardware validated; 8k branch unit tested",
+    "Mac microphone/speaker and ECS/Worker/iOS end-to-end paths not exercised",
+    "14 bounded uplink input queue drops observed; no xrun or external media sequence gaps",
+    "Quiet final window observed, not a calibrated noise-floor test; no echo cancellation or noise gating"
+  ]
+}

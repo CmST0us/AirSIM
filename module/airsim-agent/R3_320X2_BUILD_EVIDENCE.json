@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "phase": "revised_320x2_not_deployed",
+  "version": "2.0.0-dev.r3",
+  "artifacts": {
+    "agent": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/airsim-agent/dist/airsim-agent",
+      "sha256": "7592a3b5e8176d437f91857df0713597088a447add3b496492a900af18f9b497",
+      "bytes": 6553784,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false
+    },
+    "helper": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/rm500/audio/dist/airsim-audiod",
+      "sha256": "fdc07f0bbf5c302a2ac2dd64e1ecb95e48dae8c9d9a9b0d6e879cdb75ddca873",
+      "bytes": 87496,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false
+    },
+    "probe": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/rm500/audio/dist/audio-config-probe",
+      "sha256": "d2d92bb8e2a4af3d41ebd06480082d16db089a65d68f5a05454703863ad4a91e",
+      "bytes": 73872,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false
+    }
+  },
+  "go": "1.24.13",
+  "zig": "0.15.2",
+  "tinyalsa_commit": "1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d",
+  "vendor_modified": false,
+  "requested_pcm": {
+    "sample_rate": 8000,
+    "channels": 1,
+    "sample_format": "s16le",
+    "period_size": 320,
+    "period_count": 2,
+    "start_threshold": 320,
+    "stop_threshold": 640,
+    "avail_min": 320
+  },
+  "external_frame_samples": 160,
+  "validation": {
+    "media_http_race": "passed",
+    "go_vet_all": "passed",
+    "native_protocol_asan_ubsan": "passed",
+    "vendor_hashes": "passed",
+    "elf_static_arm64_all_three": "passed"
+  },
+  "historical_evidence": [
+    "R3_INITIAL_BUILD_EVIDENCE.json",
+    "R3_PCM_CONFIG_INITIAL_PROBE.json"
+  ],
+  "initial_hardware_result": "pcm_config_failure_no_frames",
+  "revised_hardware_config_verified": false,
+  "hardware_audio_verified": false,
+  "voice_ready": false,
+  "deployed": false
+}

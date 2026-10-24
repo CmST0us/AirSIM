@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "phase": "decision04_deployed_local_content_acceptance_passed_16khz",
+  "version": "2.0.0-dev.r3",
+  "artifacts": {
+    "agent": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/airsim-agent/dist/airsim-agent",
+      "sha256": "ea836044de25662bb92dad365d49cac3ce3686fb3de232b1526f7d87d443c171",
+      "bytes": 6553784,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false
+    },
+    "helper": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/rm500/audio/dist/airsim-audiod",
+      "sha256": "39ff88dabce16196defdacc72637a15695f171a65f080179dde4382df3cc41dc",
+      "bytes": 90552,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false
+    },
+    "probe": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/rm500/audio/dist/audio-config-probe",
+      "sha256": "1f7a874a8bdc5f4f8097037c58a6306fb77310e3daf7b67aa8a7082c3d0f9c44",
+      "bytes": 73888,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false
+    },
+    "cadence_probe": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/rm500/audio/dist/pcm-cadence-probe",
+      "sha256": "ca72f6aa180eccd69e37438f3261872db1fada64045adf2cd28534a5aa54726f",
+      "bytes": 83544,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false,
+      "status": "historical_diagnostic_build_not_final_acceptance_binary"
+    }
+  },
+  "go": "1.24.13",
+  "zig": "0.15.2",
+  "tinyalsa_commit": "1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d",
+  "vendor_modified": false,
+  "requested_pcm": {
+    "channels": 1,
+    "sample_format": "s16le",
+    "period_size": 320,
+    "period_count": 2,
+    "stop_threshold": 640,
+    "avail_min": 320,
+    "capture_start_threshold": 320,
+    "playback_start_threshold": 640,
+    "capture_sample_rate": 8000,
+    "playback_sample_rate": "read_only_vendor_5p_8000_or_16000",
+    "poll_timeout_ms": 10
+  },
+  "external_frame_samples": 160,
+  "validation": {
+    "media_http_race": "passed",
+    "go_vet_all": "passed",
+    "native_protocol_asan_ubsan": "passed",
+    "vendor_hashes": "passed",
+    "elf_static_arm64_all_three": "passed",
+    "native_pcm_flow_asan_ubsan": "passed",
+    "native_exact_state_sync_functions_fake_ioctl_asan_ubsan": "passed",
+    "original_state_regression_negative_control": "expected_exit_1",
+    "strict_backport_source_patch_result_hashes": "passed",
+    "go_checks_this_revision": "full_race_and_vet_passed",
+    "elf_static_arm64_helper_probe": "passed",
+    "directional_hw_verify": "passed",
+    "ordered_initial_prepare_prepare_start": "passed",
+    "workers_no_initial_prepare": "passed",
+    "ready_final_stats_error_shutdown": "passed",
+    "before_ready_error_only": "passed",
+    "go_full_race": "passed",
+    "native_interpolation_clock_parsing_change_rejection_asan_ubsan": "passed",
+    "native_8k_16k_frames_rate_guard_xrun_reset": "passed",
+    "ready_native_rates_strict_diagnostics": "passed",
+    "elf_static_arm64_agent_helper": "passed"
+  },
+  "historical_evidence": [
+    "R3_INITIAL_BUILD_EVIDENCE.json",
+    "R3_PCM_CONFIG_INITIAL_PROBE.json",
+    "R3_320X2_BUILD_EVIDENCE.json",
+    "R3_DECISION02_BUILD_EVIDENCE.json",
+    "R3_DECISION03_STARTUP_BUILD_EVIDENCE.json"
+  ],
+  "initial_hardware_result": "pcm_config_failure_no_frames",
+  "revised_hardware_config_verified": true,
+  "hardware_audio_verified": true,
+  "voice_ready": false,
+  "deployed": true,
+  "backport": {
+    "upstream_commit": "a36d521c328b16b53360a016aa543491d0aad05e",
+    "upstream_url": "https://github.com/tinyalsa/tinyalsa/commit/a36d521c328b16b53360a016aa543491d0aad05e",
+    "base_commit": "1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d",
+    "source_sha256": "b20b9ae8d45aeaddc8041f32d4855b726d1d5b3ddce0b54599f4e32f66abc1f4",
+    "patch_sha256": "1384abf15b56d2c12f62738256b7a799958810a2b57f00b05616d82050f8761d",
+    "result_sha256": "8ce7242dbe569ad53165ed54bb0965c90d091692f080f737cd2115d5804ac514",
+    "vendor_modified": false
+  },
+  "controller_reported_prior_hardware_result": {
+    "media_handshake": "passed_320x2",
+    "capture_samples": 0,
+    "playback_samples": 45123360,
+    "stats_elapsed_ms": 1005,
+    "result": "no_downlink_session_closed_after_two_seconds"
+  },
+  "controller_reported_decision02_result": "active_ready_then_xrun_budget_approximately_64ms_capture_zero",
+  "native_frame_samples": {
+    "capture": 160,
+    "playback_8000": 160,
+    "playback_16000": 320
+  },
+  "external_sample_rate": 8000,
+  "controller_reported_decision04_basis": {
+    "capture_rate": 8000,
+    "vendor_5p_5c_rate": 16000,
+    "playback_16k_two_second_samples": 32960,
+    "xrun": 0,
+    "content_verification": "subsequently_passed_current_16khz_see_R3_ACCEPTANCE_EVIDENCE"
+  },
+  "hardware_audio_verification_scope": "current_firmware_vendor_16khz_local_content_only",
+  "verification": "unverified",
+  "controller_evidence": {
+    "acceptance": "R3_ACCEPTANCE_EVIDENCE.json",
+    "diagnostics": "R3_DIAGNOSTIC_EVIDENCE.json",
+    "authority": "controller_recorded_hardware_metadata_and_explicit_user_feedback"
+  },
+  "local_acceptance": {
+    "result": "passed_current_16khz_vendor_voice_clock",
+    "duration_s": 75.004,
+    "uplink_frames": 3750,
+    "downlink_frames": 3750,
+    "uplink_sequence_gaps": 0,
+    "downlink_sequence_gaps": 0,
+    "capture_xruns": 0,
+    "playback_xruns": 0,
+    "zero_field_semantics": "omitted_numeric_xrun_fields_mean_zero",
+    "input_drops": 14,
+    "input_drops_percent": 0.3733,
+    "silence_samples_native": 5760,
+    "silence_native_rate": 16000,
+    "silence_seconds": 0.36,
+    "echo_dropped": 1435,
+    "echo_drop_interpretation": "primarily_host_prompt_and_non_echo_window_discards_not_network_packet_loss",
+    "user_feedback": {
+      "audio_quality": "听清楚了！声音质量还可以",
+      "own_voice_echo": "是，听到了自己的回声",
+      "source": "explicit_user_replies_in_controller_chat"
+    },
+    "fault_checks": {
+      "helper_sigkill_reason": "helper_exit",
+      "helper_reaped": true,
+      "pcm_closed_after_fault": true,
+      "old_token_rejected": true,
+      "new_session_succeeded": true,
+      "client_eof_reason": "media_read",
+      "call_end_reason": "lease_revoked"
+    }
+  },
+  "runtime_publication_gate": {
+    "voice_ready": false,
+    "verification": "unverified",
+    "reason": "Experimental local acceptance; 8k vendor voice clock and long soak not hardware validated"
+  },
+  "resource_summary": {
+    "agent": {
+      "observations": 21,
+      "rss_kib_min": 8516,
+      "rss_kib_max": 12696,
+      "fd_counts": [
+        12,
+        16
+      ],
+      "thread_counts": [
+        7,
+        9
+      ],
+      "sampled_cpu_percent_one_core_mean": 12.44,
+      "sampled_cpu_percent_one_core_max": 15.32
+    },
+    "helper": {
+      "observations": 15,
+      "rss_kib_min": 152,
+      "rss_kib_max": 152,
+      "fd_counts": [
+        7
+      ],
+      "thread_counts": [
+        4
+      ],
+      "sampled_cpu_percent_one_core_mean": 3.51,
+      "sampled_cpu_percent_one_core_max": 3.74
+    }
+  },
+  "final_state": {
+    "control_ready": true,
+    "active_calls": 0,
+    "owned_helper_count": 0,
+    "pcm": {
+      "pcm5c": "closed",
+      "pcm5p": "closed",
+      "pcm9c": "closed",
+      "pcm55p": "closed"
+    },
+    "identity_unchanged": true
+  },
+  "limits": [
+    "75-second content loop plus two 2.4-second recovery streams, not 30-minute/100-session soak",
+    "Vendor voice clock 16k only hardware validated; 8k branch unit tested",
+    "Mac microphone/speaker and ECS/Worker/iOS end-to-end paths not exercised",
+    "14 bounded uplink input queue drops observed; no xrun or external media sequence gaps",
+    "Quiet final window observed, not a calibrated noise-floor test; no echo cancellation or noise gating"
+  ],
+  "next_phases": "R4_R5_not_started",
+  "prior_failures_status": "retained_historical_diagnostics_superseded_by_final_decision04_content_acceptance"
+}

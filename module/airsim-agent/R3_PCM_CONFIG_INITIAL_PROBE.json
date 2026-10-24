@@ -1,0 +1,48 @@
+[
+  {
+    "card": 0,
+    "device": 9,
+    "direction": "capture",
+    "open_ready": true,
+    "pcm_config": {
+      "channels": 1,
+      "rate": 8000,
+      "format_enum": 0,
+      "s16_le_enum": 0,
+      "period_size": 320,
+      "period_count": 4,
+      "start_threshold": 160,
+      "stop_threshold": 640,
+      "silence_threshold": 0,
+      "silence_size": 0,
+      "avail_min": 160
+    },
+    "buffer_frames": 640,
+    "hw_params_readable": true,
+    "hw_params_truncated": false,
+    "hw_params": "access: RW_INTERLEAVED\nformat: S16_LE\nsubformat: STD\nchannels: 1\nrate: 8000 (8000/1)\nperiod_size: 320\nbuffer_size: 1280\n"
+  },
+  {
+    "card": 0,
+    "device": 55,
+    "direction": "playback",
+    "open_ready": true,
+    "pcm_config": {
+      "channels": 1,
+      "rate": 8000,
+      "format_enum": 0,
+      "s16_le_enum": 0,
+      "period_size": 320,
+      "period_count": 4,
+      "start_threshold": 160,
+      "stop_threshold": 640,
+      "silence_threshold": 0,
+      "silence_size": 0,
+      "avail_min": 160
+    },
+    "buffer_frames": 640,
+    "hw_params_readable": true,
+    "hw_params_truncated": false,
+    "hw_params": "access: RW_INTERLEAVED\nformat: S16_LE\nsubformat: STD\nchannels: 1\nrate: 8000 (8000/1)\nperiod_size: 320\nbuffer_size: 1280\n"
+  }
+]

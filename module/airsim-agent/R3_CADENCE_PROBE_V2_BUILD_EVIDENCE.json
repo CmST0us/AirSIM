@@ -1,0 +1,48 @@
+{
+  "phase": "decision03_two_second_cadence_probe_v2_built_not_run",
+  "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/rm500/audio/dist/pcm-cadence-probe",
+  "bytes": 84488,
+  "sha256": "e68939cdf0e51d68560331d9b39dc4dabeb6025e7f3e538607a45da52289e2aa",
+  "elf_machine": "AArch64",
+  "pt_interp": false,
+  "pt_dynamic": false,
+  "zig": "0.15.2",
+  "backport": {
+    "upstream_commit": "a36d521c328b16b53360a016aa543491d0aad05e",
+    "upstream_url": "https://github.com/tinyalsa/tinyalsa/commit/a36d521c328b16b53360a016aa543491d0aad05e",
+    "base_commit": "1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d",
+    "source_sha256": "b20b9ae8d45aeaddc8041f32d4855b726d1d5b3ddce0b54599f4e32f66abc1f4",
+    "patch_sha256": "1384abf15b56d2c12f62738256b7a799958810a2b57f00b05616d82050f8761d",
+    "result_sha256": "8ce7242dbe569ad53165ed54bb0965c90d091692f080f737cd2115d5804ac514"
+  },
+  "validation": {
+    "cross_build_warnings_as_errors": "passed",
+    "elf_static_arm64": "passed",
+    "vendor_hashes_and_backport": "passed",
+    "device_execution": "not_performed",
+    "probe_runtime_tests": "not_performed"
+  },
+  "limits": {
+    "session_ms": 2000,
+    "alarm_seconds": 3,
+    "operations_per_direction": "unlimited_until_deadline_or_failure",
+    "pcm_bytes_per_direction": 320,
+    "request_frames": 160,
+    "epipe_recoveries_per_direction": 1,
+    "proc_bytes_per_file": 4096,
+    "recorded_operations_per_direction": 32,
+    "sample_limit_per_direction": 32000,
+    "sample_limit_comparison": "strictly_greater",
+    "proc_snapshot_phases": [
+      "first_failure",
+      "first32",
+      "end"
+    ],
+    "proc_snapshot_sets_per_direction": 3
+  },
+  "formal_helper_unchanged": true,
+  "go_unchanged": true,
+  "initialization": "prepare_capture_then_prepare_playback_then_start_capture_before_workers",
+  "capture_start_threshold": 320,
+  "playback_start_threshold": 640
+}

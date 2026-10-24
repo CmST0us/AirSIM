@@ -1,0 +1,8 @@
+{
+  "upstream_commit": "a36d521c328b16b53360a016aa543491d0aad05e",
+  "upstream_url": "https://github.com/tinyalsa/tinyalsa/commit/a36d521c328b16b53360a016aa543491d0aad05e",
+  "base_commit": "1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d",
+  "source_sha256": "b20b9ae8d45aeaddc8041f32d4855b726d1d5b3ddce0b54599f4e32f66abc1f4",
+  "patch_sha256": "1384abf15b56d2c12f62738256b7a799958810a2b57f00b05616d82050f8761d",
+  "result_sha256": "8ce7242dbe569ad53165ed54bb0965c90d091692f080f737cd2115d5804ac514"
+}

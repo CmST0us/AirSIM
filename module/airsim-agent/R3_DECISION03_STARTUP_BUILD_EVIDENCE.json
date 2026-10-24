@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "phase": "decision03_startup_revision_not_deployed",
+  "version": "2.0.0-dev.r3",
+  "artifacts": {
+    "agent": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/airsim-agent/dist/airsim-agent",
+      "sha256": "7592a3b5e8176d437f91857df0713597088a447add3b496492a900af18f9b497",
+      "bytes": 6553784,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false
+    },
+    "helper": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/rm500/audio/dist/airsim-audiod",
+      "sha256": "227db7637ff820c38676b0e53a9d2aad032c209eb8e79c47295afcdb44965231",
+      "bytes": 87928,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false
+    },
+    "probe": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/rm500/audio/dist/audio-config-probe",
+      "sha256": "1f7a874a8bdc5f4f8097037c58a6306fb77310e3daf7b67aa8a7082c3d0f9c44",
+      "bytes": 73888,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false
+    },
+    "cadence_probe": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/rm500/audio/dist/pcm-cadence-probe",
+      "sha256": "ca72f6aa180eccd69e37438f3261872db1fada64045adf2cd28534a5aa54726f",
+      "bytes": 83544,
+      "elf_machine": "AArch64",
+      "pt_interp": false,
+      "pt_dynamic": false
+    }
+  },
+  "go": "1.24.13",
+  "zig": "0.15.2",
+  "tinyalsa_commit": "1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d",
+  "vendor_modified": false,
+  "requested_pcm": {
+    "sample_rate": 8000,
+    "channels": 1,
+    "sample_format": "s16le",
+    "period_size": 320,
+    "period_count": 2,
+    "stop_threshold": 640,
+    "avail_min": 320,
+    "capture_start_threshold": 320,
+    "playback_start_threshold": 640
+  },
+  "external_frame_samples": 160,
+  "validation": {
+    "media_http_race": "passed",
+    "go_vet_all": "passed",
+    "native_protocol_asan_ubsan": "passed",
+    "vendor_hashes": "passed",
+    "elf_static_arm64_all_three": "passed",
+    "native_pcm_flow_asan_ubsan": "passed",
+    "native_exact_state_sync_functions_fake_ioctl_asan_ubsan": "passed",
+    "original_state_regression_negative_control": "expected_exit_1",
+    "strict_backport_source_patch_result_hashes": "passed",
+    "go_checks_this_revision": "not_rerun_Go_unchanged",
+    "elf_static_arm64_helper_probe": "passed",
+    "directional_hw_verify": "passed",
+    "ordered_initial_prepare_prepare_start": "passed",
+    "workers_no_initial_prepare": "passed",
+    "ready_final_stats_error_shutdown": "passed",
+    "before_ready_error_only": "passed"
+  },
+  "historical_evidence": [
+    "R3_INITIAL_BUILD_EVIDENCE.json",
+    "R3_PCM_CONFIG_INITIAL_PROBE.json",
+    "R3_320X2_BUILD_EVIDENCE.json",
+    "R3_DECISION02_BUILD_EVIDENCE.json"
+  ],
+  "initial_hardware_result": "pcm_config_failure_no_frames",
+  "revised_hardware_config_verified": true,
+  "hardware_audio_verified": false,
+  "voice_ready": false,
+  "deployed": false,
+  "backport": {
+    "upstream_commit": "a36d521c328b16b53360a016aa543491d0aad05e",
+    "upstream_url": "https://github.com/tinyalsa/tinyalsa/commit/a36d521c328b16b53360a016aa543491d0aad05e",
+    "base_commit": "1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d",
+    "source_sha256": "b20b9ae8d45aeaddc8041f32d4855b726d1d5b3ddce0b54599f4e32f66abc1f4",
+    "patch_sha256": "1384abf15b56d2c12f62738256b7a799958810a2b57f00b05616d82050f8761d",
+    "result_sha256": "8ce7242dbe569ad53165ed54bb0965c90d091692f080f737cd2115d5804ac514",
+    "vendor_modified": false
+  },
+  "controller_reported_prior_hardware_result": {
+    "media_handshake": "passed_320x2",
+    "capture_samples": 0,
+    "playback_samples": 45123360,
+    "stats_elapsed_ms": 1005,
+    "result": "no_downlink_session_closed_after_two_seconds"
+  },
+  "controller_reported_decision02_result": "active_ready_then_xrun_budget_approximately_64ms_capture_zero"
+}

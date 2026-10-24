@@ -1,0 +1,23 @@
+{
+  "source": "https://github.com/tinyalsa/tinyalsa",
+  "commit": "1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d",
+  "archive_sha256": "7c74ba17ef7192f32de229db0e6880b1b3f7d9086387152b13f4d1fb66a9f92e",
+  "files": {
+    "LICENSE": "ea22a4711f5250f88a4d7011fbc65367d1b02ac954dcc49f5b6d7c135e6537c4",
+    "NOTICE": "ea22a4711f5250f88a4d7011fbc65367d1b02ac954dcc49f5b6d7c135e6537c4",
+    "src/pcm.c": "b20b9ae8d45aeaddc8041f32d4855b726d1d5b3ddce0b54599f4e32f66abc1f4",
+    "src/pcm_hw.c": "2b587c13204abb4b8a43d548a30b7d086ab0c918daf6464a940c68bd1b7e50a6",
+    "src/pcm_io.h": "5c67287a019e7a7defcf19bc24fadb2974d81b669f3e7049871da55eefdfe604",
+    "src/snd_card_plugin.h": "b38492aab3a86875600efa62bacd522d911f9881d926253835c703f854be178c",
+    "src/limits.c": "46ab2a4b10cd79665d3d6af0a711d2249764bb57ea3683ac07f85b713d6b2b5a",
+    "include/tinyalsa/version.h": "f3ed3915ba8a6a57bcf2a9e345ceb292b04f2596b4c7331faba6481e3cdac1b0",
+    "include/tinyalsa/plugin.h": "7cac0ccc58e08354a51c867bb4946b0920e086ac215ae55f6dd77b058d8d12e0",
+    "include/tinyalsa/limits.h": "ca37bf28c62f218fe250a3c2617cab19c324009fd6dddcd51696d19690d6b79d",
+    "include/tinyalsa/asoundlib.h": "daa56f1513d8ea9fbbb6a8909c25ed1673b1101d6efbb70d22b9a0a3d4f7fffd",
+    "include/tinyalsa/attributes.h": "f0929d84055c7b6ceeec77f4f009ac29ff5c8b656f3c4f206095de959831d5ca",
+    "include/tinyalsa/mixer.h": "23726259ed8821ce089c5325c9ff338094ed83a5d90e8f301cd3d79e45e36751",
+    "include/tinyalsa/pcm.h": "1ad9f81b8b69646ee482489d6f08c91b97ef8c3cc03a2c608c0c98144486b933",
+    "include/tinyalsa/interval.h": "e4b7727801ccc5fd6e16714b86d27d90f8393b455f36ad91e1fe5c2e20cb3f25",
+    "src/snd_card_plugin.c": "dee1df5debada0bbf22f29dda6b076abafdbdc442820bfee34ae03f807b2f3fc"
+  }
+}

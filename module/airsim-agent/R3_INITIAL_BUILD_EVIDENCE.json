@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "phase": "implementation_only_not_deployed",
+  "version": "2.0.0-dev.r3",
+  "artifacts": {
+    "agent": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/airsim-agent/dist/airsim-agent",
+      "sha256": "da2a5c06037b3aeae7056d8611c2ae009329c622fa06b2d41be8dc76e4632375",
+      "bytes": 6553784,
+      "elf_machine": "AArch64",
+      "elf_class": 64,
+      "pt_interp": false,
+      "pt_dynamic": false
+    },
+    "helper": {
+      "path": "/Users/eki/Project/Embedded_Project/AirSIM/module/rm500/audio/dist/airsim-audiod",
+      "sha256": "972e8ab7b12d3dd28a626f71bc73a324ca729145a28b03b0c8ca07bdf7503fcb",
+      "bytes": 1422312,
+      "elf_machine": "AArch64",
+      "elf_class": 64,
+      "pt_interp": false,
+      "pt_dynamic": false
+    }
+  },
+  "go": "1.24.13",
+  "zig": "0.15.2",
+  "tinyalsa_commit": "1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d",
+  "validation": {
+    "go_test_race_all": "passed",
+    "go_vet_all": "passed",
+    "native_protocol_asan_ubsan": "passed",
+    "vendor_hashes": "passed",
+    "elf_static_arm64": "passed"
+  },
+  "hardware_audio_verified": false,
+  "voice_ready": false,
+  "deployed": false,
+  "long_stability_verified": false
+}

@@ -1,0 +1,45 @@
+# airsim-audiod — R3 native helper
+
+Implementation for the controller's [R3 contract](../../../docs/RM500_AGENT_R3.md). The controller deployed decision04 and passed75.004 seconds of local bidirectional content acceptance on the current firmware with a16kHz vendor voice clock. Runtime voice_ready=false and verification=unverified remain the experimental publication gate. It does not invoke tinycap/tinyplay, the CLI, or the old Agent, and does not change mixer controls.
+
+Build and local protocol tests:
+
+```sh
+ZIG=/tmp/airsim-r3-toolchain/zig-aarch64-macos-0.15.2/zig sh scripts/build.sh
+sh scripts/test.sh
+```
+
+The build requires exactly Zig 0.15.2 and never downloads a compiler. TinyALSA's required upstream sources and headers are vendored at official commit `1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d`; `vendor/tinyalsa/SOURCE.json` records the official source URL, archive hash, and every vendored file hash. LICENSE, NOTICE, and source copyright/license notices are retained. Plugin backends are not enabled; `snd_card_plugin.c` is linked because upstream `pcm_close` references its null-safe cleanup function. No device shared-library ABI is used.
+
+Output `dist/airsim-audiod` is an AArch64 Linux executable statically linked with musl. `--version` prints a fixed version and returns before opening sockets or PCM. Normal use is exclusively as the Agent's child:
+
+```text
+airsim-audiod --session <UUIDv4> --profile rm500u-embedded
+```
+
+Inherited fd3 is control and fd4 is full-duplex media, both AF_UNIX SOCK_STREAM. The Agent owns authentication and the active-call lease. The helper validates its fixed profile and session, sets PDEATHSIG with a parent-race check, and opens only card0 capture9 and playback55. It never opens device5. Capture requests8kHz; playback requests the read-only vendor5p rate (8/16kHz), both mono S16_LE with320-frame periods,2 periods, avail_min320 and stop_threshold640; start_threshold is320 for capture and640 for playback. It validates the returned configuration and `/proc/asound` hw_params before ready; any mismatch fails instead of changing formats.
+
+Each PCM direction has its own thread. An IPC reader feeds a two-frame uplink queue; together with receiver, playback, and Agent relay working frames, there are at most five application frames in that direction. Downlink has one capture and one Agent relay working frame, without a separate queue. Late queued frames older than100ms and oldest frames on queue overflow are discarded whole. Playback supplies zero samples when input is absent. Capture always emits complete frames, including silence. Kernel socket/PCM buffers are separate from these application buffers; hardware buffer is640 frames per direction.
+
+ASMP is exactly360 bytes: 40-byte header and320-byte payload. Direction1 is uplink, direction2 downlink. UUID, version, lengths, reserved bytes and strictly increasing sequence are checked; gaps are counted. Partial IPC writes share one100ms deadline; failure ends the stream. Control accepts only exact ping/stop JSON with a4-byte little-endian length prefix. Control EOF, PCM EOF, three seconds without ping, SIGTERM or parent loss stops the helper. A default SIGALRM provides an independent two-second final-exit bound during stop/join/close, including after parent death. Agent additionally kills/reaps its own child after the stop budget.
+
+TinyALSA returns `-1` plus errno; EAGAIN/EINTR use poll, partial transfers are completed, PCM_NORESTART prevents hidden restarts. Each direction permits at most three explicit prepare recoveries in a rolling10-second interval; an over-budget xrun ends the session. Recovery discards a partial frame rather than splicing samples across a discontinuity. A transfer without progress for two seconds fails.
+
+The ready message reports actual period/count/buffer derived from the validated proc hw_params, also checked against pcm_get_config. pcm_get_buffer_size alone is not trusted: the first hardware probe showed that upstream TinyALSA retained the requested buffer640 despite kernel refinement to320×4=1280. Stats every second include actual capture/playback sample counts, xruns, partial-frame drops, input queue drops, sequence gaps, actual zero samples written, uplink queue peak, elapsed monotonic time and last per-direction sample progress. No PCM content is logged or stored. Agent JSON omits some zero-valued numeric helper fields; omission means zero. Error codes are fixed and contain no raw driver error strings.
+
+Native ASan/UBSan tests cover framing/session/sequence, recovery-budget boundaries, blocked writes and EOF. Go fake and child-process tests cover lifecycle and socket behavior. These tests do not establish actual driver support, sample-clock accuracy, acoustic content, echo behavior, silence quality, or resource use on hardware. Thirty-minute/100-session stability and real parent-death/driver-block behavior on RM500 remain unverified.
+
+
+Controller-observed first-run failure is retained in `../../airsim-agent/R3_PCM_CONFIG_INITIAL_PROBE.json`: both devices refined the original160×4 request to320×4, yielding proc buffer1280 while TinyALSA reported640. The initial helper correctly ended with pcm_config before emitting frames. The controller then froze an explicit320×2 hardware request; at that historical stage external and working frames remained160 samples/20ms without resampling or vendor/mixer changes; decision04 below supersedes that native playback assumption. The controller subsequently verified320×2 configuration and handshake, but observed no capture and an impossible playback sample rate; this is not audio acceptance.
+
+A separate configuration-only diagnostic is built with `sh scripts/build-config-probe.sh` as `dist/audio-config-probe`. It opens9 capture then55 playback with the same requested parameters, reports bounded JSON containing get_config, get_buffer_size and raw proc hw_params, then closes each PCM. It never calls prepare/start/read/write or changes mixer. It is not integrated into the Agent or normal helper, and the execution chat does not deploy or run it. All final Linux artifacts are stripped with `-Wl,-s` (Agent uses Go stripping flags).
+
+
+Decision02 build: original vendor files remain unchanged. `scripts/prepare_vendor.py` verifies their manifest and applies only the exact pcm_state SYNC_PTR APPL|AVAIL_MIN backport to `dist/tinyalsa/pcm.c`. Source, patch and result hashes plus the official upstream commit are recorded in `patches/SOURCE.json`; both helper and probe build from this copy. Capture explicitly prepares/starts initially and after xrun; playback prepares without explicit START. Each successful partial transfer checks cumulative samples against8×elapsed_ms+1280 and fails pcm_io on excess, preserving actual counts. The two-second no-progress bound remains. Fake PCM worker and exact-source fake ioctl tests run under ASan/UBSan; the original state function is also tested as an expected-failure negative control. See `../../airsim-agent/R3_TESTING.md` for historical scope and final controller acceptance.
+
+Current decision04 supersedes the earlier same-rate description: external frames and capture stay8kHz; native playback is selected only from read-only vendor5p hw_params at8/16kHz, revalidated before ready and every second. Unsupported/closed/changed metadata fails pcm_config. Playback16k uses the controller-frozen causal2× linear interpolation in a640-byte in-place backward conversion, preserving the prior sample across frames and resetting it on xrun. Native playback frames are160/320 samples; counts and rate guard use native rate, PCM poll is10ms. Ready includes per-direction sample_rate and requires the matching rebuilt Go Agent. No device5 PCM, mixer changes or software pacing is introduced. See the latest decision04 section in R3_TESTING.md for validation and the completed scoped controller content acceptance.
+
+
+Current evidence: [controller acceptance](../../airsim-agent/R3_ACCEPTANCE_EVIDENCE.json) is authoritative for deployed hashes, resources, counters, fault checks and user feedback; [controller diagnostics](../../airsim-agent/R3_DIAGNOSTIC_EVIDENCE.json) retains prior failures superseded by the final successful loop. The user confirmed clear audio and their own voice echo. External frames were3750 in each direction with zero sequence gaps and zero xrun (omitted zero fields). Helper input_drops=14 (~0.37%), so this was not a zero-drop run. silence_samples=5760 is0.36 seconds at native16kHz. echo_dropped=1435 primarily reflects deliberate host prompt/non-echo-window discards, not network loss.
+
+Real helper SIGKILL→helper_exit/PCM close/reap, new-session success, old-token rejection, client EOF→media_read and call-end→lease_revoked passed. Final state: no active call or owned helper,5c/5p/9c/55p closed, control ready, identity unchanged. Vendor8kHz is unit-tested only;30-minute/100-session endurance, Mac microphone/speaker and ECS/Worker/iOS end-to-end remain unverified. R4–R5 are not started. No audio content is retained in these documents.
