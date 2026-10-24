@@ -48,3 +48,7 @@ M4主控正常UI复测：签名修复后，通过文件选择器导入短期配�
 按用户要求增加现有443根路径的静态HTTPS检查页（https://airsim.eric3u.cc/，标记R5-HTTPS-20261024）。只新增精确根路由，原API/media/device mTLS配置逐字保留，不新增域名、端口或认证例外。Caddy validate通过并仅重建edge；4容器健康。ECS本机经正确域名/证书校验的TLS请求返回页面200、discovery200、未授权modules401、未知路径404，公网IAB仍ERR_TIMED_OUT。部署备份、摘要和验证记录见R5_HTTPS_CHECK_DEPLOYMENT.json；页面显示与公网业务验收分开。
 
 用户要求检查安全组后，通过当前Workbench账号的只读ECS API查询实例绑定组：TCP443入站Accept、来源0.0.0.0/0、优先级100，未见更高优先级拒绝；TCP80未放行，故此前HTTP80超时不能用于判断HTTPS故障。系统Docker规则放行映射后的8443/8080，DOCKER-USER为空。未修改安全组、系统防火墙或TLS设置；当前443问题不能归因于该安全组入站规则，仍需进一步定位。
+
+用户提出换端口对照后，主控于2026-10-24 21:35（Asia/Shanghai）增加临时8443入口：以nobody运行socat，将TCP原样转发到现有127.0.0.1:443，沿用同一Caddy、域名、证书及页面；未重启现有服务或修改App配置。单独增加TCP8443入站规则，其他安全组规则不变。临时systemd服务有7200秒硬时限，预计23:35:09自动关闭；安全组规则本身不会自动失效，后续应按记录的唯一rule ID删除。操作、回退和证据见R5_HTTPS_PORT_COMPARISON.json。
+
+443/8443在ECS loopback均通过正常证书校验、TLS1.3返回200，证书SHA256一致。Mac使用OpenSSL3.6.4直连正确公网IP并保留域名/SNI，两个端口均TCP连接成功、TLS握手7秒超时；8443纯IP无域名SNI探测则收到TLS internal-error alert，未绕过证书校验。换端口目前没有恢复访问，不能将故障仅归为443端口；亦未证明备案或特定厂商拦截。已请求在Codex打开8443页面供用户不同网络对照，工具返回queued，不冒充浏览器访问成功。M4公网业务验收仍未通过。

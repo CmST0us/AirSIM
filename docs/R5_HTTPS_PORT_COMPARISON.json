@@ -1,0 +1,85 @@
+{
+  "stage": "R5 alternate HTTPS port comparison",
+  "instance_id": "i-wz93dhbsy21quebidepg",
+  "url": "https://airsim.eric3u.cc:8443/",
+  "page_marker": "R5-HTTPS-20261024",
+  "temporary_listener": {
+    "unit": "airsim-r5-https-port-probe.service",
+    "listen": "0.0.0.0:8443",
+    "forward": "127.0.0.1:443",
+    "transport": "socat TCP forwarding; existing Caddy terminates TLS",
+    "run_as": "nobody",
+    "started_at": "2026-10-24T21:35:09+08:00",
+    "runtime_max_seconds": 7200,
+    "expected_stop_at": "2026-10-24T23:35:09+08:00",
+    "active_service_restarted": false,
+    "caddy_config_sha256": "3b48dc7860dfe42da03e59856f19fc980737a2e036f2e85d4427c76aa0ee8989"
+  },
+  "security_group": {
+    "group": "sg-wz96deau4b9kklhxm4iy",
+    "rule_id": "sgr-wz9aq9tcq9vga2qs4ax4",
+    "port": "8443/8443",
+    "protocol": "TCP",
+    "source": "0.0.0.0/0",
+    "policy": "Accept",
+    "priority": 100,
+    "created_at": "2026-10-24T13:35:28.792885+00:00",
+    "cleanup": "Listener stops automatically; security-group rule remains pending explicit removal by its recorded rule ID. No other rule changed."
+  },
+  "ECS_loopback": [
+    {
+      "port": 443,
+      "tls": "TLSv1.3",
+      "status": "HTTP/1.1 200 OK",
+      "marker": true,
+      "certificate_sha256": "f47e08cab21cbad36dc36d381a294604dfca47e20107e20d23c4fce489165341"
+    },
+    {
+      "port": 8443,
+      "tls": "TLSv1.3",
+      "status": "HTTP/1.1 200 OK",
+      "marker": true,
+      "certificate_sha256": "f47e08cab21cbad36dc36d381a294604dfca47e20107e20d23c4fce489165341"
+    }
+  ],
+  "public_Mac_direct_IP_with_validated_domain_TLS": {
+    "checked_at": "2026-10-24T13:36:00.084433+00:00",
+    "client_tls": "OpenSSL 3.6.4 25 Aug 2026",
+    "tests": [
+      {
+        "ip": "120.25.235.237",
+        "port": 443,
+        "server_name": "airsim.eric3u.cc",
+        "dns_bypassed": true,
+        "certificate_verification": true,
+        "tcp_connected": true,
+        "error": "_ssl.c:1003: The handshake operation timed out",
+        "elapsed_seconds": 7.02
+      },
+      {
+        "ip": "120.25.235.237",
+        "port": 8443,
+        "server_name": "airsim.eric3u.cc",
+        "dns_bypassed": true,
+        "certificate_verification": true,
+        "tcp_connected": true,
+        "error": "_ssl.c:1003: The handshake operation timed out",
+        "elapsed_seconds": 7.02
+      }
+    ]
+  },
+  "public_Mac_numeric_IP_without_domain_SNI": {
+    "port": 8443,
+    "result": "TLSV1_ALERT_INTERNAL_ERROR",
+    "elapsed_seconds": 0.68,
+    "TLS_verification_disabled": false
+  },
+  "UI": "Requested opening the alternate URL in Codex; tool returned queued, no browser success claimed.",
+  "conclusion": "Both ports accept TCP but domain TLS handshakes time out from this Mac. Both pass verified TLS and return the same page and certificate on ECS loopback. Changing to 8443 has not restored access; neither a 443-only failure nor Cloudflare DNS is supported as the sole explanation. Provider interception remains unconfirmed.",
+  "production_App_config_changed": false,
+  "business_test_performed": false,
+  "rollback": {
+    "listener": "systemctl stop airsim-r5-https-port-probe.service",
+    "security_group": "ECS RevokeSecurityGroup for sg-wz96deau4b9kklhxm4iy, SecurityGroupRuleId.1=sgr-wz9aq9tcq9vga2qs4ax4; verify exact rule first"
+  }
+}
