@@ -108,3 +108,12 @@
 随后在同一通话使用新request/session恢复媒体，持续15.003秒、发送750/接收742帧、零序号缺口，无需手动删除旧会话、重启Agent或重拨。最终两个媒体DELETE均204，云端观察电话disconnected，本地guard确认已结束而未操作。此次故障类型为客户端媒体连接意外断开；此前ECS控制重启已单独验证，不将本次扩写为所有服务故障组合通过。见实测进展证据的 media_fault_recovery。剩余收尾仅为云端入站拒接。
 
 最后的拒接监听等待5分钟未收到新来电，未提交call.reject，不算拒接执行失败，也不能记作拒接验收通过。已撤销本轮第三个临时客户端并验证公网401；全部电话disconnected、媒体closed、设备云端连接保持。拒接仍为本轮唯一未完成的交互验收；下次回拨前需重新启用有界监听。
+
+
+## R4 本轮验收结论
+
+2026-10-24，用户确认恢复提示也已听到。随后回拨拒接测试时，主控验收程序误用了协议不支持的call.reject，服务端正确返回400；该通不计通过。验收程序按R2契约改为对incoming call_id提交call.hangup，下一次授权来电的云端命令回执成功，实际观察disconnected，本地guard确认已结束且未介入。未改动Agent或服务端业务代码，也未把本地清理当作云端拒接成功。
+
+至此R4约定范围在当前RM500/厂商16kHz播放时钟配置上通过：ECS Docker Compose及TLS/mTLS、设备身份接入、云端呼出/接听/拒接/DTMF提交/挂断、SMS双向内容、75秒云端提示语与延迟自回声、客户端媒体断连后的自动回收/旧票据失效/同通话新session恢复，以及此前idle控制重启重连无命令重放。DTMF仅声明收据accepted，短信sent不冒充运营商送达报告。
+
+最终测试客户端已撤销并实测401，全部电话disconnected、音频closed、无活动验收监听，ECS四常驻服务healthy，Agent保持在线。全部失败尝试与修正仍保存在 [实测证据](R4_CLOUD_ACCEPTANCE_PROGRESS.json)，pending为空。运行时voice_ready=false / verification=unverified仍为实验发布门槛；30分钟/100会话长稳、厂商8kHz播放时钟实机、间歇蜂窝积压永久消除、iOS/APNs/Worker及正式账户发布不在本轮通过结论内。

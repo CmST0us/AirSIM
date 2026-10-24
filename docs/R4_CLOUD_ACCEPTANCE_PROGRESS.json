@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "recorded_at": "2026-10-24T10:55:44.888150+00:00",
-  "overall_status": "cloud_calls_sms_75s_duplex_and_media_recovery_passed_current_configuration_incoming_reject_pending",
+  "recorded_at": "2026-10-24T11:00:26.179545+00:00",
+  "overall_status": "passed_R4_defined_scope_on_current_RM500_configuration",
   "public_endpoints": {
     "api": "https://airsim.eric3u.cc",
     "device": "https://device.airsim.eric3u.cc",
@@ -913,9 +913,7 @@
       "feedback": "提示语和回声都清楚"
     }
   ],
-  "pending": [
-    "Cloud incoming reject on real RM500"
-  ],
+  "pending": [],
   "not_claimed": [
     "continuous call-time transport quality",
     "iOS or APNs completion",
@@ -3120,8 +3118,8 @@
     }
   ],
   "latest_cleanup": {
-    "recorded_at": "2026-10-24T10:55:44.888150+00:00",
-    "test_client_installation_id": "a10e5981-619b-4de9-8a8b-c2873992d724",
+    "recorded_at": "2026-10-24T11:00:26.179545+00:00",
+    "test_client_installation_id": "0e3476cb-04f6-49d5-929b-c932ab09c948",
     "test_client_revoked": true,
     "revoked_client_http": 401,
     "all_calls_disconnected": true,
@@ -3163,14 +3161,10 @@
           "health": "healthy",
           "restart_count": 0
         }
-      ],
-      "media_session_http": {
-        "b2302a56-6300-4508-bd15-259843a0df54": 404,
-        "48255c49-694b-45fc-a166-c690cb5eaed5": 404
-      },
-      "recorded_at": "2026-10-24T10:51:05.504169+00:00"
+      ]
     },
-    "next_human_test": "Cloud reject listener ended without a new incoming call; a new bounded listener and client are required before next user callback."
+    "temporary_network_probe_removed": true,
+    "active_acceptance_listeners": 0
   },
   "media_fault_recovery": {
     "mode": "fault",
@@ -3253,7 +3247,10 @@
     "fault_kind": "intentional abrupt client WSS socket shutdown during active managed call",
     "recovery_requires_new_session": true,
     "recovery_used_explicit_delete_before_new_session": false,
-    "user_recovered_prompt_feedback": "pending",
+    "user_recovered_prompt_feedback": {
+      "heard_recovery_prompt": true,
+      "verbatim": "听到了，现在回拨验证拒接"
+    },
     "final_local_audio": {
       "available": true,
       "implementation": "implemented",
@@ -3328,6 +3325,54 @@
       "error": "incoming_wait_timeout",
       "media_cleanup": [],
       "interpretation": "No incoming call observed within five minutes; no reject command was submitted. Not counted as a failed reject operation or a passed reject check."
+    },
+    {
+      "mode": "reject",
+      "started_at": "2026-10-24T10:57:44.939716+00:00",
+      "business_transport": "public HTTPS/WSS",
+      "audio_storage": "bounded_memory_only",
+      "result": "error",
+      "call_id": "5784581f-c633-4b18-afc2-60663ffff95a",
+      "error_type": "RuntimeError",
+      "error": "command_http_400",
+      "media_cleanup": [],
+      "hangup": "guard_pending_after_reject_failure",
+      "guard_still_running": true,
+      "interpretation": "Controller test harness incorrectly submitted unsupported call.reject; server returned HTTP 400. Protocol rejects an incoming call with directed call.hangup. Harness corrected; this attempt is not a passed cloud reject. The incoming call later observed disconnected; cloud rejection was not established.",
+      "failure_origin": "controller_acceptance_harness"
+    },
+    {
+      "mode": "reject",
+      "started_at": "2026-10-24T10:58:34.527782+00:00",
+      "business_transport": "public HTTPS/WSS",
+      "audio_storage": "bounded_memory_only",
+      "result": "cloud_reject_observed_disconnected",
+      "call_id": "be0acf6b-ebba-48f9-9211-a754038e4547",
+      "command": {
+        "command_id": "d5662609-a2db-4367-a60d-222d5777df30",
+        "receipt_state": "accepted",
+        "result_code": "",
+        "action": "call.hangup",
+        "target_state_at_submission": "incoming"
+      },
+      "media_cleanup": [],
+      "hangup": "already_disconnected",
+      "guard_completed_without_action": true,
+      "test_program_sha256": "23b1ae713111dc9f2e6c5397dc696ec8ba6a872c4f398ca3908d56c2b3d0f1ce"
     }
-  ]
+  ],
+  "acceptance_summary": {
+    "ecs_compose_public_tls_device_mtls": "passed",
+    "agent_online_identity_preserved": "passed",
+    "cloud_outgoing_and_incoming_answer": "passed_observed_active",
+    "cloud_dtmf": "accepted_receipt",
+    "cloud_hangup": "passed_observed_disconnected",
+    "cloud_incoming_reject": "passed_directed_call_hangup_on_incoming",
+    "cloud_sms_send_receive": "passed_content_roundtrip_sent_is_not_carrier_delivery_report",
+    "cloud_duplex_audio": "passed_75s_user_confirmed_clear_prompt_and_delayed_self_echo",
+    "media_fault_recovery": "passed_abrupt_client_WSS_loss_auto_cleanup_old_ticket_rejected_fresh_session_same_call",
+    "recovery_prompt": "user_confirmed_heard",
+    "control_restart": "passed_idle_control_restart_reconnect_without_command_replay",
+    "runtime_audio_release_gate": "unchanged_voice_ready_false_verification_unverified"
+  }
 }
