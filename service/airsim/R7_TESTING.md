@@ -1,6 +1,14 @@
 # R7 M2 server verification
 
-2026-10-25. Scope: `service/airsim`; contract: [R7 M2](../../protocol/v2/R7.md). No production deployment or real APNs requests were performed.
+2026-10-25. Scope: `service/airsim`; contract: [APNs extension](../../protocol/v2/APNS_EXTENSION.md). No production deployment or real APNs requests were performed.
+
+## Current scope and deployment status
+
+As confirmed by the controller on 2026-10-25, R7 delivery and acceptance cover v2 compatibility with the original five App views and CallKit system-call integration. APNs credentials, PushKit offline wakeup and SMS push notifications are outside this phase's delivery and acceptance scope. They are not prerequisites for CallKit integration.
+
+Commit `411bf38` retains the server-side APNs preparation code and the local verification results below. The provider remains disabled. According to the controller, production remains on R4.1, which supports the current App/CallKit integration; the R7 schema 2 and discovery profile upgrade have not been deployed.
+
+The Linux amd64 image `airsim-business:r7-411bf3834407-amd64` was built locally with image ID `sha256:6491661c798a57413c539c40a973b10b7ebba2da810792945ba835b2e4c81d64`. The controller reports that the uploaded image is staged only. Image build and upload do not establish deployment, real push delivery or CallKit acceptance. The tests below document the retained server preparation work; they do not establish iOS view compatibility or system-call behavior on a physical device.
 
 ## Executed
 
