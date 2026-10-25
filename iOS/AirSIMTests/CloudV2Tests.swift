@@ -292,6 +292,49 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
+    func testSnapshotCachedDateStillStrictlyRejectsInvalidWireTime() throws {
+        let base = try JSONSerialization.jsonObject(with: v2SnapshotData()) as! [String: Any]
+        for timestamp in ["2026-02-30T00:00:00Z", "2026-10-24T00:00:00Z\n", "2026-10-24T00:00:00+00:00", "2026-10-24T00:00:00.Z", "invalid"] {
+            var object = base, value = object["snapshot"] as! [String: Any]
+            value["observed_at"] = timestamp; object["snapshot"] = value
+            XCTAssertThrowsError(try V2JSON.decode(V2SnapshotResponse.self, from: v2Data(object), limit: 262144))
+        }
+        var object = base, value = object["snapshot"] as! [String: Any]
+        value["observed_at"] = "2026-10-24T00:00:00.123456789Z"; object["snapshot"] = value
+        let decoded = try V2JSON.decode(V2SnapshotResponse.self, from: v2Data(object), limit: 262144)
+        let snapshot = try XCTUnwrap(decoded.snapshot)
+        XCTAssertEqual(snapshot.observed_at, "2026-10-24T00:00:00.123456789Z")
+        XCTAssertEqual(snapshot.observedAt, try V2Validation.date(snapshot.observed_at))
+        value["observedAt"] = 0; object["snapshot"] = value
+        XCTAssertThrowsError(try V2JSON.decode(V2SnapshotResponse.self, from: v2Data(object), limit: 262144))
+    }
+    func testSnapshotCachedDateUsesCurrentNowAndKeepsOwnershipGates() throws {
+        let moduleObject: [String: Any] = ["module_id": v2ID, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID]
+        let module = try V2JSON.decode(V2Module.self, from: v2Data(moduleObject), limit: 1024)
+        let data = try v2SnapshotData(calls: [v2CallObject()])
+        let response = try V2JSON.decode(V2SnapshotResponse.self, from: data, limit: 262144)
+        let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        for age in [-3.001, -3, 0, 8, 8.001, 20] {
+            let now = v2Now.addingTimeInterval(age)
+            let valid = (-3.0...8.0).contains(age)
+            XCTAssertEqual(response.matches(context, now: now), valid)
+            if valid { XCTAssertEqual(try response.controlBinding(configuration: v2Config(), module: module, now: now), v2Binding()) }
+            else { XCTAssertThrowsError(try response.controlBinding(configuration: v2Config(), module: module, now: now)) }
+        }
+        let original = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        for (key, value) in [("online", false as Any), ("connection_epoch", v2OtherID as Any), ("server_id", v2OtherID as Any)] {
+            var object = original; object[key] = value
+            let changed = try V2JSON.decode(V2SnapshotResponse.self, from: v2Data(object), limit: 262144)
+            XCTAssertFalse(changed.matches(context, now: v2Now))
+            XCTAssertThrowsError(try changed.controlBinding(configuration: v2Config(), module: module, now: v2Now))
+        }
+        var offline = moduleObject; offline["online"] = false
+        XCTAssertThrowsError(try response.controlBinding(configuration: v2Config(), module: V2JSON.decode(V2Module.self, from: v2Data(offline), limit: 1024), now: v2Now))
+        for calls in [[], [v2CallObject(id: v2ID)], [v2CallObject(state: "disconnected")]] {
+            let changed = try V2JSON.decode(V2SnapshotResponse.self, from: v2SnapshotData(calls: calls), limit: 262144)
+            XCTAssertFalse(changed.matches(context, now: v2Now))
+        }
+    }
     func testSnapshotFreshnessAndNestedEpochBinding() throws {
         let module = try V2JSON.decode(V2Module.self, from: v2Data(["module_id": v2ID, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID]), limit: 1024)
         func snapshot(age: Double, boot: String = v2ID, online: Bool = true) throws -> V2SnapshotResponse {
@@ -1080,6 +1123,41 @@ extension CloudV2Tests {
 #endif
     }
 
+    @MainActor func testV2TimingAggregatesFreezeAndResetWithoutChangingClockPolicy() async throws {
+#if DEBUG
+        let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
+        socket.messages = v2HandshakeMessages()
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
+        let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        media.start(context: context, diagnosticMode: false) {
+            clock.advance(clock.now + 250_000, wake: false); return true
+        }
+        await v2Yield()
+        XCTAssertEqual(media.state, .paired)
+        clock.advance(clock.now + 25_000_000); await v2Yield()
+        await media.stop()
+        let final = media.statistics
+        XCTAssertEqual(final.validationCount, 2)
+        XCTAssertEqual(final.validationTotalNanoseconds, 500_000)
+        XCTAssertEqual(final.validationMaxMicroseconds, 250)
+        XCTAssertEqual(final.tickIntervalsAtLeast20ms, 1)
+        XCTAssertEqual(final.maxTickIntervalMilliseconds, 25)
+        XCTAssertEqual(final.pairedElapsedMilliseconds, 25)
+        func timing(_ value: V2MediaStatistics) -> [UInt64] {
+            [value.pairedElapsedMilliseconds, value.validationCount, value.validationTotalNanoseconds,
+             value.validationMaxMicroseconds, value.tickIntervalsAtLeast20ms, value.maxTickIntervalMilliseconds,
+             value.maxSuccessfulWriteMilliseconds]
+        }
+        clock.advance(clock.now + 1_000_000_000)
+        await media.stop(); media.requestStop(); await v2Yield(100)
+        XCTAssertEqual(timing(media.statistics), timing(final))
+        socket.messages = v2HandshakeMessages()
+        media.start(context: context, diagnosticMode: false, validate: { true })
+        XCTAssertEqual(timing(media.statistics), timing(V2MediaStatistics()))
+        await v2Yield(); await media.stop()
+#endif
+    }
+
     @MainActor func testV2RepeatedStopPreservesNonzeroFinalQueueStatistics() async throws {
         let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
         let pcm = Data(repeating: 1, count: 320)
@@ -1100,9 +1178,18 @@ extension CloudV2Tests {
         XCTAssertGreaterThan(final.queueDrops, 0)
         XCTAssertGreaterThan(final.skippedSlots, 0)
         XCTAssertGreaterThan(final.playbackZero, 0)
+#if DEBUG
+        XCTAssertGreaterThan(final.upQueueDrops, 0); XCTAssertGreaterThan(final.downQueueDrops, 0)
+        XCTAssertEqual(final.queueDrops, final.upQueueDrops + final.downQueueDrops + final.captureOutputDrops + final.playbackDrops)
+        XCTAssertEqual(final.skippedSlots, final.upSkippedSlots + final.downSkippedSlots)
+#endif
         func counts(_ value: V2MediaStatistics) -> [UInt64] {
-            [value.received, value.sent, value.sequenceGaps, value.queueDrops, value.skippedSlots,
-             value.playbackZero, value.rendered, value.captureFrames, value.writeTimeouts, value.diagnosticZero]
+            var result = [value.received, value.sent, value.sequenceGaps, value.queueDrops, value.skippedSlots,
+                          value.playbackZero, value.rendered, value.captureFrames, value.writeTimeouts, value.diagnosticZero]
+#if DEBUG
+            result += [value.upQueueDrops, value.downQueueDrops, value.upSkippedSlots, value.downSkippedSlots, value.captureOutputDrops, value.playbackDrops]
+#endif
+            return result
         }
         await media.stop()
         XCTAssertEqual(counts(media.statistics), counts(final))

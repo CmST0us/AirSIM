@@ -242,6 +242,7 @@ struct V2Snapshot: Decodable {
     let agent_boot_id: String
     let backend_epoch: String
     let observed_at: String
+    let observedAt: Date
     let control: V2ControlStatus
     let calls: V2Calls
     let audio: V2AudioStatus
@@ -255,7 +256,7 @@ struct V2Snapshot: Decodable {
         audio = try c.get("audio")
         try V2Validation.uuid(agent_boot_id, empty: true)
         try V2Validation.uuid(backend_epoch, empty: true)
-        _ = try V2Validation.date(observed_at)
+        observedAt = try V2Validation.date(observed_at)
         guard agent_boot_id == control.agent_boot_id, agent_boot_id == calls.agent_boot_id, backend_epoch == control.backend_epoch, backend_epoch == calls.backend_epoch else { throw V2Error.invalidIdentity }
         if let session = audio.session { guard session.agent_boot_id == agent_boot_id, session.backend_epoch == backend_epoch else { throw V2Error.invalidIdentity } }
     }

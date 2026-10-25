@@ -7,6 +7,13 @@ struct V2MediaStatistics {
     var rendered: UInt64 = 0, captureFrames: UInt64 = 0, writeTimeouts: UInt64 = 0
     var diagnosticZero: UInt64 = 0
 #if DEBUG
+    var pairedElapsedMilliseconds: UInt64 = 0
+    var tickIntervalsAtLeast20ms: UInt64 = 0, maxTickIntervalMilliseconds: UInt64 = 0
+    var validationCount: UInt64 = 0, validationTotalNanoseconds: UInt64 = 0, validationMaxMicroseconds: UInt64 = 0
+    var maxSuccessfulWriteMilliseconds: UInt64 = 0
+    var upQueueDrops: UInt64 = 0, downQueueDrops: UInt64 = 0
+    var upSkippedSlots: UInt64 = 0, downSkippedSlots: UInt64 = 0
+    var captureOutputDrops: UInt64 = 0, playbackDrops: UInt64 = 0
     var sentPCMEnergy = V2PCMEnergySummary()
     var receivedPCMEnergy = V2PCMEnergySummary()
     var diagnosticReceivedEnergy = V2PCMEnergySummary()
@@ -104,6 +111,10 @@ final class V2MediaCoordinator: ObservableObject {
     private var lastDownlinkFrame: UInt64?
     private var counters = V2MediaStatistics()
     private var statisticsFrozen = true
+#if DEBUG
+    private var diagnosticPairedAt: UInt64?
+    private var previousTickAt: UInt64?
+#endif
     private var diagnostic: V2DiagnosticAudio?
     var onDiagnosticTimeout: ((V2CallContext) -> Void)?
     var active: Bool { context != nil || startTask != nil || stopTask != nil || state == .stopping }
@@ -116,6 +127,9 @@ final class V2MediaCoordinator: ObservableObject {
         let stamp = UUID(); generation = stamp; self.context = context
         lastFailure = nil; lastDownlinkFrame = nil
         statisticsFrozen = false
+#if DEBUG
+        diagnosticPairedAt = nil; previousTickAt = nil
+#endif
         state = .preparing; counters = V2MediaStatistics(); statistics = counters
         muted = false; speaker = false
         audio.onFailure = { [weak self] error in self?.fail(error, stamp: stamp, stage: .audio) }
@@ -160,6 +174,9 @@ final class V2MediaCoordinator: ObservableObject {
                 guard case .paired = second, self.generation == stamp, !Task.isCancelled, validate() else { throw V2MediaFailure.handshake }
                 socket.limit(360)
                 self.state = .paired; self.pairedAt = self.clock.now
+#if DEBUG
+                self.diagnosticPairedAt = self.pairedAt
+#endif
                 self.lastCapture = self.pairedAt; self.lastDownlink = self.pairedAt
                 self.sendSequence = 0; self.receiveSequence = 0
                 self.up = V2PCMQueue(generation: stamp, emptyPolicy: .skip)
@@ -204,7 +221,24 @@ final class V2MediaCoordinator: ObservableObject {
             guard let self else { return }
             var next = self.clock.now, nextPublish = next
             while self.generation == stamp, !Task.isCancelled, self.state == .paired {
-                guard validate() else { self.fail(V2MediaFailure.stale, stamp: stamp, stage: .ticking); return }
+#if DEBUG
+                let validationStart = self.clock.now
+                if let previous = self.previousTickAt {
+                    let interval = validationStart >= previous ? validationStart - previous : 0
+                    if interval >= 20_000_000 { self.counters.tickIntervalsAtLeast20ms += 1 }
+                    self.counters.maxTickIntervalMilliseconds = max(self.counters.maxTickIntervalMilliseconds, interval / 1_000_000)
+                }
+                self.previousTickAt = validationStart
+                let valid = validate()
+                let validationEnd = self.clock.now
+                let duration = validationEnd >= validationStart ? validationEnd - validationStart : 0
+                self.counters.validationCount += 1
+                self.counters.validationTotalNanoseconds += duration
+                self.counters.validationMaxMicroseconds = max(self.counters.validationMaxMicroseconds, duration / 1_000)
+#else
+                let valid = validate()
+#endif
+                guard valid else { self.fail(V2MediaFailure.stale, stamp: stamp, stage: .ticking); return }
                 let now = self.clock.now
                 let frames = self.audio.takeCaptured()
                 guard self.generation == stamp, self.state == .paired else { return }
@@ -229,9 +263,15 @@ final class V2MediaCoordinator: ObservableObject {
                             defer { if self.generation == stamp { self.sendTask = nil } }
                             guard self.generation == stamp, self.state == .paired, !Task.isCancelled else { return }
                             do {
+#if DEBUG
+                                let writeStart = self.clock.now
+#endif
                                 try await self.write(.data(binary), socket: socket)
                                 guard self.generation == stamp else { return }
 #if DEBUG
+                                let writeEnd = self.clock.now
+                                let duration = writeEnd >= writeStart ? writeEnd - writeStart : 0
+                                self.counters.maxSuccessfulWriteMilliseconds = max(self.counters.maxSuccessfulWriteMilliseconds, duration / 1_000_000)
                                 self.counters.sentPCMEnergy.record(pcm)
 #endif
                                 self.counters.sent += 1; self.up?.completed(at: self.clock.now, generation: stamp)
@@ -262,6 +302,13 @@ final class V2MediaCoordinator: ObservableObject {
         counters.skippedSlots = (up?.skippedSlots ?? 0) + (down?.skippedSlots ?? 0)
         counters.playbackZero = down?.zeroFrames ?? 0
 #if DEBUG
+        if let paired = diagnosticPairedAt {
+            let now = clock.now
+            counters.pairedElapsedMilliseconds = (now >= paired ? now - paired : 0) / 1_000_000
+        }
+        counters.upQueueDrops = up?.queueDrops ?? 0; counters.downQueueDrops = down?.queueDrops ?? 0
+        counters.upSkippedSlots = up?.skippedSlots ?? 0; counters.downSkippedSlots = down?.skippedSlots ?? 0
+        counters.captureOutputDrops = audio.metrics.outputDrops; counters.playbackDrops = audio.metrics.playbackDrops
         if let diagnostic {
             counters.diagnosticReceivedEnergy = diagnostic.receivedEnergy
             counters.diagnosticEchoEnergy = diagnostic.echoEnergy

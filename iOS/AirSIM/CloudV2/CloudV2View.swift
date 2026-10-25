@@ -194,6 +194,9 @@ private struct V2SettingsView: View {
                     Text("快照年龄：\(model.selectedSnapshotAgeSeconds.map { String(format: "%.1f s", $0) } ?? "—")")
                     Text("audioReady=\(model.audioReady ? "true" : "false") · ownedControlReady=\(model.ownedControlReady ? "true" : "false")")
                     let stats = model.media.statistics
+                    Text("配对 \(stats.pairedElapsedMilliseconds) ms · tick≥20ms \(stats.tickIntervalsAtLeast20ms) 次 / max \(stats.maxTickIntervalMilliseconds) ms")
+                    Text("validate \(stats.validationCount) 次 · 总 \(String(format: "%.3f", Double(stats.validationTotalNanoseconds) / 1_000_000)) ms / max \(stats.validationMaxMicroseconds) μs · 成功写 max \(stats.maxSuccessfulWriteMilliseconds) ms")
+                    Text("上/下行队列丢弃 \(stats.upQueueDrops)/\(stats.downQueueDrops) · 跳槽 \(stats.upSkippedSlots)/\(stats.downSkippedSlots) · 采集输出丢弃 \(stats.captureOutputDrops) · 播放丢弃 \(stats.playbackDrops)")
                     let metrics = model.media.audioMetrics
                     Text("引擎：\(metrics.running ? "运行" : "停止") · 输入 \(String(format: "%.0f", metrics.sampleRate)) Hz / \(metrics.channels) 声道 · VoiceProcessing=\(metrics.voiceProcessing ? "true" : "false")")
                     Text("实际输入：\(metrics.inputRoute.map(\.rawValue).joined(separator: ",")) · 实际输出：\(metrics.outputRoute.map(\.rawValue).joined(separator: ","))")

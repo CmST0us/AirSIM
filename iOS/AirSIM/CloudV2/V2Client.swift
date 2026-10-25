@@ -20,7 +20,7 @@ extension V2SnapshotResponse {
               snapshot.agent_boot_id == module.agent_boot_id,
               snapshot.backend_epoch == module.backend_epoch else { throw V2Error.stale }
         try V2Validation.uuid(snapshot.agent_boot_id); try V2Validation.uuid(snapshot.backend_epoch); try V2Validation.uuid(connection_epoch)
-        let age = now.timeIntervalSince(try V2Validation.date(snapshot.observed_at))
+        let age = now.timeIntervalSince(snapshot.observedAt)
         guard (-3...8).contains(age) else { throw V2Error.stale }
         return V2ControlBinding(identity: configuration.identity, moduleID: module_id, bootID: snapshot.agent_boot_id, backendEpoch: snapshot.backend_epoch, connectionEpoch: connection_epoch)
     }
@@ -28,7 +28,7 @@ extension V2SnapshotResponse {
         guard online, server_id == context.binding.identity.serverID, module_id == context.binding.moduleID,
               connection_epoch == context.binding.connectionEpoch, let snapshot,
               snapshot.agent_boot_id == context.binding.bootID, snapshot.backend_epoch == context.binding.backendEpoch,
-              let observed = try? V2Validation.date(snapshot.observed_at), (-3...8).contains(now.timeIntervalSince(observed)) else { return false }
+              (-3...8).contains(now.timeIntervalSince(snapshot.observedAt)) else { return false }
         return snapshot.calls.calls.contains { $0.call_id == context.callID && $0.state != "disconnected" }
     }
 }

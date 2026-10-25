@@ -298,7 +298,7 @@ final class CloudV2Model: ObservableObject {
            pending.binding.identity == config.identity, pending.binding.moduleID == response.module_id,
            response.online, response.connection_epoch == pending.binding.connectionEpoch,
            snapshot.agent_boot_id == pending.binding.bootID, snapshot.backend_epoch == pending.binding.backendEpoch,
-           let observed = try? V2Validation.date(snapshot.observed_at), (-3...8).contains(now().timeIntervalSince(observed)),
+           (-3...8).contains(now().timeIntervalSince(snapshot.observedAt)),
            snapshot.calls.calls.contains(where: { $0.call_id == pending.callID && $0.state == "disconnected" }) {
             if case .receipt = machine?.phase { try machine?.acknowledgeResolved() }
         }
@@ -306,7 +306,7 @@ final class CloudV2Model: ObservableObject {
               context.binding.moduleID == response.module_id, response.online,
               response.connection_epoch == context.binding.connectionEpoch,
               snapshot.agent_boot_id == context.binding.bootID, snapshot.backend_epoch == context.binding.backendEpoch,
-              let observed = try? V2Validation.date(snapshot.observed_at), (-3...8).contains(now().timeIntervalSince(observed)),
+              (-3...8).contains(now().timeIntervalSince(snapshot.observedAt)),
               let call = snapshot.calls.calls.first(where: { $0.call_id == context.callID }) else { return }
         if call.state == "disconnected" { try machine?.clearDisconnectedOwnedCall(); backgroundHangups.remove(context.callID) }
         else { try client.restoreOwnership(context, snapshot: response) }
@@ -389,8 +389,7 @@ final class CloudV2Model: ObservableObject {
 #endif
 #if DEBUG
     var selectedSnapshotAgeSeconds: Double? {
-        guard let value = snapshot?.snapshot?.observed_at,
-              let observed = try? V2Validation.date(value) else { return nil }
+        guard let observed = snapshot?.snapshot?.observedAt else { return nil }
         return now().timeIntervalSince(observed)
     }
 #endif
@@ -420,7 +419,7 @@ final class CloudV2Model: ObservableObject {
         }
     }
     private func recordEligibilityFailure(for context: V2CallContext) {
-        let age = snapshot?.snapshot.flatMap { try? V2Validation.date($0.observed_at) }.map { now().timeIntervalSince($0) }
+        let age = snapshot?.snapshot.map { now().timeIntervalSince($0.observedAt) }
         let reason: V2EligibilityFailureReason
         if configuration == nil || !connected { reason = .configuration }
         else if !foreground { reason = .foreground }
