@@ -1,6 +1,6 @@
 # AirSIM 全 App 体验评审
 
-版本：2.0。日期：2026-10-25。状态：首轮设计待用户评审。
+版本：2.1。日期：2026-10-25。状态：首轮设计待用户评审。
 
 ## 设计交付
 
@@ -9,7 +9,7 @@
 | 页面 | 内容 |
 | --- | --- |
 | [评审入口](https://www.figma.com/design/ZQc6KFc7STwqaT0UuY5cIC?node-id=6-2) | 原则、能力边界、评审顺序、版本说明 |
-| [首次使用与日常原型](https://www.figma.com/design/ZQc6KFc7STwqaT0UuY5cIC?node-id=3-2) | 387 个流程与状态画板，以及深色、大字两个示例 |
+| [首次使用与日常原型](https://www.figma.com/design/ZQc6KFc7STwqaT0UuY5cIC?node-id=3-2) | 439 个流程与状态画板，以及深色、大字两个示例 |
 | [设置逐项对照](https://www.figma.com/design/ZQc6KFc7STwqaT0UuY5cIC?node-id=6-33) | 28 组入口与字段的旧名、任务、新名、说明、默认值和入口归属 |
 | [旅程与验收](https://www.figma.com/design/ZQc6KFc7STwqaT0UuY5cIC?node-id=6-239) | 首次使用、五标签、权限、恢复、无障碍与迁移影响 |
 | [当前问题与优先级](https://www.figma.com/design/ZQc6KFc7STwqaT0UuY5cIC?node-id=8-2) | 6 项有源码依据的体验问题 |
@@ -148,6 +148,22 @@ USB 使用数据线而非仅充电线，并按设备要求供电、使用兼容�
 
 依据 Apple 的[通知授权说明](https://developer.apple.com/documentation/usernotifications/asking-permission-to-use-notifications)与[PushKit 来电处理说明](https://developer.apple.com/documentation/pushkit/responding-to-voip-notifications-from-pushkit)，普通通知授权与系统来电路径分别设计。系统界面为可编辑交互示意，最终外观与可用控件由 iOS 决定。本轮没有实施推送、后台唤醒或生产配置。
 
+## 通话控制与音频恢复
+
+- [云端通话控制](https://www.figma.com/proto/ZQc6KFc7STwqaT0UuY5cIC?node-id=76-3333&starting-point-node-id=76%3A3333)
+- [USB 通话控制](https://www.figma.com/proto/ZQc6KFc7STwqaT0UuY5cIC?node-id=76-3572&starting-point-node-id=76%3A3572)
+- [局域网通话控制](https://www.figma.com/proto/ZQc6KFc7STwqaT0UuY5cIC?node-id=76-3811&starting-point-node-id=76%3A3811)
+
+云端生活号、工作号及 USB、局域网分别保留号码上下文，现有呼出、来电接听和恢复入口接入对应控制页。静音使用原型变量切换；听筒、扬声器、蓝牙选择更新当前输出标签，与静音互不影响。蓝牙断开提示重新选择输出，不静默切到外放。
+
+通话键盘提供 0–9、星号和井号，点击累计显示已输入按键；收起不挂断、不改变音频路由。按键表示当前通话的 DTMF 操作，不生成新呼叫。原型只模拟控件状态，不播放实际 DTMF 或访问音频设备。
+
+麦克风未授权明确提示对方听不到声音，返回系统设置后分别演示已允许与仍拒绝，不把权限拒绝混同静音。音频被系统中断时保留原通话与静音选择；中断结束后检查通话和路由，再恢复音频。
+
+传输断线按云端网络、USB 线缆供电和局域网给出恢复提示，恢复后区分原通话继续或已经结束。挂断先进入请求中，确认后才显示结束；结果未知时查询原操作，无法恢复时到设备端核对。确认结束后进入下一次演示会重置静音、输出与键盘状态。
+
+已检查控件变量绑定、跳转目标、代表页面排版和直接子层边界。实际麦克风授权、蓝牙路由、DTMF、运营商挂断及断线恢复仍需产品实现和实机验收。
+
 ## 依据与当前能力
 
 依据 [iOS README](../iOS/README.md)、[R7 实施](IOS_AIRSIM_R7.md)、[R7 设计复核](IOS_AIRSIM_R7_DESIGN.md)、[R7 QA](IOS_AIRSIM_R7_QA.md)，以及当前设置、运行时选择、五标签、首次连接、配对和通话源码。已有截图来自本机 M3 与 CallKit 夹具证据目录；本轮未操作实体设备。
@@ -259,7 +275,7 @@ V2ConnectionSections 直接呈现导入、模块选择和完成按钮。需要�
 
 ## 校验与已知限制
 
-Figma 原型页面包含 389 个屏幕画板；检查时有 1259 个画板跳转动作，目标节点均存在，屏幕直接子层未越过画板底部。模式能力图由可编辑原生图标、文字和组件组成。已截图检查三种模式选中状态、多号来电来源，以及扫码、PIN 输入、设备确认、USB/局域网连接、三项能力完成页、上网教学、首页设置、模式切换确认、通话断线、多号码管理、发短信选号、来电与短信来源、最近通话、联系人详情、回拨与联系人发信确认、短信筛选、会话状态、发送中、锁屏来电短信及通知权限页面。
+Figma 原型页面包含 441 个屏幕画板；检查时有 1407 个画板跳转动作，目标节点均存在，屏幕直接子层未越过画板底部。模式能力图由可编辑原生图标、文字和组件组成。已截图检查三种模式选中状态、多号来电来源，以及扫码、PIN 输入、设备确认、USB/局域网连接、三项能力完成页、上网教学、首页设置、模式切换确认、通话断线、多号码管理、发短信选号、来电与短信来源、最近通话、联系人详情、回拨与联系人发信确认、短信筛选、会话状态、发送中、锁屏来电短信、通知权限、通话控制、音频输出和通话键盘页面。
 
 原型使用虚构演示资料。文件选择、系统授权、文字输入、键盘、异步结果及部分开关用离散状态演示，不能代替真实系统交互或端到端测试。大字画板是重排示例，不等于全量 Dynamic Type 验收。
 
