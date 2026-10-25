@@ -45,7 +45,7 @@ struct V2KeychainTokenStore: V2TokenStore {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "cc.eric3u.airsim.cloud.v2", kSecAttrAccount as String: account, kSecAttrSynchronizable as String: false]
     }
     func save(_ token: String, account: String) throws {
-        let attributes: [String: Any] = [kSecValueData as String: Data(token.utf8), kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+        let attributes: [String: Any] = [kSecValueData as String: Data(token.utf8), kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
         let status = SecItemUpdate(query(account) as CFDictionary, attributes as CFDictionary)
         if status == errSecItemNotFound {
             guard SecItemAdd(query(account).merging(attributes) { _, new in new } as CFDictionary, nil) == errSecSuccess else { throw V2Error.keychain }

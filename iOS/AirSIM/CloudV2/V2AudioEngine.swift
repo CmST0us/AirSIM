@@ -224,6 +224,7 @@ final class V2AudioEngine: V2AudioIO {
     private var inputFormat: AVAudioFormat?
     private var outputFormat: AVAudioFormat?
     private var playbackWindow = V2PlaybackWindow()
+    var callKitManaged = false
     private var sessionActive = false
     private var installedTap = false
     private var preparing = false
@@ -263,7 +264,7 @@ final class V2AudioEngine: V2AudioIO {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
             try session.setPreferredIOBufferDuration(0.02)
-            try session.setActive(true); sessionActive = true
+            if !callKitManaged { try session.setActive(true); sessionActive = true }
             let engine = AVAudioEngine(), player = AVAudioPlayerNode()
             self.engine = engine; self.player = player
             engine.attach(player)

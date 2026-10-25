@@ -39,9 +39,9 @@ struct V2ConnectionSections: View {
                         .accessibilityIdentifier("command-recover")
                 }
             }
-            Section("前台通话") {
-                Toggle("启用实验音频", isOn: $model.experimentalAudio)
-                Text("通话请保持 App 在前台；后台来电与 Watch v2 尚不可用。音频质量仍待真机验收。")
+            Section("系统通话") {
+                Toggle("通话音频", isOn: $model.experimentalAudio)
+                Text("已有系统通话可在后台继续；空闲时请保持 App 前台接收来电。Watch v2 尚不可用。")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button("打开系统权限设置") {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }

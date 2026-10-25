@@ -12,7 +12,7 @@ struct V2ProtectedFile<Value: Codable> {
         do {
             let root = url.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try JSONEncoder().encode(value).write(to: url, options: [.atomic, .completeFileProtection])
+            try JSONEncoder().encode(value).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             var destination = url; var flags = URLResourceValues(); flags.isExcludedFromBackup = true
             try destination.setResourceValues(flags)
         } catch { throw V2Error.persistence }

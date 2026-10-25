@@ -85,6 +85,14 @@ struct IncomingCallDeduplicator {
     }
 }
 
+final class SystemCallActionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var epoch: UInt64 = 0
+    var generation: UInt64 { lock.lock(); defer { lock.unlock() }; return epoch }
+    func advance() { lock.lock(); epoch &+= 1; lock.unlock() }
+    func accepts(_ value: UInt64) -> Bool { generation == value }
+}
+
 /// 维护模块通话与系统通话 UUID 的一一映射，并承接锁屏与系统通话界面的操作。
 @MainActor
 final class CallKitController: NSObject {
@@ -95,9 +103,13 @@ final class CallKitController: NSObject {
     private(set) var audioSessionIsActive = false
     private var entitlementAvailable = true
     private var featureEnabled = !LocalModePreference.isEnabled()
-    weak var handler: (any CallKitActionHandling)?
+    weak var handler: (any CallKitActionHandling)? { didSet { actionGate.advance() } }
+    private nonisolated let actionGate = SystemCallActionGate()
+    private func acceptsAction(_ stamp: UInt64) -> Bool {
+        actionGate.accepts(stamp) && isAvailable && handler != nil && (handler is V2SystemCallController || LegacyRuntimeGate.allowed)
+    }
 
-    private var currentUUID: UUID?
+    private var currentUUID: UUID? { didSet { if oldValue != currentUUID { actionGate.advance() } } }
     private var currentBackendID: String?
     private var currentState: String?
     private var currentNumber: String?
@@ -136,6 +148,7 @@ final class CallKitController: NSObject {
     func setEnabled(_ enabled: Bool) {
         guard featureEnabled != enabled else { return }
         featureEnabled = enabled
+        actionGate.advance()
         guard !enabled else { return }
         if let uuid = currentUUID, systemCallReported {
             provider.reportCall(with: uuid, endedAt: Date(), reason: .failed)
@@ -289,7 +302,7 @@ final class CallKitController: NSObject {
         guard let uuid = currentUUID, systemCallReported else {
             throw CallKitBridgeError.noSystemCall
         }
-        let validDigits = digits.filter { "0123456789*#".contains($0) }
+        let validDigits = digits.filter { "0123456789ABCD*#".contains($0) }
         guard !validDigits.isEmpty else { return }
         try await requestSystemAction(
             CXPlayDTMFCallAction(call: uuid, digits: validDigits, type: .singleTone)
@@ -365,13 +378,20 @@ final class CallKitController: NSObject {
     private func reportIncomingIfNeeded(number: String?, callerName: String?, source: String) {
         guard !incomingReportRequested, !systemCallReported, let uuid = currentUUID else { return }
         incomingReportRequested = true
+        let stamp = actionGate.generation
+        let originalCompletions = incomingReportCompletions
+        incomingReportCompletions.removeAll()
         debugLog("请求系统来电界面；来源=\(source)")
         provider.reportNewIncomingCall(
             with: uuid,
             update: update(number: number, callerName: callerName)
         ) { [weak self] error in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.currentUUID == uuid, self.actionGate.accepts(stamp) else {
+                    originalCompletions.forEach { $0(CallKitBridgeError.staleSystemCall) }
+                    return
+                }
+                defer { originalCompletions.forEach { $0(error) } }
                 if let error {
                     let diagnosticError = error as NSError
                     self.debugLog(
@@ -511,6 +531,7 @@ final class CallKitController: NSObject {
 
     private func performAnswer(_ action: CXAnswerCallAction) async {
         do {
+            guard currentUUID == action.callUUID else { throw CallKitBridgeError.staleSystemCall }
             guard let handler else { throw CallKitBridgeError.handlerUnavailable }
             let origin: CallAnswerOrigin = appAnswerRequestUUID == action.callUUID ? .app : .system
             appAnswerRequestUUID = nil
@@ -524,7 +545,7 @@ final class CallKitController: NSObject {
                 },
                 backend: { try await handler.callKitAnswer(origin: origin) }
             )
-            if let backendError {
+            if let backendError, currentUUID == action.callUUID {
                 finishCurrentCall(previous: nil, reason: .failed)
                 handler.callKitDidFail(backendError.localizedDescription)
             }
@@ -574,7 +595,7 @@ final class CallKitController: NSObject {
                 },
                 backend: { try await handler.callKitStart(number: action.handle.value) }
             )
-            if let backendError {
+            if let backendError, currentUUID == action.callUUID {
                 finishCurrentCall(previous: nil, reason: .failed)
                 handler.callKitDidFail(backendError.localizedDescription)
                 return
@@ -599,7 +620,8 @@ final class CallKitController: NSObject {
         // reportCall(ended:) may be followed by a delayed CXEndCallAction after
         // the authoritative Agent state already cleared this UUID. That action
         // is cleanup, not a new user hangup whose missing transport needs an alert.
-        let systemCallWasCurrent = currentUUID != nil
+        let systemCallWasCurrent = currentUUID == action.callUUID
+        guard systemCallWasCurrent else { action.fulfill(); return }
         var backendError: Error?
         if CallKitEndActionPolicy.shouldForwardToBackend(
             systemCallWasCurrent: systemCallWasCurrent
@@ -614,6 +636,7 @@ final class CallKitController: NSObject {
 
         // CallKit owns the local system-call lifecycle. A temporarily missing
         // module must not leave the UUID registered after the user hangs up.
+        guard currentUUID == action.callUUID else { action.fulfill(); return }
         endActionFulfilled = true
         action.fulfill()
         incomingDeduplicator.recordEnded(
@@ -632,55 +655,63 @@ final class CallKitController: NSObject {
 
 extension CallKitController: CXProviderDelegate {
     nonisolated func providerDidReset(_ provider: CXProvider) {
-        let stamp = LegacyRuntimeGate.generation
+        let stamp = actionGate.generation
         Task { @MainActor [weak self] in
-            guard LegacyRuntimeGate.accepts(stamp) else { return }
+            guard self?.acceptsAction(stamp) == true else { return }
             guard let self else { return }
+            let handler = self.handler
+            let uuid = self.currentUUID
             self.audioSessionIsActive = false
-            await self.handler?.callKitProviderDidReset()
+            await handler?.callKitProviderDidReset()
+            guard self.actionGate.accepts(stamp), self.currentUUID == uuid else { return }
             self.resetCurrentCall()
+            if handler is V2SystemCallController { handler?.callKitCallDidEnd() }
         }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
-        let stamp = LegacyRuntimeGate.generation
+        let stamp = actionGate.generation
         Task { @MainActor [weak self] in
-            guard LegacyRuntimeGate.accepts(stamp) else { action.fail(); return }
+            guard self?.acceptsAction(stamp) == true else { action.fail(); return }
             await self?.performStart(action) }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        let stamp = LegacyRuntimeGate.generation
+        let stamp = actionGate.generation
         Task { @MainActor [weak self] in
-            guard LegacyRuntimeGate.accepts(stamp) else { action.fail(); return }
+            guard self?.acceptsAction(stamp) == true else { action.fail(); return }
+            guard self?.currentUUID == action.callUUID else { action.fail(); return }
             await self?.performAnswer(action) }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        let stamp = LegacyRuntimeGate.generation
+        let stamp = actionGate.generation
         Task { @MainActor [weak self] in
-            guard LegacyRuntimeGate.accepts(stamp) else { action.fail(); return }
+            guard self?.acceptsAction(stamp) == true else { action.fail(); return }
+            guard self?.currentUUID == action.callUUID else { action.fulfill(); return }
             await self?.performEnd(action) }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
-        let stamp = LegacyRuntimeGate.generation
+        let stamp = actionGate.generation
         Task { @MainActor [weak self] in
-            guard LegacyRuntimeGate.accepts(stamp) else { action.fail(); return }
+            guard self?.acceptsAction(stamp) == true else { action.fail(); return }
             guard let self, let handler = self.handler else {
                 action.fail()
                 return
             }
+            guard self.currentUUID == action.callUUID else { action.fail(); return }
             await handler.callKitSetMuted(action.isMuted)
             action.fulfill()
         }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXPlayDTMFCallAction) {
-        let stamp = LegacyRuntimeGate.generation
+        let stamp = actionGate.generation
         Task { @MainActor [weak self] in
-            guard LegacyRuntimeGate.accepts(stamp) else { action.fail(); return }
+            guard self?.acceptsAction(stamp) == true else { action.fail(); return }
             do {
+                guard self?.currentUUID == action.callUUID else { throw CallKitBridgeError.staleSystemCall }
                 guard let handler = self?.handler else { throw CallKitBridgeError.handlerUnavailable }
                 try await handler.callKitPlayDTMF(action.digits)
                 action.fulfill()
@@ -694,9 +725,9 @@ extension CallKitController: CXProviderDelegate {
         _ provider: CXProvider,
         didActivate audioSession: AVAudioSession
     ) {
-        let stamp = LegacyRuntimeGate.generation
+        let stamp = actionGate.generation
         Task { @MainActor [weak self] in
-            guard LegacyRuntimeGate.accepts(stamp) else { return }
+            guard self?.acceptsAction(stamp) == true else { return }
             guard let self else { return }
             self.audioSessionIsActive = true
             await AgentVerboseTraceRecorder.shared.recordEvent(
@@ -706,7 +737,7 @@ extension CallKitController: CXProviderDelegate {
                 title: "CallKit 音频会话已激活",
                 fields: self.audioTraceFields(audioSession)
             )
-            guard LegacyRuntimeGate.accepts(stamp) else { return }
+            guard self.acceptsAction(stamp), self.audioSessionIsActive else { return }
             await self.handler?.callKitAudioSessionDidActivate()
         }
     }
@@ -715,9 +746,9 @@ extension CallKitController: CXProviderDelegate {
         _ provider: CXProvider,
         didDeactivate audioSession: AVAudioSession
     ) {
-        let stamp = LegacyRuntimeGate.generation
+        let stamp = actionGate.generation
         Task { @MainActor [weak self] in
-            guard LegacyRuntimeGate.accepts(stamp) else { return }
+            guard self?.acceptsAction(stamp) == true else { return }
             guard let self else { return }
             self.audioSessionIsActive = false
             await AgentVerboseTraceRecorder.shared.recordEvent(
@@ -727,7 +758,7 @@ extension CallKitController: CXProviderDelegate {
                 title: "CallKit 音频会话已停用",
                 fields: self.audioTraceFields(audioSession)
             )
-            guard LegacyRuntimeGate.accepts(stamp) else { return }
+            guard self.acceptsAction(stamp), !self.audioSessionIsActive else { return }
             self.handler?.callKitAudioSessionDidDeactivate()
         }
     }

@@ -1238,7 +1238,12 @@ final class AppModel: ObservableObject {
     }
 
     func dial() async {
-        if let cloudV2 { cloudV2.number = numberInput; await cloudV2.dial(); projectCloudState(); return }
+        if let cloudV2 {
+            if cloudV2.systemCalls != nil {
+                do { try await callKit.startOutgoingCall(number: numberInput) } catch { errorMessage = "无法发起系统通话，请检查权限与连接。" }
+            } else { cloudV2.number = numberInput; await cloudV2.dial() }
+            projectCloudState(); return
+        }
         let number = Self.validatedNumber(numberInput)
         guard !number.isEmpty else { return }
         callPresentationSurface = .app
@@ -1273,7 +1278,12 @@ final class AppModel: ObservableObject {
     }
 
     func answer() async {
-        if let cloudV2 { if let call = cloudV2.activeCall { await cloudV2.answer(call) }; projectCloudState(); return }
+        if let cloudV2 {
+            if cloudV2.systemCalls != nil {
+                do { try await callKit.answerCurrentCall(presentInApp: true) } catch { errorMessage = "系统来电尚未就绪，请等待核对。" }
+            } else if let call = cloudV2.activeCall { await cloudV2.answer(call) }
+            projectCloudState(); return
+        }
         beginCallTransitionProtection()
         audio.stopCallTone()
         callPresentationSurface = .app
@@ -1323,7 +1333,11 @@ final class AppModel: ObservableObject {
     }
 
     func reject() async {
-        if let cloudV2 { if let call = cloudV2.activeCall { await cloudV2.reject(call) }; projectCloudState(); return }
+        if let cloudV2 {
+            if cloudV2.systemCalls != nil { do { try await callKit.endCurrentCall() } catch { errorMessage = "系统通话尚未就绪。" } }
+            else if let call = cloudV2.activeCall { await cloudV2.reject(call) }
+            projectCloudState(); return
+        }
         beginCallTransitionProtection()
         audio.stopCallTone()
         applyCurrentCallIntent(.ending, source: .app)
@@ -1341,7 +1355,11 @@ final class AppModel: ObservableObject {
     }
 
     func hangup() async {
-        if let cloudV2 { await cloudV2.hangup(); projectCloudState(); return }
+        if let cloudV2 {
+            if cloudV2.systemCalls?.hasSystemCall == true { do { try await callKit.endCurrentCall() } catch { errorMessage = "无法结束系统通话，请核对原操作。" } }
+            else { await cloudV2.hangup() }
+            projectCloudState(); return
+        }
         beginCallTransitionProtection()
         audio.stopCallTone()
         applyCurrentCallIntent(.ending, source: .app)
@@ -1392,7 +1410,10 @@ final class AppModel: ObservableObject {
         )
     }
     func sendDTMF(_ digit: String) async {
-        if let cloudV2 { cloudV2.tones = digit; await cloudV2.dtmf(); return }
+        if let cloudV2 {
+            if cloudV2.systemCalls != nil { do { try await callKit.playDTMF(digit) } catch { errorMessage = "无法发送按键。" } }
+            else { cloudV2.tones = digit; await cloudV2.dtmf() }; return
+        }
         await perform {
             if self.callKit.managesCurrentCall {
                 do {
@@ -1419,7 +1440,10 @@ final class AppModel: ObservableObject {
     }
 
     func toggleMute() async {
-        if let cloudV2 { cloudV2.media.setMuted(!cloudV2.media.muted); projectCloudState(); return }
+        if let cloudV2 {
+            if cloudV2.systemCalls != nil { do { try await callKit.setMuted(!cloudV2.media.muted) } catch { errorMessage = "无法切换系统静音。" } }
+            else { cloudV2.media.setMuted(!cloudV2.media.muted) }; projectCloudState(); return
+        }
         let target = !isMuted
         if callKit.managesCurrentCall {
             do {

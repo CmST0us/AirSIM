@@ -48,6 +48,9 @@ final class CloudV2Model: ObservableObject {
 
     @Published private(set) var foreground = false
     private let client: V2Client
+    private(set) var systemCalls: V2SystemCallController?
+    var systemAudioActive = false
+    private var systemBinding: V2ControlBinding? { systemCalls?.hasSystemCall == true ? systemCalls?.authorizedBinding : nil }
     private var machine: V2CommandMachine?
     private let configurationStore: V2ConfigurationStore
     private let historyFile: V2ProtectedFile<V2History>
@@ -71,10 +74,7 @@ final class CloudV2Model: ObservableObject {
     private var connectionTask: Task<Void, Never>?
     private var connectionEpoch: UInt64 = 0
     private var actionInFlight = false
-    private var backgroundCleanupTask: Task<Void, Never>?
-    private var backgroundEpoch: UInt64 = 0
     private var generation: UInt64 = 0
-    private var backgroundHangups = Set<String>()
     private var persistenceFailed = false
     private(set) var discovery: V2Discovery?
     init(client: V2Client? = nil, media: V2MediaCoordinator? = nil, defaults: UserDefaults = .standard, root: URL = V2LocalPaths.root, tokens: V2TokenStore = V2KeychainTokenStore(), now: @escaping () -> Date = Date.init) {
@@ -90,12 +90,13 @@ final class CloudV2Model: ObservableObject {
             machine = try V2CommandMachine(client: client, store: V2FilePendingStore(url: root.appendingPathComponent("pending.json")), ownedStore: V2FileOwnedCallStore(file: V2ProtectedFile(url: root.appendingPathComponent("owned-call.json"))))
             if let configuration { selectedModuleID = defaults.string(forKey: V2LocalPaths.selectionKey(configuration.identity)) }
         } catch { persistenceFailed = true; self.error = "本地状态读取失败，已禁止控制。" }
-        experimentalAudio = defaults.bool(forKey: "airsim.v2.experimental-audio")
+        experimentalAudio = defaults.object(forKey: "airsim.v2.experimental-audio") as? Bool ?? true
         client.onAuthenticationInvalidated = { [weak self] in
             self?.connected = false
             self?.invalidatePolling()
             self?.syncStatus = "凭据已过期或撤销，需要重新导入连接配置。"
             self?.media.requestStop()
+            self?.systemCalls?.endSystemCall()
         }
         client.onControlInvalidated = { [weak self] in
             self?.syncStatus = "模块离线或会话已变化；保留通话上下文，等待核对。"
@@ -111,6 +112,20 @@ final class CloudV2Model: ObservableObject {
         }
         refreshCommandStatus()
     }
+    func activateSystemIntegration(calls: (any V2SystemCallReporting)? = nil) {
+        guard systemCalls == nil, !R7UITestScenario.active else { return }
+        media.useCallKitAudioSession()
+        systemCalls = V2SystemCallController(model: self, calls: calls ?? CallKitController.shared)
+        systemCalls?.start()
+    }
+    func systemCallScopeChanged() async {
+        await cancelPolling()
+        if foreground || systemBinding != nil { startPolling() }
+    }
+    func systemCommand(_ action: String, args: [String: String]) async -> Bool {
+        await perform(action: action, args: args)
+    }
+
     var ownedCall: V2CallContext? { machine?.ownedCall }
     var hasUnresolvedCommand: Bool { machine?.pending != nil }
     var activeCall: V2Call? {
@@ -118,12 +133,12 @@ final class CloudV2Model: ObservableObject {
         return snapshot?.snapshot?.calls.calls.first { $0.state != "disconnected" }
     }
     var blocksSwitch: Bool {
-        media.active || busy || persistenceFailed || hasUnresolvedCommand || ownedCall != nil || snapshot?.snapshot?.calls.calls.contains(where: { $0.state != "disconnected" }) == true
+        systemCalls?.hasSystemCall == true || media.active || busy || persistenceFailed || hasUnresolvedCommand || ownedCall != nil || snapshot?.snapshot?.calls.calls.contains(where: { $0.state != "disconnected" }) == true
     }
     var selectedModule: V2Module? { modules.first { $0.module_id == selectedModuleID } }
     var freshBinding: V2ControlBinding? {
-        guard connected, foreground, !persistenceFailed, let configuration, let selectedModule, let snapshot else { return nil }
-        return try? snapshot.controlBinding(configuration: configuration, module: selectedModule, now: now())
+        guard connected, (foreground || systemBinding != nil), !persistenceFailed, let configuration, let selectedModule, let snapshot else { return nil }
+        guard let binding = try? snapshot.controlBinding(configuration: configuration, module: selectedModule, now: now()), foreground || binding == systemBinding else { return nil }; return binding
     }
     var telephonyReady: Bool { freshBinding != nil && snapshot?.snapshot?.control.ready == true && snapshot?.snapshot?.control.telephony_ready == true }
     var messagingReady: Bool { freshBinding != nil && snapshot?.snapshot?.control.ready == true && snapshot?.snapshot?.control.messaging_ready == true }
@@ -158,11 +173,11 @@ final class CloudV2Model: ObservableObject {
             let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
             let data = try handle.read(upToCount: 16 * 1024 + 1) ?? Data()
             let imported = try V2ConfigurationImport.parse(data, now: now())
-            await stop()
+                await stop()
             configuration = try configurationStore.importConfiguration(data, now: now())
             selectedModuleID = defaults.string(forKey: V2LocalPaths.selectionKey(imported.configuration.identity))
             modules = []; snapshot = nil; messagesResponse = nil
-            if foreground { await connect() }
+                if foreground { await connect() }
         } catch { self.error = "无法导入连接配置，请确认文件有效且未过期。" }
     }
     func connect() async {
@@ -204,7 +219,7 @@ final class CloudV2Model: ObservableObject {
         invalidatePolling()
         localAudioTask?.cancel(); await localAudioTask?.value; localAudioTask = nil
         await media.stop()
-        await cancelBackgroundCleanup(); await cancelConnection(); await cancelPolling()
+        await cancelConnection(); await cancelPolling()
         client.stop(); connected = false; busy = actionInFlight
     }
     private func invalidatePolling() {
@@ -227,63 +242,25 @@ final class CloudV2Model: ObservableObject {
     func sceneChanged(_ phase: ScenePhase) async {
         switch phase {
         case .active:
-            foreground = true; await cancelBackgroundCleanup()
+            foreground = true
             if pollingInvalidated { await cancelPolling() }
             guard foreground else { return }
             if connected { startPolling() } else { await connect() }
         case .inactive: break
         case .background:
             foreground = false
-            invalidatePolling()
-            // Retire a still-verifying connection before the first suspension point.
-            if connectionTask != nil { connectionEpoch &+= 1; connectionTask?.cancel(); client.stop(); connected = false }
-            localAudioTask?.cancel(); await localAudioTask?.value; localAudioTask = nil
-            await media.stop()
             await cancelConnection(); await cancelPolling()
-            beginBackgroundCleanup()
+            if systemCalls?.hasSystemCall == true { startPolling() }
+            else { await media.stop() }
         default: break
         }
     }
-    private func cancelBackgroundCleanup() async {
-        backgroundEpoch &+= 1
-        let task = backgroundCleanupTask; backgroundCleanupTask = nil
-        task?.cancel(); await task?.value
-    }
-    private func beginBackgroundCleanup() {
-        guard ownedCall != nil || machine?.pending != nil || actionInFlight else { return }
-        backgroundEpoch &+= 1; let epoch = backgroundEpoch
-        let id = UIApplication.shared.beginBackgroundTask(withName: "AirSIMV2ForegroundCallCleanup") { [weak self] in
-            self?.backgroundCleanupTask?.cancel()
-        }
-        guard id != .invalid else { return } // Keep durable pending/context for the next foreground.
-        backgroundCleanupTask = Task { [weak self] in
-            defer { UIApplication.shared.endBackgroundTask(id) }
-            guard let self else { return }
-            let deadline = Date().addingTimeInterval(10)
-            while !Task.isCancelled, self.backgroundEpoch == epoch, !self.foreground, Date() < deadline {
-                if self.busy { try? await Task.sleep(for: .milliseconds(100)); continue }
-                if self.machine?.pending != nil {
-                    try? await self.machine?.recover()
-                    guard !Task.isCancelled, self.backgroundEpoch == epoch, !self.foreground else { return }
-                    try? self.finishResolvedCommand()
-                }
-                if let context = self.ownedCall, !self.hasUnresolvedCommand {
-                    guard !self.backgroundHangups.contains(context.callID) else { return }
-                    self.backgroundHangups.insert(context.callID)
-                    await self.perform(action: "call.hangup", args: ["call_id": context.callID], backgroundContext: context)
-                    return
-                }
-                if self.machine?.pending == nil { return }
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
-    }
     private func startPolling() {
-        guard foreground, connected, pollTasks.isEmpty, pollStopTask == nil else { return }
+        guard (foreground || systemBinding != nil), connected, pollTasks.isEmpty, pollStopTask == nil else { return }
         let stamp = generation, module = selectedModuleID
         pollingInvalidated = false
         pollFailures.removeAll()
-        for lane in PollLane.allCases {
+        for lane in PollLane.allCases where foreground || lane == .snapshot {
             pollTasks[lane] = Task { [weak self] in
                 guard let self else { return }
                 var backoff = V2PollBackoff()
@@ -303,6 +280,10 @@ final class CloudV2Model: ObservableObject {
                                 self.snapshot = snapshot
                                 try self.consumeSnapshot(snapshot)
                                 self.updateMediaEligibility()
+                                self.systemCalls?.observeSnapshot()
+                                if !self.foreground, self.machine?.pending != nil, !self.busy {
+                                    try await self.machine?.recover(); try self.finishResolvedCommand()
+                                }
                             }
                         case .messages:
                             if let module {
@@ -327,6 +308,7 @@ final class CloudV2Model: ObservableObject {
                         self.updateMediaEligibility()
                         delay = backoff.failed()
                     }
+                    if self.systemCalls?.hasSystemCall == true, let age = self.snapshot?.snapshot.map({ self.now().timeIntervalSince($0.observedAt) }), age > 8 { self.systemCalls?.endSystemCall() }
                     self.syncStatus = self.pollFailures.isEmpty ? nil : "同步失败（\(PollLane.allCases.filter { self.pollFailures.contains($0) }.map(\.title).joined(separator: " / "))），当前状态可能已过期；未自动重发操作。"
                     self.objectWillChange.send()
                     do { try await Task.sleep(for: .seconds(delay)) } catch { return }
@@ -335,7 +317,7 @@ final class CloudV2Model: ObservableObject {
         }
     }
     private func acceptsPoll(_ stamp: UInt64, module: String?) -> Bool {
-        !Task.isCancelled && generation == stamp && foreground && connected && selectedModuleID == module
+        !Task.isCancelled && generation == stamp && (foreground || systemBinding != nil) && connected && selectedModuleID == module
     }
     private func consumeSnapshot(_ response: V2SnapshotResponse) throws {
         guard let config = configuration, let snapshot = response.snapshot else { return }
@@ -359,7 +341,7 @@ final class CloudV2Model: ObservableObject {
               snapshot.agent_boot_id == context.binding.bootID, snapshot.backend_epoch == context.binding.backendEpoch,
               (-3...8).contains(now().timeIntervalSince(snapshot.observedAt)),
               let call = snapshot.calls.calls.first(where: { $0.call_id == context.callID }) else { return }
-        if call.state == "disconnected" { try machine?.clearDisconnectedOwnedCall(); backgroundHangups.remove(context.callID) }
+        if call.state == "disconnected" { try machine?.clearDisconnectedOwnedCall() }
         else { try client.restoreOwnership(context, snapshot: response) }
     }
     private func consumeMessages(_ response: V2MessagesResponse) throws {
@@ -391,7 +373,7 @@ final class CloudV2Model: ObservableObject {
         if selectedModuleID == nil { return "请选择要使用的模块。" }
         if selectedModule?.online != true { return "模块离线，请检查模块网络后重试。" }
         if freshBinding == nil { return "正在核对模块状态，请稍候或刷新连接。" }
-        return "模块已连接 · 仅支持前台通话"
+        return "模块已连接 · 空闲来电需保持 App 在前台"
     }
     func refreshReadOnly() async {
         await cancelPolling()
@@ -414,11 +396,11 @@ final class CloudV2Model: ObservableObject {
         do { try await machine?.recover(); try finishResolvedCommand() } catch { self.error = "查询失败，操作结果仍未确认。" }
     }
     @discardableResult
-    private func perform(action: String, args: [String: String], backgroundContext: V2CallContext? = nil) async -> Bool {
+    private func perform(action: String, args: [String: String]) async -> Bool {
         guard canAct, let machine else { return false }
+        guard foreground || (systemBinding != nil && ["call.answer", "call.hangup", "call.dtmf"].contains(action) && args["call_id"] == (ownedCall?.callID ?? systemCalls?.currentCallID)) else { return false }
         let binding: V2ControlBinding
-        if let backgroundContext { binding = backgroundContext.binding }
-        else if action == "call.dtmf" || (action == "call.hangup" && ownedCall != nil) {
+        if action == "call.dtmf" || (action == "call.hangup" && ownedCall != nil) {
             guard ownedControlReady, let context = ownedCall else { error = "原通话状态尚未核对，不能控制。"; return false }; binding = context.binding
         } else {
             guard let freshBinding, action == "sms.send" ? messagingReady : telephonyReady else { error = "模块状态或对应能力尚未就绪。"; return false }; binding = freshBinding
@@ -486,7 +468,7 @@ final class CloudV2Model: ObservableObject {
     }
 #endif
     var audioReady: Bool {
-        guard experimentalAudio, foreground, ownedControlReady,
+        guard experimentalAudio, (foreground || systemBinding != nil), (systemCalls == nil || systemAudioActive), ownedControlReady,
               discovery?.capabilities.experimental_audio == true,
               snapshot?.snapshot?.audio.available == true,
               activeCall?.state == "active" else { return false }

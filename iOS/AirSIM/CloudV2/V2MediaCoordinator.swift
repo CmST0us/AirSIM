@@ -122,6 +122,7 @@ final class V2MediaCoordinator: ObservableObject {
         self.audio = audio ?? V2AudioEngine(); self.socketFactory = socketFactory; self.clock = clock ?? V2SystemMediaClock(); wallNow = now
         self.create = create; self.delete = delete
     }
+    func useCallKitAudioSession() { (audio as? V2AudioEngine)?.callKitManaged = true }
     func start(context: V2CallContext, diagnosticMode: Bool, validate: @escaping () -> Bool) {
         guard !active else { return }
         let stamp = UUID(); generation = stamp; self.context = context

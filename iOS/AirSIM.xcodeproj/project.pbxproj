@@ -67,6 +67,7 @@
 		A500000000000000000000CA /* V2MediaCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CA /* V2MediaCoordinator.swift */; };
 		A500000000000000000000CB /* V2DiagnosticAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CB /* V2DiagnosticAudio.swift */; };
 		A70000000000000000000002 /* R7MessagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000003 /* R7MessagingTests.swift */; };
+		A80000000000000000000001 /* V2SystemCalls.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000001 /* V2SystemCalls.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -189,6 +190,7 @@
 		B500000000000000000000CA /* V2MediaCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2MediaCoordinator.swift; sourceTree = "<group>"; };
 		B500000000000000000000CB /* V2DiagnosticAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2DiagnosticAudio.swift; sourceTree = "<group>"; };
 		B70000000000000000000003 /* R7MessagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = R7MessagingTests.swift; sourceTree = "<group>"; };
+		B80000000000000000000001 /* V2SystemCalls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2SystemCalls.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -255,6 +257,7 @@
 				B50000000000000000000007 /* V2Transport.swift */,
 				B50000000000000000000064 /* AppRouting.swift */,
 				B50000000000000000000065 /* CloudV2Model.swift */,
+				B80000000000000000000001 /* V2SystemCalls.swift */,
 				B50000000000000000000066 /* CloudV2View.swift */,
 				B50000000000000000000067 /* LegacySwitchFence.swift */,
 				B5000000000000000000006C /* V2LocalStore.swift */,
@@ -547,6 +550,7 @@
 				A50000000000000000000007 /* V2Transport.swift in Sources */,
 				A50000000000000000000064 /* AppRouting.swift in Sources */,
 				A50000000000000000000065 /* CloudV2Model.swift in Sources */,
+				A80000000000000000000001 /* V2SystemCalls.swift in Sources */,
 				A50000000000000000000066 /* CloudV2View.swift in Sources */,
 				A50000000000000000000067 /* LegacySwitchFence.swift in Sources */,
 				A5000000000000000000006C /* V2LocalStore.swift in Sources */,

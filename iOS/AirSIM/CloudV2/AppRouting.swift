@@ -80,6 +80,14 @@ enum LegacyPushRouting {
 
 @MainActor
 final class AppRouteCoordinator: ObservableObject {
+    static let shared = AppRouteCoordinator()
+    @Published private(set) var model: AppModel?
+    func ensureRuntime() {
+        guard model == nil, let choice else { return }
+        let value = AppModel(cloudV2: choice == .v2 ? R7UITestScenario.makeCloud() : nil)
+        model = value; legacy = value.isV2 ? nil : value; cloud = value.cloudV2
+        cloud?.activateSystemIntegration()
+    }
     @Published private(set) var choice: AirSIMRuntimeChoice?
     @Published private(set) var transitioning = false
     @Published var error: String?
@@ -112,14 +120,15 @@ final class AppRouteCoordinator: ObservableObject {
             CallKitController.shared.setEnabled(false)
             await LegacyRuntimeGate.waitForRequests()
         }
-        if let cloud { await cloud.stop() }
-        legacy = nil; cloud = nil
+        if let cloud { await cloud.stop(); cloud.systemCalls?.stop() }
+        legacy = nil; cloud = nil; model = nil
         defaults.removeObject(forKey: IncomingCallPresentationRequest.key)
         defaults.removeObject(forKey: IncomingSMSPresentationRequest.key)
         legacyRuntimeStopped = true
         CloudVersionPreference.save(next, defaults: defaults)
         choice = next
         LegacyRuntimeGate.configure(next == .v1 || next == .local)
+        ensureRuntime()
         transitioning = false
 #if DEBUG
         let events = LegacyActivityEvents.shared
@@ -134,7 +143,8 @@ struct AirSIMRouteView: View {
         Group {
             if router.transitioning { ProgressView("正在停止当前连接…") }
             else if let choice = router.choice {
-                SharedAppHost(choice: choice).id(choice)
+                if let model = router.model { SharedAppHost(model: model).id(choice) }
+                else { ProgressView().onAppear { router.ensureRuntime() } }
             } else {
                 NavigationStack {
                     List {
@@ -156,7 +166,7 @@ struct RuntimeChoiceButtons: View {
         ForEach(AirSIMRuntimeChoice.allCases, id: \.self) { choice in
             Button { Task { await router.choose(choice) } } label: {
                 HStack {
-                    Text(choice == .local ? "仅本地 VoWLAN" : choice == .v1 ? "云端 v1（现有版本）" : "云端 v2（前台实验）")
+                    Text(choice == .local ? "仅本地 VoWLAN" : choice == .v1 ? "云端 v1（现有版本）" : "云端 v2")
                     Spacer(); if router.choice == choice { Image(systemName: "checkmark") }
                 }
             }.disabled(router.transitioning)
@@ -166,14 +176,11 @@ struct RuntimeChoiceButtons: View {
 struct SharedAppHost: View {
     @EnvironmentObject private var router: AppRouteCoordinator
     @Environment(\.scenePhase) private var phase
-    @StateObject private var model: AppModel
-    init(choice: AirSIMRuntimeChoice) {
-        _model = StateObject(wrappedValue: AppModel(cloudV2: choice == .v2 ? R7UITestScenario.makeCloud() : nil))
-    }
+    @ObservedObject var model: AppModel
     @StateObject private var settings = AppSettings()
     var body: some View {
         RootView().environmentObject(model).environmentObject(model.contacts).environmentObject(model.audio).environmentObject(settings)
-            .onAppear { router.legacy = model.isV2 ? nil : model; router.cloud = model.cloudV2; model.start(sceneIsActive: phase == .active) }
+            .onAppear { model.start(sceneIsActive: phase == .active) }
             .onChange(of: phase) { value in
                 guard model.isV2 || LegacyRuntimeGate.allowed else { return }
                 switch value { case .active: model.didBecomeActive(); case .inactive: model.willResignActive(); case .background: model.didEnterBackground(); default: break }
