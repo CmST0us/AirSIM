@@ -45,14 +45,14 @@ struct V2HistoryDomain: Codable, Equatable {
     let bootID: String
     let backendEpoch: String
 }
-struct V2StoredMessage: Codable, Identifiable {
+struct V2StoredMessage: Codable, Identifiable, Equatable {
     let domain: V2HistoryDomain
     let message: V2Message
     let inboxGap: Bool
     let inboxDropped: UInt64
     var id: String { domain.identity.account + domain.moduleID + domain.bootID + domain.backendEpoch + message.message_id }
 }
-struct V2StoredCall: Codable, Identifiable {
+struct V2StoredCall: Codable, Identifiable, Equatable {
     let domain: V2HistoryDomain
     let call: V2Call
     var id: String { domain.identity.account + domain.moduleID + domain.bootID + domain.backendEpoch + call.call_id }
@@ -60,15 +60,33 @@ struct V2StoredCall: Codable, Identifiable {
 struct V2History: Codable {
     var messages: [V2StoredMessage] = []
     var calls: [V2StoredCall] = []
-    mutating func merge(messages incoming: [V2StoredMessage]) {
+    @discardableResult
+    mutating func merge(messages incoming: [V2StoredMessage]) -> Bool {
         var byID = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, newest in newest })
-        for item in incoming { byID[item.id] = item }
-        messages = Array(byID.values.sorted { ((try? V2Validation.date($0.message.observed_at)) ?? .distantPast) > ((try? V2Validation.date($1.message.observed_at)) ?? .distantPast) }.prefix(2000))
+        var changed = byID.count != messages.count || messages.count > 2000
+        for item in incoming where byID[item.id] != item { byID[item.id] = item; changed = true }
+        guard changed else { return false }
+        let candidate = Array(byID.values.sorted {
+            if $0.message.observedAt != $1.message.observedAt { return $0.message.observedAt > $1.message.observedAt }
+            return $0.id < $1.id
+        }.prefix(2000))
+        guard candidate != messages else { return false }
+        messages = candidate
+        return true
     }
-    mutating func merge(calls incoming: [V2StoredCall]) {
+    @discardableResult
+    mutating func merge(calls incoming: [V2StoredCall]) -> Bool {
         var byID = Dictionary(calls.map { ($0.id, $0) }, uniquingKeysWith: { _, newest in newest })
-        for item in incoming { byID[item.id] = item }
-        calls = Array(byID.values.sorted { ((try? V2Validation.date($0.call.observed_at)) ?? .distantPast) > ((try? V2Validation.date($1.call.observed_at)) ?? .distantPast) }.prefix(500))
+        var changed = byID.count != calls.count || calls.count > 500
+        for item in incoming where byID[item.id] != item { byID[item.id] = item; changed = true }
+        guard changed else { return false }
+        let candidate = Array(byID.values.sorted {
+            if $0.call.observedAt != $1.call.observedAt { return $0.call.observedAt > $1.call.observedAt }
+            return $0.id < $1.id
+        }.prefix(500))
+        guard candidate != calls else { return false }
+        calls = candidate
+        return true
     }
 }
 enum V2LocalPaths {

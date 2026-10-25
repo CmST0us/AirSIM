@@ -586,9 +586,11 @@ extension CloudV2Tests {
         var batch: [V2StoredMessage] = []
         for _ in 0..<2001 { batch.append(V2StoredMessage(domain: domain, message: try message(UUID().uuidString.lowercased(), "2026-10-24T00:00:01Z"), inboxGap: false, inboxDropped: 0)) }
         history.merge(messages: batch); XCTAssertEqual(history.messages.count, 2000)
+        XCTAssertFalse(history.merge(messages: batch))
         var calls: [V2StoredCall] = []
         for _ in 0..<501 { calls.append(V2StoredCall(domain: domain, call: try V2JSON.decode(V2Call.self, from: v2Data(v2CallObject(id: UUID().uuidString.lowercased())), limit: 1024))) }
         history.merge(calls: calls); XCTAssertEqual(history.calls.count, 500)
+        XCTAssertFalse(history.merge(calls: calls))
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let file = V2ProtectedFile<V2History>(url: root.appendingPathComponent("history.json"))
@@ -1433,6 +1435,7 @@ extension CloudV2Tests {
     var blocked = Set<String>(), failed = Set<String>()
     var directoryBlocksAfterFirst = false
     var pending: [String: CheckedContinuation<V2HTTPResponse, Error>] = [:]
+    var snapshotCalls: [[String: Any]] = []
     var writes = 0
     init() throws {
         defaults = UserDefaults(suiteName: suite)!
@@ -1458,7 +1461,7 @@ extension CloudV2Tests {
         let body: Data
         if lane == "directory" {
             body = try v2Data(["server_id": v2ID, "modules": [v2ID, v2OtherID].map { ["module_id": $0, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID] }])
-        } else if lane == "snapshot" { body = try v2SnapshotData(module: module, age: -currentNow.timeIntervalSince(v2Now)) }
+        } else if lane == "snapshot" { body = try v2SnapshotData(module: module, age: -currentNow.timeIntervalSince(v2Now), calls: snapshotCalls) }
         else { body = try v2Data(["server_id": v2ID, "module_id": module, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": []]) }
         return V2HTTPResponse(status: 200, body: body)
     }
@@ -1564,6 +1567,93 @@ extension CloudV2Tests {
         XCTAssertNil(fixture.model.snapshot); XCTAssertNil(fixture.model.messagesResponse)
         XCTAssertTrue(fixture.model.modules.isEmpty); XCTAssertEqual(fixture.model.syncStatus, status)
         XCTAssertTrue(status?.contains("凭据") == true); XCTAssertEqual(fixture.writes, 0)
+        await fixture.close()
+    }
+}
+
+extension CloudV2Tests {
+    func testHistoryCachedDatesWireEqualityAndNoChangeNormalization() throws {
+        let domain = V2HistoryDomain(identity: v2Config().identity, moduleID: v2ID, bootID: v2ID, backendEpoch: v2ID)
+        let callWire = v2CallObject(state: "disconnected", date: "2026-10-24T00:00:00.25Z")
+        let messageWire: [String: Any] = ["message_id": v2ID, "direction": "incoming", "sender": "", "recipient": "", "text": "fixture", "state": "received", "delivery": "unknown", "observed_at": "2026-10-24T00:00:00.5Z"]
+        let call = try V2JSON.decode(V2Call.self, from: v2Data(callWire), limit: 1024)
+        let message = try V2JSON.decode(V2Message.self, from: v2Data(messageWire), limit: 1024)
+        XCTAssertEqual(call.observedAt, try V2Validation.date(call.observed_at))
+        XCTAssertEqual(message.observedAt, try V2Validation.date(message.observed_at))
+        let encodedCall = try JSONEncoder().encode(call), encodedMessage = try JSONEncoder().encode(message)
+        XCTAssertEqual(Set((try JSONSerialization.jsonObject(with: encodedCall) as! [String: Any]).keys), Set(callWire.keys))
+        XCTAssertEqual(Set((try JSONSerialization.jsonObject(with: encodedMessage) as! [String: Any]).keys), Set(messageWire.keys))
+        XCTAssertEqual(try JSONDecoder().decode(V2Call.self, from: encodedCall), call)
+        XCTAssertEqual(try JSONDecoder().decode(V2Message.self, from: encodedMessage), message)
+        for badDate in ["2026-02-30T00:00:00Z", "2026-10-24T00:00:00Z\n", "2026-10-24T00:00:00+00:00"] {
+            var badCall = callWire, badMessage = messageWire
+            badCall["observed_at"] = badDate; badMessage["observed_at"] = badDate
+            XCTAssertThrowsError(try V2JSON.decode(V2Call.self, from: v2Data(badCall), limit: 1024))
+            XCTAssertThrowsError(try V2JSON.decode(V2Message.self, from: v2Data(badMessage), limit: 1024))
+        }
+        let storedCall = V2StoredCall(domain: domain, call: call)
+        let storedMessage = V2StoredMessage(domain: domain, message: message, inboxGap: false, inboxDropped: 0)
+        var history = V2History()
+        XCTAssertTrue(history.merge(calls: [storedCall])); XCTAssertTrue(history.merge(messages: [storedMessage]))
+        XCTAssertFalse(history.merge(calls: [storedCall])); XCTAssertFalse(history.merge(messages: [storedMessage]))
+        XCTAssertFalse(history.merge(calls: [])); XCTAssertFalse(history.merge(messages: []))
+        for key in callWire.keys where key != "call_id" {
+            var wire = callWire; wire[key] = key == "observed_at" ? "2026-10-24T00:00:00.26Z" : "changed"
+            let changed = V2StoredCall(domain: domain, call: try V2JSON.decode(V2Call.self, from: v2Data(wire), limit: 1024))
+            XCTAssertNotEqual(changed, storedCall); XCTAssertTrue(history.merge(calls: [changed]))
+            XCTAssertTrue(history.merge(calls: [storedCall]))
+        }
+        for key in messageWire.keys where key != "message_id" {
+            var wire = messageWire; wire[key] = key == "observed_at" ? "2026-10-24T00:00:00.6Z" : "changed"
+            let changed = V2StoredMessage(domain: domain, message: try V2JSON.decode(V2Message.self, from: v2Data(wire), limit: 1024), inboxGap: false, inboxDropped: 0)
+            XCTAssertNotEqual(changed, storedMessage); XCTAssertTrue(history.merge(messages: [changed]))
+            XCTAssertTrue(history.merge(messages: [storedMessage]))
+        }
+        XCTAssertTrue(history.merge(messages: [V2StoredMessage(domain: domain, message: message, inboxGap: true, inboxDropped: 0)]))
+        XCTAssertTrue(history.merge(messages: [V2StoredMessage(domain: domain, message: message, inboxGap: true, inboxDropped: 2)]))
+        let other = V2StoredCall(domain: V2HistoryDomain(identity: domain.identity, moduleID: v2OtherID, bootID: v2ID, backendEpoch: v2ID), call: call)
+        XCTAssertTrue(history.merge(calls: [other]))
+        XCTAssertEqual(history.calls.map(\.id), [storedCall.id, other.id].sorted())
+        history.calls.append(storedCall)
+        XCTAssertTrue(history.merge(calls: [])); XCTAssertEqual(history.calls.count, 2)
+        // A transient incoming change followed by the original leaves the final history unchanged.
+        var changedWire = callWire; changedWire["number"] = "changed"
+        let transient = V2StoredCall(domain: domain, call: try V2JSON.decode(V2Call.self, from: v2Data(changedWire), limit: 1024))
+        XCTAssertFalse(history.merge(calls: [transient, storedCall]))
+        let legacyRoundTrip = try JSONDecoder().decode(V2History.self, from: JSONEncoder().encode(history))
+        XCTAssertEqual(legacyRoundTrip.calls, history.calls); XCTAssertEqual(legacyRoundTrip.messages, history.messages)
+    }
+    @MainActor func testUnchangedPollingHistoryDoesNotRewriteFile() async throws {
+        let fixture = try V2PollFixture(); fixture.snapshotCalls = [v2CallObject(state: "disconnected")]
+        await fixture.model.sceneChanged(.active)
+        let url = fixture.root.appendingPathComponent("history.json")
+        try await v2PollWait { FileManager.default.fileExists(atPath: url.path) }
+        let sentinel = Date(timeIntervalSince1970: 1_000_000)
+        try FileManager.default.setAttributes([.modificationDate: sentinel], ofItemAtPath: url.path)
+        let before = try FileManager.default.attributesOfItem(atPath: url.path)
+        let snapshots = fixture.counts["snapshot", default: 0], messages = fixture.counts["messages", default: 0]
+        try await v2PollWait { fixture.counts["snapshot", default: 0] >= snapshots + 2 && fixture.counts["messages", default: 0] >= messages + 2 }
+        let after = try FileManager.default.attributesOfItem(atPath: url.path)
+        XCTAssertEqual(before[.modificationDate] as? Date, after[.modificationDate] as? Date)
+        XCTAssertEqual(before[.systemFileNumber] as? NSNumber, after[.systemFileNumber] as? NSNumber)
+        XCTAssertEqual(fixture.model.history.calls.count, 1)
+        await fixture.close()
+    }
+    @MainActor func testHistoryWriteFailureRetriesUnchangedResponse() async throws {
+        let fixture = try V2PollFixture(); fixture.snapshotCalls = [v2CallObject(state: "disconnected")]
+        fixture.blocked.insert("messages")
+        let url = fixture.root.appendingPathComponent("history.json")
+        // Created after model loading: forces the first atomic file write to fail.
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.history.calls.count == 1 && fixture.model.syncStatus?.contains("通话状态") == true }
+        let original = fixture.model.history.calls
+        try FileManager.default.removeItem(at: url)
+        try await v2PollWait { FileManager.default.fileExists(atPath: url.path) && fixture.model.syncStatus == nil }
+        let persisted = try V2ProtectedFile<V2History>(url: url).load()
+        XCTAssertEqual(persisted?.calls, original)
+        XCTAssertEqual(fixture.model.history.calls, original)
+        XCTAssertGreaterThanOrEqual(fixture.counts["snapshot", default: 0], 2)
         await fixture.close()
     }
 }

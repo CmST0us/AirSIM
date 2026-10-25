@@ -2,14 +2,16 @@ import Foundation
 
 // Field spellings intentionally follow the frozen R4 wire contract.
 
-struct V2Call: Codable {
+struct V2Call: Codable, Equatable {
     let call_id: String
     let state: String
     let ownership: String
     let direction: String
     let number: String
     let observed_at: String
+    let observedAt: Date
     let disconnect_reason: String
+    private enum CodingKeys: String, CodingKey { case call_id, state, ownership, direction, number, observed_at, disconnect_reason }
     init(from decoder: Decoder) throws {
         let c = try decoder.v2Fields("call_id state ownership direction number observed_at disconnect_reason", optional: "")
         call_id = try c.get("call_id")
@@ -20,7 +22,7 @@ struct V2Call: Codable {
         observed_at = try c.get("observed_at")
         disconnect_reason = try c.get("disconnect_reason")
         try V2Validation.uuid(call_id, empty: false)
-        _ = try V2Validation.date(observed_at)
+        observedAt = try V2Validation.date(observed_at)
     }
 }
 
@@ -73,7 +75,7 @@ struct V2Calls: Decodable {
     }
 }
 
-struct V2Message: Codable {
+struct V2Message: Codable, Equatable {
     let message_id: String
     let direction: String
     let sender: String
@@ -82,6 +84,8 @@ struct V2Message: Codable {
     let state: String
     let delivery: String
     let observed_at: String
+    let observedAt: Date
+    private enum CodingKeys: String, CodingKey { case message_id, direction, sender, recipient, text, state, delivery, observed_at }
     init(from decoder: Decoder) throws {
         let c = try decoder.v2Fields("message_id direction sender recipient text state delivery observed_at", optional: "")
         message_id = try c.get("message_id")
@@ -93,7 +97,7 @@ struct V2Message: Codable {
         delivery = try c.get("delivery")
         observed_at = try c.get("observed_at")
         try V2Validation.uuid(message_id, empty: false)
-        _ = try V2Validation.date(observed_at)
+        observedAt = try V2Validation.date(observed_at)
     }
 }
 

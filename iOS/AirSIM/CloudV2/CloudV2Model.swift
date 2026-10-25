@@ -51,6 +51,7 @@ final class CloudV2Model: ObservableObject {
     private var machine: V2CommandMachine?
     private let configurationStore: V2ConfigurationStore
     private let historyFile: V2ProtectedFile<V2History>
+    private var historyDirty = false
     private let defaults: UserDefaults
     private let now: () -> Date
     private enum PollLane: CaseIterable {
@@ -338,8 +339,11 @@ final class CloudV2Model: ObservableObject {
     private func consumeSnapshot(_ response: V2SnapshotResponse) throws {
         guard let config = configuration, let snapshot = response.snapshot else { return }
         let domain = V2HistoryDomain(identity: config.identity, moduleID: response.module_id, bootID: snapshot.agent_boot_id, backendEpoch: snapshot.backend_epoch)
-        history.merge(calls: snapshot.calls.calls.map { V2StoredCall(domain: domain, call: $0) })
-        try historyFile.save(history)
+        var candidate = history
+        if candidate.merge(calls: snapshot.calls.calls.map { V2StoredCall(domain: domain, call: $0) }) {
+            history = candidate; historyDirty = true
+        }
+        try saveDirtyHistory()
         if let pending = machine?.pending, pending.action == "call.hangup",
            pending.binding.identity == config.identity, pending.binding.moduleID == response.module_id,
            response.online, response.connection_epoch == pending.binding.connectionEpoch,
@@ -360,8 +364,16 @@ final class CloudV2Model: ObservableObject {
     private func consumeMessages(_ response: V2MessagesResponse) throws {
         guard let config = configuration else { return }
         let domain = V2HistoryDomain(identity: config.identity, moduleID: response.module_id, bootID: response.agent_boot_id, backendEpoch: response.backend_epoch)
-        history.merge(messages: response.messages.map { V2StoredMessage(domain: domain, message: $0, inboxGap: response.inbox_gap, inboxDropped: response.inbox_dropped) })
+        var candidate = history
+        if candidate.merge(messages: response.messages.map { V2StoredMessage(domain: domain, message: $0, inboxGap: response.inbox_gap, inboxDropped: response.inbox_dropped) }) {
+            history = candidate; historyDirty = true
+        }
+        try saveDirtyHistory()
+    }
+    private func saveDirtyHistory() throws {
+        guard historyDirty else { return }
         try historyFile.save(history)
+        historyDirty = false
     }
     func dial() async { await perform(action: "call.dial", args: ["number": number]) }
     func answer(_ call: V2Call) async { await perform(action: "call.answer", args: ["call_id": call.call_id]) }
