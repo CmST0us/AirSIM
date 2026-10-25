@@ -60,11 +60,13 @@ struct V2StoredCall: Codable, Identifiable, Equatable {
 struct V2History: Codable {
     var messages: [V2StoredMessage] = []
     var calls: [V2StoredCall] = []
+    var clearedMessageIDs: [String]? = nil
     @discardableResult
     mutating func merge(messages incoming: [V2StoredMessage]) -> Bool {
         var byID = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, newest in newest })
         var changed = byID.count != messages.count || messages.count > 2000
-        for item in incoming where byID[item.id] != item { byID[item.id] = item; changed = true }
+        let cleared = Set(clearedMessageIDs ?? [])
+        for item in incoming where !cleared.contains(item.id) && byID[item.id] != item { byID[item.id] = item; changed = true }
         guard changed else { return false }
         let candidate = Array(byID.values.sorted {
             if $0.message.observedAt != $1.message.observedAt { return $0.message.observedAt > $1.message.observedAt }

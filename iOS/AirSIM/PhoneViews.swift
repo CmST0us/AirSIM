@@ -179,6 +179,20 @@ struct DialPadView: View {
                     }
                     .padding(.horizontal, 12)
 
+                    if let cloud = model.cloudV2 {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(cloud.userStatus).font(.caption).foregroundStyle(.secondary)
+                            HStack {
+                                Button("连接设置") { R7UITestScenario.defaults.set(PhoneTab.settings.rawValue, forKey: "airsim.selected-tab") }
+                                if cloud.hasUnresolvedCommand {
+                                    Button("查询原操作结果") { Task { await cloud.recoverPending() } }
+                                        .accessibilityIdentifier("command-recover")
+                                        .disabled(cloud.busy || !cloud.connected)
+                                }
+                            }.font(.caption)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
                     if let currentAgent = model.currentAndroidAgent {
                         DialPadCurrentAgentCard(
                             agent: currentAgent,
@@ -186,7 +200,7 @@ struct DialPadView: View {
                             cloudModeEnabled: CloudModePreference.isEnabled()
                         ) {
                             pairedAgentListPresentation = PairedAgentListPresentation()
-                        }
+                        }.accessibilityIdentifier("module-selector")
                     } else if !model.pairedAndroidAgents.isEmpty {
                         Button {
                             pairedAgentListPresentation = PairedAgentListPresentation()
@@ -195,7 +209,7 @@ struct DialPadView: View {
                                 Image(systemName: "smartphone.slash")
                                     .foregroundStyle(.secondary)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("已配对 Android Agent · \(model.pairedAndroidAgents.count)")
+                                    Text(model.isV2 ? "选择模块" : "已配对 Android Agent · \(model.pairedAndroidAgents.count)")
                                         .font(.subheadline.weight(.semibold))
                                     Text("当前没有可用的拨号路由")
                                         .font(.caption)
@@ -388,7 +402,7 @@ private struct DialPadCurrentAgentCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Image(systemName: "smartphone")
+                Image(systemName: agent.agentKind == "v2" ? "antenna.radiowaves.left.and.right" : "smartphone")
                     .font(.headline)
                     .foregroundStyle(.green)
                     .frame(width: 34, height: 34)
@@ -423,8 +437,8 @@ private struct DialPadCurrentAgentCard: View {
             }
 
             HStack(spacing: 8) {
-                AgentTransportPill(title: "VoWLAN", online: agent.vowlanOnline, enabled: true)
-                AgentTransportPill(title: "云端", online: agent.cloudOnline, enabled: cloudModeEnabled)
+                if agent.agentKind != "v2" { AgentTransportPill(title: "VoWLAN", online: agent.vowlanOnline, enabled: true) }
+                AgentTransportPill(title: "云端", online: agent.cloudOnline, enabled: agent.agentKind == "v2" || cloudModeEnabled)
                 Spacer(minLength: 0)
                 Text(agent.agentKindTitle)
                     .font(.caption2)
@@ -462,13 +476,14 @@ private struct AgentTransportPill: View {
 }
 
 private struct PairedAndroidAgentsView: View {
+    @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     let agents: [AndroidAgentPresentation]
     let cloudModeEnabled: Bool
 
     var body: some View {
         NavigationStack {
-            List(agents) { agent in
+            List(model.isV2 ? model.pairedAndroidAgents : agents) { agent in
                 VStack(alignment: .leading, spacing: 9) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -486,8 +501,8 @@ private struct PairedAndroidAgentsView: View {
                         }
                     }
                     HStack(spacing: 8) {
-                        AgentTransportPill(title: "VoWLAN", online: agent.vowlanOnline, enabled: true)
-                        AgentTransportPill(title: "云端", online: agent.cloudOnline, enabled: cloudModeEnabled)
+                        if agent.agentKind != "v2" { AgentTransportPill(title: "VoWLAN", online: agent.vowlanOnline, enabled: true) }
+                        AgentTransportPill(title: "云端", online: agent.cloudOnline, enabled: agent.agentKind == "v2" || cloudModeEnabled)
                         Spacer()
                         Text(agent.agentKindTitle)
                             .font(.caption)
@@ -495,6 +510,10 @@ private struct PairedAndroidAgentsView: View {
                     }
                 }
                 .padding(.vertical, 5)
+                .contentShape(Rectangle())
+                .onTapGesture { if let cloud = model.cloudV2 { Task { await cloud.selectModule(agent.id) } } }
+                .accessibilityAddTraits(model.isV2 ? .isButton : [])
+                .accessibilityIdentifier("module-" + agent.id)
             }
             .overlay {
                 if agents.isEmpty {
@@ -507,7 +526,7 @@ private struct PairedAndroidAgentsView: View {
                     }
                 }
             }
-            .navigationTitle("已配对 Android Agent")
+            .navigationTitle(model.isV2 ? "选择模块" : "已配对 Android Agent")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -821,13 +840,12 @@ struct MessagesView: View {
             .confirmationDialog(L10n.t("清空全部短信"), isPresented: $showingClearConfirmation, titleVisibility: .visible) {
                 Button(L10n.t("删除"), role: .destructive) {
                     Task {
-                        try? await model.api.clearModuleSMS()
-                        model.clearLocalMessages()
+                        await model.clearMessages()
                     }
                 }
                 Button(L10n.t("取消"), role: .cancel) {}
             } message: {
-                Text("这会删除本机短信以及尚未交付的模块短信，无法恢复。")
+                Text(model.isV2 ? "仅清理当前模块的本机短信副本，不删除模块上的短信。" : "这会删除本机短信以及尚未交付的模块短信，无法恢复。")
             }
         }
     }
@@ -887,6 +905,7 @@ private struct MessageThreadView: View {
     @EnvironmentObject private var model: AppModel
     let sender: String
     @State private var reply = ""
+    @State private var sending = false
 
     private var messages: [SMSMessage] {
         model.messages
@@ -917,7 +936,7 @@ private struct MessageThreadView: View {
                                         )
                                         .foregroundStyle(message.isOutgoing ? .white : .primary)
                                     if message.isOutgoing {
-                                        Text(L10n.t("已发送"))
+                                        Text(model.messageDeliveryText(message))
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                     }
@@ -934,15 +953,20 @@ private struct MessageThreadView: View {
             Divider()
             HStack(spacing: 10) {
                 TextField(L10n.t("短信内容"), text: $reply, axis: .vertical)
+                    .accessibilityIdentifier("message-reply")
                     .textFieldStyle(.roundedBorder)
                 Button {
                     let body = reply
-                    reply = ""
-                    Task { _ = await model.sendSMS(to: sender, content: body) }
+                    sending = true
+                    Task {
+                        if await model.sendSMS(to: sender, content: body), reply == body { reply = "" }
+                        sending = false
+                    }
                 } label: {
                     Image(systemName: "arrow.up.circle.fill").font(.title2)
                 }
-                .disabled(reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityIdentifier("message-send")
+                .disabled(sending || model.cloudV2?.hasUnresolvedCommand == true || reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding()
         }
@@ -980,6 +1004,7 @@ private struct MessageComposer: View {
         !recipient.trimmingCharacters(in: .whitespaces).isEmpty
             && !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !sending
+            && model.cloudV2?.hasUnresolvedCommand != true
     }
 
     var body: some View {
@@ -1593,7 +1618,7 @@ struct ActiveCallView: View {
         .preferredColorScheme(.dark)
         .onAppear { updateProximityMonitoring() }
         .onChange(of: call.state) { _ in updateProximityMonitoring() }
-        .onChange(of: model.audio.speakerEnabled) { _ in updateProximityMonitoring() }
+        .onChange(of: model.speakerEnabled) { _ in updateProximityMonitoring() }
         .onDisappear { UIDevice.current.isProximityMonitoringEnabled = false }
     }
 
@@ -1702,6 +1727,16 @@ struct ActiveCallView: View {
             audioStatusBadge
                 .padding(.top, 20)
 
+            if let cloud = model.cloudV2 {
+                HStack {
+                    Button("恢复音频") { cloud.connectAudio() }
+                        .disabled(!cloud.audioReady || cloud.media.active)
+                    Button("系统权限设置") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }
+                }.font(.caption).padding(.top, 8)
+            }
+
             if let audioError = model.audio.errorMessage, !audioError.isEmpty {
                 Text(audioError)
                     .font(.caption)
@@ -1722,7 +1757,7 @@ struct ActiveCallView: View {
                     size: controlSize
                 ) {
                     Task { await model.toggleMute() }
-                }
+                }.disabled(model.cloudV2.map { $0.media.state != .paired } ?? false)
                 CallCircleButton(
                     title: "键盘",
                     icon: "circle.grid.3x3.fill",
@@ -1733,10 +1768,10 @@ struct ActiveCallView: View {
                     showingKeypad = true
                 }
                 SpeakerRouteButton(
-                    audio: model.audio,
+                    model: model,
                     size: controlSize,
                     action: model.toggleSpeaker
-                )
+                ).disabled(model.cloudV2.map { $0.media.state != .paired } ?? false)
             }
             .frame(maxWidth: 430)
 
@@ -1759,7 +1794,7 @@ struct ActiveCallView: View {
                 .symbolRenderingMode(.hierarchical)
             Text(title)
             Spacer()
-            if showsRecording {
+            if showsRecording && !model.isV2 {
                 Button {
                     Task { await model.toggleRecording() }
                 } label: {
@@ -1824,6 +1859,7 @@ struct ActiveCallView: View {
     }
 
     private var audioStatusColor: Color {
+        if let cloud = model.cloudV2 { return cloud.media.state == .paired ? .green : .orange }
         switch model.cloudCallAudioState {
         case .failed: return .red
         case .connected: return .green
@@ -1840,21 +1876,21 @@ struct ActiveCallView: View {
     private func updateProximityMonitoring() {
         UIDevice.current.isProximityMonitoringEnabled = CallProximityPolicy.shouldMonitor(
             state: call.state,
-            speakerEnabled: model.audio.speakerEnabled
+            speakerEnabled: model.speakerEnabled
         )
     }
 }
 
 private struct SpeakerRouteButton: View {
-    @ObservedObject var audio: AudioSessionController
+    @ObservedObject var model: AppModel
     let size: CGFloat
     let action: () -> Void
 
     var body: some View {
         CallCircleButton(
             title: L10n.t("扬声器"),
-            icon: audio.speakerEnabled ? "speaker.wave.2.fill" : "speaker.fill",
-            color: audio.speakerEnabled ? .blue : nil,
+            icon: model.speakerEnabled ? "speaker.wave.2.fill" : "speaker.fill",
+            color: model.speakerEnabled ? .blue : nil,
             foregroundColor: .white,
             size: size,
             action: action

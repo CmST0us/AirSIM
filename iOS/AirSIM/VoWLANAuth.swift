@@ -67,7 +67,12 @@ struct VoWLANRequestSigner: Sendable {
 }
 
 enum VoWLANCredentialStore {
-    private static let service = "com.example.airsim.vowlan"
+    private static var service: String {
+#if DEBUG && targetEnvironment(simulator) && os(iOS)
+        if R7UITestScenario.active { return "com.example.airsim.r7.ui.vowlan." + R7UITestScenario.root.lastPathComponent }
+#endif
+        return "com.example.airsim.vowlan"
+    }
     private static let account = "paired-secret-v1"
 
     static func loadOrCreate() throws -> VoWLANCredential {

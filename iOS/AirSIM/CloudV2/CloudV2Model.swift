@@ -147,6 +147,7 @@ final class CloudV2Model: ObservableObject {
         guard !busy, (!blocksSwitch || (selectedModuleID == nil && moduleID == recoveryTarget)) else { error = "请先结束通话并确认未完成操作，再切换模块。"; return }
         await cancelPolling()
         selectedModuleID = moduleID; snapshot = nil; messagesResponse = nil
+        number = ""; smsNumber = ""; smsText = ""; tones = ""
         if let configuration { defaults.set(moduleID, forKey: V2LocalPaths.selectionKey(configuration.identity)) }
         if foreground && connected { startPolling() }
     }
@@ -162,7 +163,7 @@ final class CloudV2Model: ObservableObject {
             selectedModuleID = defaults.string(forKey: V2LocalPaths.selectionKey(imported.configuration.identity))
             modules = []; snapshot = nil; messagesResponse = nil
             if foreground { await connect() }
-        } catch { self.error = "连接配置导入失败：\((error as? V2Error)?.rawValue ?? "file_unavailable")" }
+        } catch { self.error = "无法导入连接配置，请确认文件有效且未过期。" }
     }
     func connect() async {
         guard foreground, !busy, !persistenceFailed, let configuration else { return }
@@ -380,19 +381,47 @@ final class CloudV2Model: ObservableObject {
     func reject(_ call: V2Call) async { await perform(action: "call.hangup", args: ["call_id": call.call_id]) }
     func hangup() async { guard let ownedCall else { return }; await perform(action: "call.hangup", args: ["call_id": ownedCall.callID]) }
     func dtmf() async { guard let ownedCall else { return }; await perform(action: "call.dtmf", args: ["call_id": ownedCall.callID, "tones": tones]) }
-    func sendSMS() async { await perform(action: "sms.send", args: ["number": smsNumber, "text": smsText]) }
+    @discardableResult
+    func sendSMS() async -> Bool { await perform(action: "sms.send", args: ["number": smsNumber, "text": smsText]) }
+    var userStatus: String {
+        if configuration == nil { return "尚未配置，请在设置中导入连接文件。" }
+        if let configuration, configuration.expiresAt <= now() { return "连接凭据已过期，请重新导入配置。" }
+        if hasUnresolvedCommand { return "操作结果待核对，请查询原操作，勿重复发送。" }
+        if !connected { return "连接未建立，请在设置中重连或重新导入配置。" }
+        if selectedModuleID == nil { return "请选择要使用的模块。" }
+        if selectedModule?.online != true { return "模块离线，请检查模块网络后重试。" }
+        if freshBinding == nil { return "正在核对模块状态，请稍候或刷新连接。" }
+        return "模块已连接 · 仅支持前台通话"
+    }
+    func refreshReadOnly() async {
+        await cancelPolling()
+        if foreground && connected { startPolling() }
+    }
+    func clearCurrentMessages() {
+        guard let configuration, let selectedModuleID else { error = "请先选择模块。"; return }
+        var candidate = history
+        let cleared = candidate.messages.filter { $0.domain.identity == configuration.identity && $0.domain.moduleID == selectedModuleID }.map(\.id)
+        var ids = candidate.clearedMessageIDs ?? []
+        ids.removeAll { cleared.contains($0) }
+        ids.append(contentsOf: cleared)
+        candidate.clearedMessageIDs = Array(ids.suffix(2000))
+        candidate.messages.removeAll { cleared.contains($0.id) }
+        do { try historyFile.save(candidate); history = candidate; historyDirty = false }
+        catch { self.error = "清理失败，已保留本机短信。" }
+    }
     func recoverPending() async {
         guard !busy else { return }; busy = true; defer { busy = false }
         do { try await machine?.recover(); try finishResolvedCommand() } catch { self.error = "查询失败，操作结果仍未确认。" }
     }
-    private func perform(action: String, args: [String: String], backgroundContext: V2CallContext? = nil) async {
-        guard canAct, let machine else { return }
+    @discardableResult
+    private func perform(action: String, args: [String: String], backgroundContext: V2CallContext? = nil) async -> Bool {
+        guard canAct, let machine else { return false }
         let binding: V2ControlBinding
         if let backgroundContext { binding = backgroundContext.binding }
         else if action == "call.dtmf" || (action == "call.hangup" && ownedCall != nil) {
-            guard ownedControlReady, let context = ownedCall else { error = "原通话状态尚未核对，不能控制。"; return }; binding = context.binding
+            guard ownedControlReady, let context = ownedCall else { error = "原通话状态尚未核对，不能控制。"; return false }; binding = context.binding
         } else {
-            guard let freshBinding, action == "sms.send" ? messagingReady : telephonyReady else { error = "模块状态或对应能力尚未就绪。"; return }; binding = freshBinding
+            guard let freshBinding, action == "sms.send" ? messagingReady : telephonyReady else { error = "模块状态或对应能力尚未就绪。"; return false }; binding = freshBinding
         }
         busy = true; actionInFlight = true
         defer { busy = false; actionInFlight = false; objectWillChange.send() }
@@ -401,8 +430,13 @@ final class CloudV2Model: ObservableObject {
             let command = try V2Command(binding: binding, action: action, args: args, now: now())
             if action == "call.dial" || action == "call.answer" { runtimeCallCommandID = command.command_id }
             try await machine.submit(command, binding: binding)
+            let succeeded: Bool
+            if case let .receipt(server, state) = machine.phase { succeeded = server == "completed" && ["accepted", "observed"].contains(state) }
+            else { succeeded = false }
             try finishResolvedCommand()
-        } catch { self.error = "操作未提交：\((error as? V2Error)?.rawValue ?? "request_failed")" }
+            if !succeeded { error = hasUnresolvedCommand ? "操作结果待核对，请查询原操作结果。" : "操作未成功，请核对连接与模块状态。" }
+            return succeeded
+        } catch { self.error = "操作未成功，请核对连接与模块能力后重试。"; return false }
     }
     private func finishResolvedCommand() throws {
         refreshCommandStatus()

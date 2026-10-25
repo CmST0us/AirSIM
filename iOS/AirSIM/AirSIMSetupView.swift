@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// AirSIM 只引导三星配对；不检查旧模块 USB ECM、AT 或 QDC507 固件。
+/// 首次连接沿用当前选择的运行时。
 struct AirSIMFirstConnectionView: View {
     @EnvironmentObject private var router: AppRouteCoordinator
     @EnvironmentObject private var model: AppModel
@@ -11,6 +11,12 @@ struct AirSIMFirstConnectionView: View {
 
     var body: some View {
         NavigationStack {
+            if let cloud = model.cloudV2 {
+                Form {
+                    V2ConnectionSections(model: cloud)
+                    Section { Button("完成，进入 AirSIM") { completed = true } }
+                }.navigationTitle("连接 AirSIM")
+            } else {
             VStack(alignment: .leading, spacing: 24) {
                 Image(systemName: "iphone.radiowaves.left.and.right")
                     .font(.system(size: 42, weight: .medium))
@@ -73,6 +79,7 @@ struct AirSIMFirstConnectionView: View {
                         }
                 }
             }
+            }
         }
     }
 }
@@ -92,7 +99,7 @@ struct AirSIMSettingsView: View {
     @AppStorage(CloudModePreference.key) private var cloudModeEnabled = true
     @AppStorage(LiveActivityVisibilityPreference.key) private var liveActivityEnabled = true
     @State private var relayURL = RelayConfiguration.effectiveURL(
-        stored: UserDefaults.standard.string(forKey: "airsim.push-relay-url"),
+        stored: R7UITestScenario.defaults.string(forKey: "airsim.push-relay-url"),
         buildSetting: Bundle.main.object(forInfoDictionaryKey: "AirSIMPushRelayURL") as? String,
         bundleID: Bundle.main.bundleIdentifier
     )
@@ -110,11 +117,14 @@ struct AirSIMSettingsView: View {
 #if DEBUG
                     Text("只读源保留：全局 \(activityEvents.globalCount) · 活动 \(activityEvents.activityCount) · retired \(activityEvents.retiredCount) · 订阅 \(activityEvents.subscriptionCount)").font(.caption)
 #endif
-                    if LegacySwitchFence.shared.blocked {
+                    if !R7UITestScenario.active && LegacySwitchFence.shared.blocked {
                         Text("旧版操作结果待核对，暂不能迁移。")
                         Button("查询旧云端操作收据") { Task { await VoIPPushController.shared.recoverSwitchFences(); model.objectWillChange.send() } }
                     }
                 }
+                if let cloud = model.cloudV2 {
+                    V2ConnectionSections(model: cloud)
+                } else {
                 Section {
                     Toggle(isOn: Binding(get: { router.choice == .local }, set: { enabled in Task { await router.choose(enabled ? .local : .v1) } })) {
                         Label("仅本地模式", systemImage: "wifi")
@@ -263,8 +273,10 @@ struct AirSIMSettingsView: View {
                         : "依次验证本机 Push 凭据、AirSIM Relay 身份、设备注册和 Agent 最近 90 秒心跳；不会拨号或发送短信。")
                 }
 
+                }
+
                 Section("关于") {
-                    LabeledContent("项目", value: "AirSIM · Samsung")
+                    LabeledContent("项目", value: model.isV2 ? "AirSIM" : "AirSIM · Samsung")
                     Picker("外观", selection: $settings.appearance) {
                         ForEach(AppAppearance.allCases) { appearance in
                             Text(appearance.title).tag(appearance)
@@ -274,7 +286,7 @@ struct AirSIMSettingsView: View {
             }
             .navigationTitle("设置")
             .task {
-                if !localModeEnabled {
+                if !model.isV2 && !localModeEnabled {
                     await model.refreshCloudStatusForDiagnostics()
                 }
             }

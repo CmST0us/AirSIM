@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Combine
 
 enum AppRefreshPolicy {
     static func shouldRefreshSupplementalState(appIsActive: Bool) -> Bool { appIsActive }
@@ -255,17 +256,24 @@ final class AppModel: ObservableObject {
     @Published private(set) var cloudCallAudioState: CloudCallAudioState = .idle
     @Published private(set) var callLifecycleSnapshot: CallLifecycleSnapshot = .idle
 
+    let cloudV2: CloudV2Model?
+    private var cloudObservation: AnyCancellable?
+    private var cloudProjectionTask: Task<Void, Never>?
+    var isV2: Bool { cloudV2 != nil }
+    var messageScope: String { cloudV2.map { ($0.configuration?.identity.account ?? "") + ($0.selectedModuleID ?? "") } ?? "legacy" }
+    var speakerEnabled: Bool { cloudV2?.media.speaker ?? audio.speakerEnabled }
+
     let api: AirSIMAPI
     let contacts = ContactStore()
     let audio = AudioSessionController()
-    let callKit = CallKitController.shared
-    let backgroundStandby = BackgroundStandbyController()
-    let vowlan = VoWLANController()
-    let incomingNotifier = IncomingCallNotifier()
-    let incomingSMSNotifier = IncomingSMSNotifier()
-    let liveActivity = LiveActivityController()
+    lazy var callKit = CallKitController.shared
+    lazy var backgroundStandby = BackgroundStandbyController()
+    lazy var vowlan = VoWLANController()
+    lazy var incomingNotifier = IncomingCallNotifier()
+    lazy var incomingSMSNotifier = IncomingSMSNotifier()
+    lazy var liveActivity = LiveActivityController()
 
-    private let historyStore = LocalHistoryStore()
+    private lazy var historyStore = LocalHistoryStore()
 
     private var pollingTask: Task<Void, Never>?
     private var moduleMetadataTask: Task<Void, Never>?
@@ -301,6 +309,7 @@ final class AppModel: ObservableObject {
     private let maxMessageCount = 2_000
 
     var inAppPresentedCall: CallRecord? {
+        if isV2 { return activeCall }
         return CallPresentationPolicy.inAppCall(
             surface: callPresentationSurface,
             local: lifecycleRecord(from: activeCall),
@@ -310,11 +319,13 @@ final class AppModel: ObservableObject {
     }
 
     var callAudioIsActive: Bool {
-        audio.active || cloudCallAudioState.isConnected || VirtualCallTTSController.shared.isPrepared
+        if let cloudV2 { return cloudV2.media.state == .paired }
+        return audio.active || cloudCallAudioState.isConnected || VirtualCallTTSController.shared.isPrepared
     }
 
     var connectionModePresentation: ConnectionModePresentation {
-        ConnectionModePresentation.make(
+        if let cloudV2 { return ConnectionModePresentation(mode: .cloud, title: "云端 v2", status: cloudV2.connected ? "已连接" : "未连接", detail: cloudV2.userStatus) }
+        return ConnectionModePresentation.make(
             vowlanOnline: vowlan.availability.isOnlineForDisplay,
             cloudModeEnabled: CloudModePreference.isEnabled(),
             cloudOnline: cloudAgentStatus?.cloudOnline == true
@@ -322,6 +333,7 @@ final class AppModel: ObservableObject {
     }
 
     var pairedAndroidAgents: [AndroidAgentPresentation] {
+        if let cloudV2 { return cloudV2.modules.enumerated().map { index, module in AndroidAgentPresentation(id: module.module_id, deviceName: "模块 · \(module.module_id.prefix(8))", phoneNumber: nil, agentKind: "v2", cloudOnline: module.online, vowlanOnline: false, isCurrent: module.module_id == cloudV2.selectedModuleID) } }
         let cloudStatus = cloudAgentDirectory ?? cloudAgentStatus
         let cloudStatusIsFresh = Date().timeIntervalSince(lastCloudStatusRefresh) <= 90
         var values: [String: AndroidAgentPresentation] = [:]
@@ -438,6 +450,7 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func refreshCloudStatusForDiagnostics() async -> CloudAgentStatus? {
+        if isV2 || R7UITestScenario.active { return nil }
         guard CloudModePreference.isEnabled() else {
             cloudAgentStatus = nil
             return nil
@@ -467,7 +480,8 @@ final class AppModel: ObservableObject {
     var callUsesVoWLAN: Bool { currentCallTransport == .vowlan }
 
     var dialPadTransportPresentation: DialPadTransportPresentation? {
-        DialPadTransportPresentation.make(
+        if isV2 { return nil }
+        return DialPadTransportPresentation.make(
             vowlanOnline: vowlan.availability.isOnlineForDisplay,
             moduleLocalReachable: false,
             cloudOnline: CloudModePreference.isEnabled()
@@ -479,7 +493,8 @@ final class AppModel: ObservableObject {
     /// Relay 保持心跳时会刻意为 false。云端模式开启且心跳新鲜时，同样允许
     /// 用户发起拨号，实际执行仍会在 CallKit action 中再次鉴权和确认状态。
     var canStartOutgoingCommand: Bool {
-        OutgoingCommandAvailability.isAvailable(
+        if let cloudV2 { return cloudV2.canAct && cloudV2.telephonyReady && cloudV2.activeCall == nil }
+        return OutgoingCommandAvailability.isAvailable(
             localControlReachable: vowlan.availability.allowsCallAttempt,
             cloudModeEnabled: CloudModePreference.isEnabled(),
             cloudHeartbeatFresh: cloudAgentStatus?.cloudOnline == true || connectionSummary == .cloudOnly
@@ -487,6 +502,7 @@ final class AppModel: ObservableObject {
     }
 
     var callAudioStatusText: String {
+        if let cloudV2 { return cloudV2.media.state.title }
         switch cloudCallAudioState {
         case .idle:
             return audio.active ? "语音链路已连接" : "正在建立语音链路"
@@ -499,8 +515,22 @@ final class AppModel: ObservableObject {
         }
     }
 
-    init(api: AirSIMAPI = AirSIMAPI()) {
+    init(api: AirSIMAPI = AirSIMAPI(), cloudV2: CloudV2Model? = nil) {
         self.api = api
+        self.cloudV2 = cloudV2
+        if let cloudV2 {
+            cloudObservation = cloudV2.objectWillChange.sink { [weak self] _ in
+                guard let self, self.cloudProjectionTask == nil else { return }
+                self.cloudProjectionTask = Task { @MainActor [weak self] in
+                    await Task.yield()
+                    self?.projectCloudState()
+                    self?.cloudProjectionTask = nil
+                }
+            }
+            projectCloudState()
+            return
+        }
+        if R7UITestScenario.active { return }
         if LocalModePreference.isEnabled() {
             UserDefaults.standard.set(false, forKey: CloudModePreference.key)
         }
@@ -547,6 +577,7 @@ final class AppModel: ObservableObject {
     }
 
     func start(sceneIsActive: Bool) {
+        if let cloudV2 { Task { await contacts.loadIfAuthorized(); await cloudV2.sceneChanged(sceneIsActive ? .active : .inactive) }; return }
         guard LegacyRuntimeGate.allowed else { return }
         guard !hasStarted else { return }
         hasStarted = true
@@ -568,6 +599,8 @@ final class AppModel: ObservableObject {
 
     /// 每次从锁屏或后台回来都舍弃旧连接，避免休眠前的超时结果覆盖新状态。
     func didBecomeActive() {
+        if R7UITestScenario.active && !isV2 { return }
+        if let cloudV2 { Task { await cloudV2.sceneChanged(.active) }; return }
         appIsActive = true
         let discoveryWasAlreadyStarted = initialPermissionCoordinator.didStartDiscovery
         requestMicrophoneOnForegroundIfNeeded()
@@ -594,10 +627,14 @@ final class AppModel: ObservableObject {
     }
 
     func willResignActive() {
+        if R7UITestScenario.active && !isV2 { return }
+        if isV2 { return }
         backgroundStandby.prepareForBackground()
     }
 
     func didEnterBackground() {
+        if R7UITestScenario.active && !isV2 { return }
+        if let cloudV2 { Task { await cloudV2.sceneChanged(.background) }; return }
         appIsActive = false
         cloudStatusRefreshTask?.cancel()
         cloudStatusRefreshTask = nil
@@ -720,12 +757,15 @@ final class AppModel: ObservableObject {
     }
 
     var blocksRuntimeSwitch: Bool {
-        LegacyBusinessReservations.pending || LegacySwitchFence.shared.blocked || activeOperationCount > 0 || isBusy || pendingOutgoingCall != nil || callLifecycleSnapshot.state.representsCall
+        if let cloudV2 { return cloudV2.blocksSwitch }
+        if R7UITestScenario.active { return false }
+        return LegacyBusinessReservations.pending || LegacySwitchFence.shared.blocked || activeOperationCount > 0 || isBusy || pendingOutgoingCall != nil || callLifecycleSnapshot.state.representsCall
             || activeCall != nil || remoteCall != nil || callAudioIsActive || callKit.managesCurrentCall
             || IPhoneCloudCallSession.shared.hasActiveCall || WatchCallCoordinator.shared.hasPendingBusiness
     }
 
     func stopRuntime() async {
+        if let cloudV2 { await cloudV2.stop(); return }
         hasStarted = false; appIsActive = false
         pollingGeneration &+= 1; cloudStatusRefreshGeneration &+= 1
         let tasks = [pollingTask, moduleMetadataTask, initialPermissionTask, cloudStatusRefreshTask].compactMap { $0 }
@@ -741,6 +781,7 @@ final class AppModel: ObservableObject {
     }
 
     func stop() {
+        if let cloudV2 { Task { await cloudV2.stop() }; return }
         pollingGeneration &+= 1
         pollingTask?.cancel()
         pollingTask = nil
@@ -1197,6 +1238,7 @@ final class AppModel: ObservableObject {
     }
 
     func dial() async {
+        if let cloudV2 { cloudV2.number = numberInput; await cloudV2.dial(); projectCloudState(); return }
         let number = Self.validatedNumber(numberInput)
         guard !number.isEmpty else { return }
         callPresentationSurface = .app
@@ -1231,6 +1273,7 @@ final class AppModel: ObservableObject {
     }
 
     func answer() async {
+        if let cloudV2 { if let call = cloudV2.activeCall { await cloudV2.answer(call) }; projectCloudState(); return }
         beginCallTransitionProtection()
         audio.stopCallTone()
         callPresentationSurface = .app
@@ -1250,6 +1293,7 @@ final class AppModel: ObservableObject {
     }
 
     func presentCurrentCallInApp() {
+        if isV2 { return }
         if remoteCall == nil, let incoming = callKit.currentIncomingPush {
             remoteCall = Self.remoteCallRecord(from: incoming, state: "incoming")
         }
@@ -1279,6 +1323,7 @@ final class AppModel: ObservableObject {
     }
 
     func reject() async {
+        if let cloudV2 { if let call = cloudV2.activeCall { await cloudV2.reject(call) }; projectCloudState(); return }
         beginCallTransitionProtection()
         audio.stopCallTone()
         applyCurrentCallIntent(.ending, source: .app)
@@ -1296,6 +1341,7 @@ final class AppModel: ObservableObject {
     }
 
     func hangup() async {
+        if let cloudV2 { await cloudV2.hangup(); projectCloudState(); return }
         beginCallTransitionProtection()
         audio.stopCallTone()
         applyCurrentCallIntent(.ending, source: .app)
@@ -1346,6 +1392,7 @@ final class AppModel: ObservableObject {
         )
     }
     func sendDTMF(_ digit: String) async {
+        if let cloudV2 { cloudV2.tones = digit; await cloudV2.dtmf(); return }
         await perform {
             if self.callKit.managesCurrentCall {
                 do {
@@ -1372,6 +1419,7 @@ final class AppModel: ObservableObject {
     }
 
     func toggleMute() async {
+        if let cloudV2 { cloudV2.media.setMuted(!cloudV2.media.muted); projectCloudState(); return }
         let target = !isMuted
         if callKit.managesCurrentCall {
             do {
@@ -1401,6 +1449,7 @@ final class AppModel: ObservableObject {
     }
 
     func toggleSpeaker() {
+        if let cloudV2 { cloudV2.media.setSpeaker(!cloudV2.media.speaker); projectCloudState(); return }
         // 扬声器切换只作用于当前系统音频会话；如果 CallKit 尚未完成激活，
         // AudioSessionController 会保留请求并短暂重试，不弹出 OSStatus -50。
         audio.toggleSpeakerRoute()
@@ -1408,6 +1457,7 @@ final class AppModel: ObservableObject {
     }
 
     func toggleRecording() async {
+        guard !isV2 else { return }
         let target = !isRecording
         do {
             guard let samsungAPI = verifiedVoWLANAPI() else {
@@ -1430,6 +1480,7 @@ final class AppModel: ObservableObject {
     }
 
     func sendSMS(to phone: String, content: String) async -> Bool {
+        if let cloudV2 { cloudV2.smsNumber = phone; cloudV2.smsText = content; let sent = await cloudV2.sendSMS(); projectCloudState(); return sent }
         let target = Self.validatedNumber(phone)
         let body = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty, !body.isEmpty, body.count <= 2_000 else { return false }
@@ -1463,6 +1514,7 @@ final class AppModel: ObservableObject {
     }
 
     func refreshMessages(silently: Bool = false) async {
+        if let cloudV2 { await cloudV2.refreshReadOnly(); return }
         do {
             guard let samsungAPI = verifiedVoWLANAPI() else {
                 throw CallKitBridgeError.noReachableTransport
@@ -1481,6 +1533,7 @@ final class AppModel: ObservableObject {
         notifyIfBackground: Bool = false,
         reportingAgent: AirSIMAPI? = nil
     ) async {
+        if isV2 { projectCloudState(); return }
         do {
             guard let currentAgent = verifiedVoWLANAPI() ?? reportingAgent else {
                 throw CallKitBridgeError.noReachableTransport
@@ -1510,7 +1563,48 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func messageDeliveryText(_ message: SMSMessage) -> String {
+        guard let cloudV2, let item = cloudV2.visibleMessages.first(where: { $0.id == message.deliveryID }) else { return "已发送" }
+        switch item.message.state {
+        case "sent": return "已发送（不代表已送达）"
+        case "failed", "rejected": return "发送失败"
+        default: return "发送结果待核对"
+        }
+    }
+
+    func clearMessages() async {
+        if isV2 { clearLocalMessages(); return }
+        do { try await api.clearModuleSMS(); clearLocalMessages() }
+        catch { errorMessage = "删除失败，已保留本机短信。" }
+    }
+
+    func projectCloudState() {
+        guard let cloudV2 else { return }
+        let oldActive = activeCall
+        func record(_ item: V2StoredCall) -> CallRecord {
+            let call = item.call
+            return CallRecord(id: item.id, index: 0, direction: call.direction,
+                state: call.state == "disconnected" ? "ended" : call.state == "ringing" ? "incoming" : call.state,
+                number: call.number, startedAt: oldActive?.id == item.id ? oldActive!.startedAt : call.observedAt,
+                updatedAt: call.observedAt, endedAt: call.state == "disconnected" ? call.observedAt : nil,
+                missed: call.direction == "incoming" && call.disconnect_reason == "missed")
+        }
+        callHistory = cloudV2.visibleCalls.map(record)
+        activeCall = cloudV2.visibleCalls.first { $0.call.call_id == cloudV2.activeCall?.call_id && $0.domain.bootID == cloudV2.snapshot?.snapshot?.agent_boot_id && $0.domain.backendEpoch == cloudV2.snapshot?.snapshot?.backend_epoch && $0.call.state != "disconnected" }.map(record)
+        messages = cloudV2.visibleMessages.map { item in
+            SMSMessage(sender: item.message.direction == "incoming" ? item.message.sender : item.message.recipient,
+                content: item.message.text, code: nil, timestamp: item.message.observedAt,
+                deliveryID: item.id, direction: item.message.direction == "incoming" ? .incoming : .outgoing)
+        }
+        isOnline = cloudV2.freshBinding != nil
+        isBusy = cloudV2.busy
+        isMuted = cloudV2.media.muted
+        connectionMessage = cloudV2.userStatus
+        if let error = cloudV2.error { errorMessage = error; cloudV2.error = nil }
+    }
+
     func clearLocalMessages() {
+        if let cloudV2 { cloudV2.clearCurrentMessages(); projectCloudState(); return }
         guard historyStore.saveMessages([]) else {
             errorMessage = "无法清空本机短信，请稍后重试"
             return
@@ -1520,6 +1614,7 @@ final class AppModel: ObservableObject {
     }
 
     func reloadMessagesFromLocalStore() {
+        if isV2 { projectCloudState(); return }
         restoreLocalHistory()
     }
 

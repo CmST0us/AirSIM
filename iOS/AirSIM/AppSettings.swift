@@ -50,14 +50,14 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 @MainActor
 final class AppSettings: ObservableObject {
     @Published var appearance: AppAppearance {
-        didSet { UserDefaults.standard.set(appearance.rawValue, forKey: L10n.appearanceKey) }
+        didSet { R7UITestScenario.defaults.set(appearance.rawValue, forKey: L10n.appearanceKey) }
     }
     @Published var language: AppLanguage {
-        didSet { UserDefaults.standard.set(language.rawValue, forKey: L10n.languageKey) }
+        didSet { R7UITestScenario.defaults.set(language.rawValue, forKey: L10n.languageKey) }
     }
 
     init() {
-        let defaults = UserDefaults.standard
+        let defaults = R7UITestScenario.defaults
         appearance = AppAppearance(rawValue: defaults.string(forKey: L10n.appearanceKey) ?? "") ?? .system
         language = AppLanguage(rawValue: defaults.string(forKey: L10n.languageKey) ?? "") ?? .system
     }
@@ -69,7 +69,7 @@ enum L10n {
     static let languageKey = "airsim.language"
 
     static var effectiveLanguage: AppLanguage {
-        let saved = AppLanguage(rawValue: UserDefaults.standard.string(forKey: languageKey) ?? "") ?? .system
+        let saved = AppLanguage(rawValue: R7UITestScenario.defaults.string(forKey: languageKey) ?? "") ?? .system
         if saved != .system { return saved }
         return (Locale.preferredLanguages.first ?? "").lowercased().hasPrefix("zh") ? .zh : .en
     }

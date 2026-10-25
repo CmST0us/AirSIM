@@ -102,6 +102,7 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         Self.current = self
+        if R7UITestScenario.active { LegacyRuntimeGate.configure(false); return true }
         let selection = CloudVersionPreference.selection(paired: VoWLANCredentialStore.load() != nil)
         if let selection { CloudVersionPreference.save(selection) }
         LegacyRuntimeGate.configure(selection == .v1 || selection == .local)

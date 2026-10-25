@@ -120,6 +120,11 @@ final class ContactStore: ObservableObject {
 
     init(fileManager: FileManager = .default) {
         cache = ContactCacheStore(fileManager: fileManager)
+        if R7UITestScenario.active {
+            contacts = [.init(id: "qa-contact", name: "QA虚构联系人", phones: ["00000000001"], emails: [], photoData: nil)]
+            authorizationState = .authorized; isAuthorized = true
+            return
+        }
         // 联系人属于手机数据。模块离线或系统联系人数据库暂不可读时，先展示本机副本。
         contacts = cache.load()
         let state = ContactFetcher().authorizationState()
@@ -146,6 +151,7 @@ final class ContactStore: ObservableObject {
     }
 
     private func refresh(userInitiated: Bool) async {
+        if R7UITestScenario.active { return }
         do {
             // 手机重启后可能先在数据保护尚未解锁时读取到空数组；每次前台刷新都重试磁盘缓存。
             let cachedContacts = cache.load()

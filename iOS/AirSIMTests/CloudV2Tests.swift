@@ -1437,6 +1437,7 @@ extension CloudV2Tests {
     var pending: [String: CheckedContinuation<V2HTTPResponse, Error>] = [:]
     var snapshotCalls: [[String: Any]] = []
     var writes = 0
+    var commandHTTPStatus: Int?
     init() throws {
         defaults = UserDefaults(suiteName: suite)!
         _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
@@ -1444,6 +1445,14 @@ extension CloudV2Tests {
         let transport = V2TestTransport { [unowned self] request in
             if request.httpMethod != "GET" { writes += 1 }
             let path = request.url!.path
+            if path.contains("commands"), let status = commandHTTPStatus {
+                if status == 200, let data = request.httpBody,
+                   let wrapper = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let command = wrapper["command"] as? [String: Any], let id = command["command_id"] as? String {
+                    return V2HTTPResponse(status: 200, body: try v2Accepted(id: id, action: "sms.send", callID: nil))
+                }
+                return V2HTTPResponse(status: status, body: Data())
+            }
             if path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
             let lane = path == "/v2/modules" ? "directory" : (path.hasSuffix("snapshot") ? "snapshot" : "messages")
             counts[lane, default: 0] += 1; inFlight[lane, default: 0] += 1
@@ -1655,5 +1664,79 @@ extension CloudV2Tests {
         XCTAssertEqual(fixture.model.history.calls, original)
         XCTAssertGreaterThanOrEqual(fixture.counts["snapshot", default: 0], 2)
         await fixture.close()
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testR7ProjectionAndLocalClearRemainDomainScoped() throws {
+        let suite = "airsim.r7.test." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        let tokens = V2TestTokens()
+        _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
+        defaults.set(v2ID, forKey: V2LocalPaths.selectionKey(v2Config().identity))
+        func message(_ module: String, id: String = v2ID) throws -> V2StoredMessage {
+            let value = try V2JSON.decode(V2Message.self, from: v2Data(["message_id": id, "direction": "incoming", "sender": "00000000001", "recipient": "", "text": "fixture", "state": "received", "delivery": "unknown", "observed_at": V2Validation.timestamp(v2Now)]), limit: 1024)
+            return V2StoredMessage(domain: V2HistoryDomain(identity: v2Config().identity, moduleID: module, bootID: v2ID, backendEpoch: v2ID), message: value, inboxGap: false, inboxDropped: 0)
+        }
+        let first = try message(v2ID), other = try message(v2OtherID), fresh = try message(v2ID, id: v2OtherID)
+        var history = V2History(); history.merge(messages: [first, other])
+        let file = V2ProtectedFile<V2History>(url: root.appendingPathComponent("history.json"))
+        try file.save(history)
+        let cloud = CloudV2Model(defaults: defaults, root: root, tokens: tokens, now: { v2Now })
+        let app = AppModel(cloudV2: cloud)
+        XCTAssertEqual(app.messages.map(\.deliveryID), [first.id])
+        XCTAssertFalse(app.blocksRuntimeSwitch)
+        cloud.clearCurrentMessages(); app.projectCloudState()
+        XCTAssertTrue(app.messages.isEmpty)
+        var saved = try XCTUnwrap(file.load())
+        XCTAssertEqual(saved.messages.map(\.id), [other.id])
+        XCTAssertFalse(saved.merge(messages: [first, other]))
+        XCTAssertTrue(saved.merge(messages: [fresh]))
+        XCTAssertEqual(Set(saved.messages.map(\.id)), Set([other.id, fresh.id]))
+        let oldData = try v2Data(["messages": [], "calls": []])
+        XCTAssertNil(try JSONDecoder().decode(V2History.self, from: oldData).clearedMessageIDs)
+    }
+
+    @MainActor func testR7FailedLocalClearPreservesVisibleMessages() throws {
+        let suite = "airsim.r7.clear." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        let tokens = V2TestTokens()
+        _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
+        defaults.set(v2ID, forKey: V2LocalPaths.selectionKey(v2Config().identity))
+        let message = try V2JSON.decode(V2Message.self, from: v2Data(["message_id": v2ID, "direction": "incoming", "sender": "00000000001", "recipient": "", "text": "fixture", "state": "received", "delivery": "unknown", "observed_at": V2Validation.timestamp(v2Now)]), limit: 1024)
+        let stored = V2StoredMessage(domain: V2HistoryDomain(identity: v2Config().identity, moduleID: v2ID, bootID: v2ID, backendEpoch: v2ID), message: message, inboxGap: false, inboxDropped: 0)
+        var history = V2History(); history.merge(messages: [stored])
+        let file = V2ProtectedFile<V2History>(url: root.appendingPathComponent("history.json"))
+        try file.save(history)
+        let cloud = CloudV2Model(defaults: defaults, root: root, tokens: tokens, now: { v2Now })
+        try file.clear()
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("history.json"), withIntermediateDirectories: true)
+        cloud.clearCurrentMessages()
+        XCTAssertEqual(cloud.visibleMessages, [stored])
+        XCTAssertNotNil(cloud.error)
+        XCTAssertNil(cloud.history.clearedMessageIDs)
+    }
+}
+
+// The displayed composer result follows the command receipt, never transport success alone.
+extension CloudV2Tests {
+    @MainActor func testR7SMSCompletedFailureAndUnknownResults() async throws {
+        for status in [200, 409, 503] {
+            let fixture = try V2PollFixture()
+            fixture.commandHTTPStatus = status
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { fixture.model.messagingReady }
+            let app = AppModel(cloudV2: fixture.model)
+            let sent = await app.sendSMS(to: "00000000001", content: "QA 测试消息")
+            XCTAssertEqual(sent, status == 200)
+            XCTAssertEqual(fixture.model.hasUnresolvedCommand, status == 503)
+            XCTAssertEqual(fixture.writes, 1)
+            XCTAssertEqual(fixture.model.smsText, "QA 测试消息")
+            await fixture.close()
+        }
     }
 }

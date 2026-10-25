@@ -147,6 +147,7 @@ struct AndroidAgentPresentation: Equatable, Identifiable, Sendable {
 
     var agentKindTitle: String {
         switch agentKind {
+        case "v2": return "蜂窝模块"
         case "standalone": return "Standalone"
         case "avf": return "AVF Agent"
         default: return "Android Agent"

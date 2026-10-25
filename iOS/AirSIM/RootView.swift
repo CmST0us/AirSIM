@@ -86,6 +86,7 @@ struct RootView: View {
                     .tag(PhoneTab.settings)
                     .tabItem { Label(L10n.t(PhoneTab.settings.tabTitle), systemImage: PhoneTab.settings.icon) }
             }
+            .id(model.messageScope)
             .phoneTabBarMinimizeOnScroll()
             .phoneTabSelectionFeedback(selectedTabRawValue)
             .tint(.blue)
@@ -105,9 +106,12 @@ struct RootView: View {
             AirSIMFirstConnectionView()
                 .environmentObject(model)
         }
+        .onChange(of: model.messageScope) { _ in
+            pendingSMSRecipient = nil; pendingSMSConversation = nil; model.numberInput = ""
+        }
         .onOpenURL(perform: handleSystemCommunicationURL)
         .onAppear {
-            if let sender = IncomingSMSPresentationRequest.consume() {
+            if !R7UITestScenario.active, let sender = IncomingSMSPresentationRequest.consume() {
                 openSMSConversation(sender)
             }
         }
