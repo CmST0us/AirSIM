@@ -132,4 +132,23 @@
 
 三张截图位于 `/tmp/airsim-r7-qa/call-7e85c9c-screenshots/`，包含来电、活动通话和键盘，附 `manifest.json` 与 `BUILD.txt`，已交设计审核。这两项 UI 使用固定虚构状态，未执行接听、拒接或挂断命令，不构成系统 CallKit 或真实通话验收。
 
-主控真机验收发现 CallKit 将 HTTP 202 等待收据误判为失败，已安排执行修复；本记录等待该修复的独立回归，不宣称系统 CallKit 真机通过。
+CallKit HTTP 202 等待收据处理已在 `bd2e94e` 修复，聚焦回归结果见下节；系统 CallKit 真机结论由主控单独记录。
+
+## CallKit 202 收据回归（c7cc66b）
+
+冻结提交 `c7cc66b242cf95110da06aa3a74831e19ef4401c`，产品修复为 `bd2e94e6f18d183d4cca1c73fa7e53bd9dbc31c7`。源码副本 `/tmp/airsim-r7-qa-202-final-src`，DerivedData `/tmp/airsim-r7-qa-202-final-derived`；使用独占模拟器及 `CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=`，build-for-testing 通过。
+
+六项聚焦测试全部通过，0 失败、0 跳过。结果包 `/tmp/airsim-r7-qa/202-final-focused.xcresult`，日志 `/tmp/airsim-r7-qa/202-final-focused.log`。
+
+| 测试 | 已验证行为 |
+| --- | --- |
+| R7System202AssociatesOriginalCommandInForegroundAndBackground | 拨出与接听、前台与后台四种组合；POST 返回 202 pending，GET 先返回 pending 再返回终态 accepted；至少两次 GET，仅一次 POST，关联正确 call ID，保留原系统 UUID |
+| R7System202FailureClearsPendingAndTimeoutPreservesItWithoutReplay | 明确失败释放 pending；结果未知超时保留 pending，不重发 |
+| R7SystemEndBeforeAssociationWaitsForDirectedHangup | 关联完成前结束时按原 call ID 定向挂断；未取得关联不误发挂断 |
+| R7SystemOldAssociationCannotTakeOverReplacementUUID | 旧关联不覆盖或结束替换后的系统 UUID |
+| R7SystemDTMF202RetainsPendingWithoutFailure | DTMF 的 202 保留 pending，不误报失败 |
+| R7SystemExplicitRejectionReleasesPending | 明确拒绝后释放 pending 并恢复可操作状态 |
+
+完整 `AirSIMTests` 共 132 项：131 通过、1 项硬件音频 opt-in 测试跳过、0 失败。结果包 `/tmp/airsim-r7-qa/202-final-full-reboot.xcresult`，日志 `/tmp/airsim-r7-qa/202-final-full-reboot.log`。其中 `AirSIMTests` 47 项全部通过，`CloudV2Tests` 85 项中 84 通过、1 跳过。短信完成、失败与未知结果、即时 200 CallKit 路径、provider reset、原 local/v1 及全部 v2 回归均通过；六项 202 测试在全量中也通过。
+
+本轮未操作设备、ECS、RM500 或真实拨号，未重跑已通过的 15 项 UI。模型与替身通过不构成系统 CallKit 真机验收。
