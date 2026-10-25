@@ -32,6 +32,7 @@ struct CloudV2View: View {
 }
 private struct V2PhoneView: View {
     @ObservedObject var model: CloudV2Model
+    @FocusState private var dialNumberFocused: Bool
     var body: some View {
         NavigationStack {
             List {
@@ -63,7 +64,8 @@ private struct V2PhoneView: View {
                             HStack {
                                 Button("接听") { Task { await model.answer(call) } }
                                 Button("拒接", role: .destructive) { Task { await model.reject(call) } }
-                            }.disabled(!model.canAct || !model.telephonyReady)
+                            }.buttonStyle(.borderless)
+                                .disabled(!model.canAct || !model.telephonyReady)
                         }
                     }
                     if model.ownedCall != nil {
@@ -75,13 +77,15 @@ private struct V2PhoneView: View {
                         HStack {
                             Button(model.media.muted ? "取消静音" : "静音") { model.media.setMuted(!model.media.muted) }
                             Button(model.media.speaker ? "使用听筒" : "使用扬声器") { model.media.setSpeaker(!model.media.speaker) }
-                        }.disabled(model.media.state != .paired)
+                        }.buttonStyle(.borderless)
+                            .disabled(model.media.state != .paired)
                         Text(model.media.muted ? "麦克风已静音" : "麦克风未静音").font(.caption)
 #if DEBUG && targetEnvironment(simulator)
                         if model.diagnosticAudio { Text("模拟器音频注入：提示与回声，不代表真实麦克风验收。").font(.caption) }
 #endif
                     } else {
                         TextField("拨号号码", text: $model.number).keyboardType(.phonePad)
+                            .focused($dialNumberFocused)
                         Button("拨号") { Task { await model.dial() } }
                             .disabled(!model.canAct || !model.telephonyReady || model.activeCall != nil)
                     }
@@ -100,6 +104,13 @@ private struct V2PhoneView: View {
                     }
                 }
             }.navigationTitle("AirSIM v2")
+                .scrollDismissesKeyboard(.interactively)
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("完成") { dialNumberFocused = false }
+                    }
+                }
         }
     }
 }
