@@ -2,6 +2,7 @@ package main
 
 import (
 	"airsim.local/server/internal/control"
+	"airsim.local/server/internal/push"
 	rt "airsim.local/server/internal/runtime"
 	"airsim.local/server/internal/store"
 	"crypto/x509"
@@ -40,7 +41,14 @@ func main() {
 	}
 	_, e = db.Exec(ctx, "UPDATE commands SET state='outcome_unknown' WHERE state IN ('pending','dispatched')")
 	rt.Exit(e)
+	provider, e := push.Load(os.Getenv("APNS_KEY_ID"), os.Getenv("APNS_TEAM_ID"), os.Getenv("APNS_BUNDLE_ID"), os.Getenv("APNS_KEY_FILE"))
+	rt.Exit(e)
+	if provider != nil {
+		cfg.Push = provider
+		cfg.PushBundle = os.Getenv("APNS_BUNDLE_ID")
+	}
 	s := control.New(db, cfg)
+	go s.RunPush(ctx)
 	go s.Run(ctx)
 	rt.Exit(rt.Serve(ctx, s.Handler()))
 }

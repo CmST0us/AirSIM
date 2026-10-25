@@ -12,7 +12,7 @@ cd "$(dirname "$0")"
 ./local-compose.sh exec -T postgres pg_dump -U airsim -d airsim -Fc > "$AIRSIM_BACKUP_FILE"
 ./local-compose.sh exec -T postgres createdb -U airsim "$restore_db"
 ./local-compose.sh exec -T postgres pg_restore -U airsim -d "$restore_db" --exit-on-error < "$AIRSIM_BACKUP_FILE"
-for table in schema_version identity clients modules provisions commands reservations; do
+for table in schema_version identity clients modules provisions commands reservations push_registrations push_calls push_deliveries; do
  query="SELECT md5(COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text)::text,'')) FROM $table t;"
  source_hash=$(./local-compose.sh exec -T postgres psql -X -U airsim -d airsim -At -v ON_ERROR_STOP=1 -c "$query")
  restored_hash=$(./local-compose.sh exec -T postgres psql -X -U airsim -d "$restore_db" -At -v ON_ERROR_STOP=1 -c "$query")

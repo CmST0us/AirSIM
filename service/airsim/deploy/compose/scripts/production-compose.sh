@@ -7,4 +7,7 @@ set -eu
 case "$AIRSIM_BUSINESS_IMAGE" in sha256:*|*@sha256:*) ;; *) echo immutable_image_required >&2; exit 1;; esac
 case " $* " in *' down '*|*' --volumes '*|*' -v '*) echo destructive_operation_not_supported >&2; exit 1;; esac
 cd "$(dirname "$0")/.."
+if [ -n "${AIRSIM_APNS_KEY_PATH:-}" ]; then
+ exec docker compose -p "$AIRSIM_PROJECT" -f compose.production.yaml -f compose.apns.yaml "$@"
+fi
 exec docker compose -p "$AIRSIM_PROJECT" -f compose.production.yaml "$@"

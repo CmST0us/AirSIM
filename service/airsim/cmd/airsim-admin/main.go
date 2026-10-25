@@ -17,6 +17,7 @@ func main() {
 	req := flag.String("request", "", "prepare request")
 	res := flag.String("response", "", "prepare response")
 	id := flag.String("client-id", "", "client to revoke")
+	ttl := flag.Duration("client-ttl", time.Hour, "client validity: 1h to 720h")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -27,7 +28,7 @@ func main() {
 	case "init":
 		e = admin.Init(ctx, db, *dir)
 	case "issue-client":
-		e = admin.Client(ctx, db, *out)
+		e = admin.ClientTTL(ctx, db, *out, *ttl)
 	case "issue-module":
 		e = admin.Issue(ctx, db, *dir, *req, *res, *out)
 	case "revoke-client":

@@ -1,6 +1,6 @@
-# AirSIM v2 R4 Go Relay
+# AirSIM v2 Go Relay
 
-R4 implements a controlled foreground test-client relay, not interactive login, App/Watch integration, APNs, OTA or v1 compatibility. Public protocol authority remains [`protocol/v2/R4.md`](../../protocol/v2/R4.md). Only the main controller deploys to ECS and performs physical-module tests.
+R7 adds installation-scoped APNs registration and incoming-call/SMS notifications to the R4 control and media relay. Public contracts are [`R4`](../../protocol/v2/R4.md) and [`R7 M2`](../../protocol/v2/R7.md). Discovery advertises `airsim-v2-r7`; `apns` is enabled only with a complete provider configuration. Interactive login, automatic token renewal, Watch v2, OTA and v1 compatibility are not implemented. Only the main controller deploys to ECS and performs physical-module tests.
 
 - `cmd/airsim-server`: PostgreSQL-backed control, device authentication, directed commands, ownership and media orchestration.
 - `cmd/airsim-media`: independent ephemeral PCM relay; no database or CA private key.
@@ -29,3 +29,5 @@ AIRSIM_INTEGRATION_DIR=/absolute/new/external/test-directory go test -race -coun
 The stack script only uses project `airsim-r4-test` and a loopback high port. It does not install its CA into system trust. It fails rather than overwriting an existing fixture directory. Runtime files, tokens and private keys are never printed.
 
 Deployment prerequisites, administrator operations and rollback are in [Compose operations](deploy/compose/README.md). Current executed checks and remaining production boundaries are in [R4 evidence](R4_TESTING.md).
+
+R7 database migration adds push registrations, persistent CallKit identities and delivery deduplication without replacing existing records. Administrator-issued clients default to one hour and accept `--client-ttl 1h` through `720h`. Push provider keys remain in a restricted external file. Setup and mock-only validation are documented in [Compose operations](deploy/compose/README.md) and [R7 testing](R7_TESTING.md).

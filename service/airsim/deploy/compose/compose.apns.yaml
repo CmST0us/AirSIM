@@ -1,0 +1,12 @@
+# Optional overlay. APNS_KEY_FILE is the in-container path; the host file stays outside the repository.
+services:
+  control:
+    environment:
+      APNS_KEY_FILE: /run/secrets/apns.p8
+    volumes:
+      - type: bind
+        source: ${AIRSIM_APNS_KEY_PATH:?restricted external APNs key file required}
+        target: /run/secrets/apns.p8
+        read_only: true
+        bind:
+          create_host_path: false

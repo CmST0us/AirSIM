@@ -31,6 +31,10 @@ func (s *Server) client(w http.ResponseWriter, r *http.Request) {
 		wire.Error(w, 401, "unauthorized")
 		return
 	}
+	if r.URL.Path == "/v2/push/registration" {
+		s.pushRegistration(w, r, user, client)
+		return
+	}
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/v2/modules"), "/"), "/")
 	if parts[0] == "" && r.Method == "GET" {
 		s.list(w, r, user)

@@ -49,7 +49,7 @@ scripts/production-compose.sh run -T --interactive=false --rm admin --operation 
 scripts/production-compose.sh run -T --interactive=false --rm admin --operation revoke-client --client-id '<installation UUID>' </dev/null
 ```
 
-The output file is 0600 and must not already exist. Token validity is 60 minutes; there is no refresh/login claim. Transfer it only through an authorized protected channel, never a URL, terminal output or ordinary logs.
+The output file is 0600 and must not already exist. Token validity defaults to 60 minutes; `--client-ttl` accepts 1h through 720h (30 days). There is no automatic refresh or interactive login. Transfer it only through an authorized protected channel, never a URL, terminal output or ordinary logs.
 
 The controller calls the Agent's local Unix `cloud/prepare` endpoint using the frozen request. Preserve the exact request and response as 0600 files under the protected directory. Do not copy the device private key; the response contains public key/CSR/proof only.
 
@@ -74,3 +74,18 @@ Back up PostgreSQL with `pg_dump -Fc` into a newly created 0600 external file, a
 Run migrations explicitly before starting a new control version. An unsupported higher schema fails closed. Image rollback is only valid if the controller has checked compatibility with the retained database; otherwise restore the corresponding isolated verified backup under an explicit recovery plan. Never reset a production volume to make a migration pass.
 
 All one-shot `docker compose run` commands use `-T --interactive=false`. Remote script invocations also redirect stdin from `/dev/null` so they cannot consume subsequent commands.
+
+
+## R7 APNs
+
+The control process sends APNs over HTTP/2 on its dedicated `push_egress` network. No control ports are published. The device, media and command contracts remain unchanged. Discovery reports `airsim-v2-r7`; all four APNs settings empty disables push, while partial configuration or an invalid/restricted-file permission failure prevents startup.
+
+Set `APNS_KEY_ID`, `APNS_TEAM_ID` and `APNS_BUNDLE_ID` for the signed iPhone App. Set `AIRSIM_APNS_KEY_PATH` to the existing external `.p8` file. The production wrapper then includes `compose.apns.yaml`, mounting that file read-only as `APNS_KEY_FILE=/run/secrets/apns.p8`. The file must be readable by control UID 65532 with no group/other permissions (normally owner 65532, mode 0600); parent directories must allow the container runtime to mount it. Never place the key in build context, Git, environment values or logs. A missing host file is rejected instead of being created as a directory. For direct Compose usage, include the same overlay explicitly. Keep these settings on subsequent control recreation.
+
+Registration accepts `sandbox` or `production` per installation; it must match the signed App entitlement. Topic is the configured main Bundle ID (`.voip` for incoming calls). APNs transport requires outbound DNS and TLS to Apple's sandbox/production provider. A configured provider and successful mock tests do not establish real APNs delivery or lock-screen wakeup.
+
+`PUT /v2/push/registration` authenticates the existing client Bearer and subscribes that installation to one owned module. Token updates reuse its registration ID; changing subscription domain requires DELETE followed by a new ID. DELETE matches both installation and registration ID, so delayed cleanup cannot delete a newer registration. Responses never contain tokens. Client expiry/revocation immediately excludes delivery and hourly cleanup removes obsolete subscriptions and their delivery metadata. CallKit identities remain for 31 days, longer than the maximum client lifetime.
+
+Call notifications require an online device and a snapshot no older than 8 seconds or more than 3 seconds in the future. Each attempt rechecks subscription, client, module and current call. Payload validity is 30 seconds; APNs expiration is zero. Success is persisted per registration/call domain; transient failures get at most two short retries. Network requests run outside the control lock. SMS uses the alert token and a fixed notification without sender/body, only for incoming messages observed after registration. Token refresh preserves the registration start time. No private APNs credentials are needed for the local mock test suite.
+
+Migration advances schema 1 to 2 in the existing transaction/advisory lock. Back up before an authorized production upgrade. The older R4 binary requires schema 1; rollback therefore requires the matching pre-upgrade database backup, not only replacing the image.

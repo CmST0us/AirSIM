@@ -2,6 +2,7 @@ package control
 
 import (
 	"airsim.local/server/internal/media"
+	"airsim.local/server/internal/push"
 	"airsim.local/server/internal/store"
 	"airsim.local/server/internal/wire"
 	"context"
@@ -22,6 +23,8 @@ import (
 type Config struct {
 	Server, API, Device, Media, EdgeToken, MediaToken, HMAC, MediaInternal string
 	Roots                                                                  *x509.CertPool
+	Push                                                                   push.Sender
+	PushBundle                                                             string
 }
 type peer struct {
 	queried                      bool
@@ -67,12 +70,13 @@ func (s *Server) Handler() http.Handler {
 	})
 	m.HandleFunc("GET /.well-known/airsim", s.discovery)
 	m.HandleFunc("GET /v2/device/control", s.device)
+	m.HandleFunc("/v2/push/registration", s.client)
 	m.HandleFunc("/v2/modules", s.client)
 	m.HandleFunc("/v2/modules/", s.client)
 	return m
 }
 func (s *Server) discovery(w http.ResponseWriter, r *http.Request) {
-	wire.JSON(w, 200, map[string]any{"protocol_version": 2, "profile": "airsim-v2-r4.1", "server_id": s.cfg.Server, "api_origin": s.cfg.API, "device_origin": s.cfg.Device, "media_origin": s.cfg.Media, "capabilities": map[string]bool{"controlled_test_client": true, "telephony": true, "messaging": true, "experimental_audio": true, "apns": false, "interactive_login": false}})
+	wire.JSON(w, 200, map[string]any{"protocol_version": 2, "profile": "airsim-v2-r7", "server_id": s.cfg.Server, "api_origin": s.cfg.API, "device_origin": s.cfg.Device, "media_origin": s.cfg.Media, "capabilities": map[string]bool{"controlled_test_client": true, "telephony": true, "messaging": true, "experimental_audio": true, "apns": s.cfg.Push != nil, "interactive_login": false}})
 }
 func (s *Server) authenticateDevice(r *http.Request) (string, time.Time, error) {
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-AirSIM-Edge-Token")), []byte(s.cfg.EdgeToken)) != 1 {

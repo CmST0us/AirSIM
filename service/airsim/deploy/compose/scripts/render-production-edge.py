@@ -57,7 +57,7 @@ if media==api:
   }
  }
 """
-config+=""" @control path /.well-known/airsim /v2/modules /v2/modules/* /healthz /readyz
+config+=""" @control path /.well-known/airsim /v2/modules /v2/modules/* /v2/push/registration /healthz /readyz
  handle @control {
   reverse_proxy control:8080 {
    header_up -X-AirSIM-Client-Cert

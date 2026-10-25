@@ -81,6 +81,13 @@ func Init(ctx context.Context, db *store.Store, dir string) error {
 	return e
 }
 func Client(ctx context.Context, db *store.Store, out string) error {
+	return ClientTTL(ctx, db, out, time.Hour)
+}
+
+func ClientTTL(ctx context.Context, db *store.Store, out string, ttl time.Duration) error {
+	if ttl < time.Hour || ttl > 30*24*time.Hour {
+		return errors.New("client_ttl_invalid")
+	}
 	tx, e := db.Begin(ctx)
 	if e != nil {
 		return e
@@ -98,7 +105,7 @@ func Client(ctx context.Context, db *store.Store, out string) error {
 		return errors.New("capacity_exceeded")
 	}
 	id, token := wire.ID(), wire.Token()
-	expires := time.Now().UTC().Add(time.Hour)
+	expires := time.Now().UTC().Add(ttl)
 	if _, e = tx.Exec(ctx, "INSERT INTO clients(id,user_id,token_hash,expires_at) VALUES($1,$2,$3,$4)", id, owner, wire.Hash(token), expires); e != nil {
 		return e
 	}

@@ -69,13 +69,17 @@ services:
       MEDIA_TOKEN_FILE: /run/secrets/media-token
       COMMAND_HMAC_FILE: /run/secrets/command-hmac
       DEVICE_CA_FILE: /run/secrets/device-ca.pem
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-}
+      APNS_KEY_FILE: ${APNS_KEY_FILE:-}
     volumes:
       - ${AIRSIM_SECRET_DIR}/database-password:/run/secrets/database-password:ro
       - ${AIRSIM_SECRET_DIR}/identity/device-ca.pem:/run/secrets/device-ca.pem:ro
       - ${AIRSIM_SECRET_DIR}/identity/edge-token:/run/secrets/edge-token:ro
       - ${AIRSIM_SECRET_DIR}/identity/media-token:/run/secrets/media-token:ro
       - ${AIRSIM_SECRET_DIR}/identity/command-hmac:/run/secrets/command-hmac:ro
-    networks: [database, control, media]
+    networks: [database, control, media, push_egress]
     depends_on:
       migrate: {condition: service_completed_successfully}
     healthcheck:
@@ -129,6 +133,7 @@ services:
       media: {condition: service_healthy}
 networks:
   ingress: {}
+  push_egress: {}
   database: {internal: true}
   control: {internal: true}
   media: {internal: true}
