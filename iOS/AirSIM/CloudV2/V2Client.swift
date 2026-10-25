@@ -94,6 +94,7 @@ final class V2Client {
         let response: V2HTTPResponse
         do { response = try await transport.send(request, limit: limit) }
         catch { guard gate.accepts(stamp) else { throw V2Error.stale }; throw (error as? V2Error ?? .transport) }
+        if method == "GET" { try Task.checkCancellation() }
         guard gate.accepts(stamp) else { throw V2Error.stale }
         guard config.expiresAt > now() else { invalidateAuthentication(); throw V2Error.expired }
         guard response.body.count <= limit else { throw V2Error.oversized }

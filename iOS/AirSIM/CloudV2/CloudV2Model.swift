@@ -53,7 +53,20 @@ final class CloudV2Model: ObservableObject {
     private let historyFile: V2ProtectedFile<V2History>
     private let defaults: UserDefaults
     private let now: () -> Date
-    private var pollTask: Task<Void, Never>?
+    private enum PollLane: CaseIterable {
+        case snapshot, messages, directory
+        var title: String {
+            switch self {
+            case .snapshot: return "通话状态"
+            case .messages: return "短信"
+            case .directory: return "模块列表"
+            }
+        }
+    }
+    private var pollTasks: [PollLane: Task<Void, Never>] = [:]
+    private var pollStopTask: Task<Void, Never>?
+    private var pollFailures = Set<PollLane>()
+    private var pollingInvalidated = true
     private var connectionTask: Task<Void, Never>?
     private var connectionEpoch: UInt64 = 0
     private var actionInFlight = false
@@ -79,8 +92,7 @@ final class CloudV2Model: ObservableObject {
         experimentalAudio = defaults.bool(forKey: "airsim.v2.experimental-audio")
         client.onAuthenticationInvalidated = { [weak self] in
             self?.connected = false
-            self?.generation &+= 1
-            self?.pollTask?.cancel(); self?.pollTask = nil
+            self?.invalidatePolling()
             self?.syncStatus = "凭据已过期或撤销，需要重新导入连接配置。"
             self?.media.requestStop()
         }
@@ -161,6 +173,8 @@ final class CloudV2Model: ObservableObject {
                 if self.connectionEpoch == stamp { self.busy = self.actionInFlight; self.connectionTask = nil }
             }
             do {
+                await self.cancelPolling()
+                guard self.connectionEpoch == stamp, self.foreground, !Task.isCancelled else { return }
                 let result = try await self.client.connect(configuration)
                 guard self.connectionEpoch == stamp, self.foreground, !Task.isCancelled else { return }
                 self.discovery = result; self.connected = true; self.syncStatus = nil
@@ -185,23 +199,40 @@ final class CloudV2Model: ObservableObject {
         await stop()
     }
     func stop() async {
+        invalidatePolling()
         localAudioTask?.cancel(); await localAudioTask?.value; localAudioTask = nil
         await media.stop()
         await cancelBackgroundCleanup(); await cancelConnection(); await cancelPolling()
         client.stop(); connected = false; busy = actionInFlight
     }
-    private func cancelPolling() async {
+    private func invalidatePolling() {
+        pollingInvalidated = true
         generation &+= 1
-        let task = pollTask; pollTask = nil; task?.cancel(); await task?.value
+        pollTasks.values.forEach { $0.cancel() }
+    }
+    private func cancelPolling() async {
+        if let pollStopTask { await pollStopTask.value; return }
+        invalidatePolling()
+        let tasks = Array(pollTasks.values)
+        let drain = Task { [self] in
+            for task in tasks { await task.value }
+            pollTasks.removeAll()
+            pollStopTask = nil
+        }
+        pollStopTask = drain
+        await drain.value
     }
     func sceneChanged(_ phase: ScenePhase) async {
         switch phase {
         case .active:
             foreground = true; await cancelBackgroundCleanup()
+            if pollingInvalidated { await cancelPolling() }
+            guard foreground else { return }
             if connected { startPolling() } else { await connect() }
         case .inactive: break
         case .background:
             foreground = false
+            invalidatePolling()
             // Retire a still-verifying connection before the first suspension point.
             if connectionTask != nil { connectionEpoch &+= 1; connectionTask?.cancel(); client.stop(); connected = false }
             localAudioTask?.cancel(); await localAudioTask?.value; localAudioTask = nil
@@ -246,48 +277,63 @@ final class CloudV2Model: ObservableObject {
         }
     }
     private func startPolling() {
-        guard foreground, connected, pollTask == nil else { return }
-        let stamp = generation
-        pollTask = Task { [weak self] in
-            guard let self else { return }
-            var nextDirectory = Date.distantPast
-            var backoff = V2PollBackoff()
-            while !Task.isCancelled, self.generation == stamp, self.foreground {
-                var delay: TimeInterval = 1
-                do {
-                    if self.now() >= nextDirectory {
-                        let directory = try await self.client.modules()
-                        guard self.generation == stamp, !Task.isCancelled else { return }
-                        self.modules = directory.modules; nextDirectory = self.now().addingTimeInterval(5)
+        guard foreground, connected, pollTasks.isEmpty, pollStopTask == nil else { return }
+        let stamp = generation, module = selectedModuleID
+        pollingInvalidated = false
+        pollFailures.removeAll()
+        for lane in PollLane.allCases {
+            pollTasks[lane] = Task { [weak self] in
+                guard let self else { return }
+                var backoff = V2PollBackoff()
+                while self.acceptsPoll(stamp, module: module) {
+                    let delay: TimeInterval
+                    do {
+                        switch lane {
+                        case .directory:
+                            let directory = try await self.client.modules()
+                            guard self.acceptsPoll(stamp, module: module) else { return }
+                            self.modules = directory.modules
+                            self.updateMediaEligibility()
+                        case .snapshot:
+                            if let module {
+                                let snapshot = try await self.client.snapshot(moduleID: module)
+                                guard self.acceptsPoll(stamp, module: module) else { return }
+                                self.snapshot = snapshot
+                                try self.consumeSnapshot(snapshot)
+                                self.updateMediaEligibility()
+                            }
+                        case .messages:
+                            if let module {
+                                let messages = try await self.client.messages(moduleID: module)
+                                guard self.acceptsPoll(stamp, module: module) else { return }
+                                self.messagesResponse = messages
+                                try self.consumeMessages(messages)
+                            }
+                            if self.machine?.pending != nil, !self.busy {
+                                try await self.machine?.recover()
+                                guard self.acceptsPoll(stamp, module: module) else { return }
+                                try self.finishResolvedCommand()
+                            }
+                        }
+                        guard self.acceptsPoll(stamp, module: module) else { return }
+                        self.pollFailures.remove(lane)
+                        _ = backoff.succeeded()
+                        delay = lane == .directory ? 5 : 1
+                    } catch {
+                        guard self.acceptsPoll(stamp, module: module) else { return }
+                        self.pollFailures.insert(lane)
+                        self.updateMediaEligibility()
+                        delay = backoff.failed()
                     }
-                    if let module = self.selectedModuleID {
-                        let snapshot = try await self.client.snapshot(moduleID: module)
-                        guard self.generation == stamp, !Task.isCancelled, self.selectedModuleID == module else { return }
-                        self.snapshot = snapshot
-                        try self.consumeSnapshot(snapshot)
-                        let messages = try await self.client.messages(moduleID: module)
-                        guard self.generation == stamp, !Task.isCancelled, self.selectedModuleID == module else { return }
-                        self.messagesResponse = messages
-                        try self.consumeMessages(messages)
-                    }
-                    if self.machine?.pending != nil, !self.busy {
-                        try await self.machine?.recover()
-                        guard self.generation == stamp, !Task.isCancelled else { return }
-                        try self.finishResolvedCommand()
-                    }
-                    self.updateMediaEligibility()
-                    self.syncStatus = nil
-                    delay = backoff.succeeded()
-                } catch {
-                    guard self.generation == stamp, !Task.isCancelled else { return }
-                    self.updateMediaEligibility()
-                    self.syncStatus = "同步失败，当前状态可能已过期；未自动重发操作。"
-                    delay = backoff.failed()
+                    self.syncStatus = self.pollFailures.isEmpty ? nil : "同步失败（\(PollLane.allCases.filter { self.pollFailures.contains($0) }.map(\.title).joined(separator: " / "))），当前状态可能已过期；未自动重发操作。"
+                    self.objectWillChange.send()
+                    do { try await Task.sleep(for: .seconds(delay)) } catch { return }
                 }
-                self.objectWillChange.send()
-                try? await Task.sleep(for: .seconds(delay))
             }
         }
+    }
+    private func acceptsPoll(_ stamp: UInt64, module: String?) -> Bool {
+        !Task.isCancelled && generation == stamp && foreground && connected && selectedModuleID == module
     }
     private func consumeSnapshot(_ response: V2SnapshotResponse) throws {
         guard let config = configuration, let snapshot = response.snapshot else { return }

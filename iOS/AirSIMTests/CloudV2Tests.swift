@@ -33,10 +33,10 @@ private final class V2TestPending: V2PendingStore {
     func save(_ pending: V2PendingCommand) throws { if fails { throw V2Error.persistence }; value = pending }
     func clear() throws { value = nil }
 }
-private final class V2TestTransport: V2HTTPTransport {
+@MainActor private final class V2TestTransport: V2HTTPTransport {
     var requests: [URLRequest] = []
-    var handler: (URLRequest) async throws -> V2HTTPResponse
-    init(_ handler: @escaping (URLRequest) async throws -> V2HTTPResponse) { self.handler = handler }
+    var handler: @MainActor (URLRequest) async throws -> V2HTTPResponse
+    init(_ handler: @escaping @MainActor (URLRequest) async throws -> V2HTTPResponse) { self.handler = handler }
     func send(_ request: URLRequest, limit: Int) async throws -> V2HTTPResponse { requests.append(request); return try await handler(request) }
 }
 
@@ -1418,5 +1418,152 @@ extension CloudV2Tests {
         XCTAssertGreaterThan(promptFrames * 20, 1000); XCTAssertTrue(nonzero)
         diagnostic.stop()
 #endif
+    }
+}
+
+@MainActor private final class V2PollFixture {
+    let suite = "airsim.poll.\(UUID())"
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let tokens = V2TestTokens()
+    private let started = Date()
+    var currentNow: Date { v2Now.addingTimeInterval(Date().timeIntervalSince(started)) }
+    var defaults: UserDefaults!
+    var model: CloudV2Model!
+    var counts: [String: Int] = [:], inFlight: [String: Int] = [:], maxInFlight: [String: Int] = [:]
+    var blocked = Set<String>(), failed = Set<String>()
+    var directoryBlocksAfterFirst = false
+    var pending: [String: CheckedContinuation<V2HTTPResponse, Error>] = [:]
+    var writes = 0
+    init() throws {
+        defaults = UserDefaults(suiteName: suite)!
+        _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
+        defaults.set(v2ID, forKey: V2LocalPaths.selectionKey(v2Config().identity))
+        let transport = V2TestTransport { [unowned self] request in
+            if request.httpMethod != "GET" { writes += 1 }
+            let path = request.url!.path
+            if path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            let lane = path == "/v2/modules" ? "directory" : (path.hasSuffix("snapshot") ? "snapshot" : "messages")
+            counts[lane, default: 0] += 1; inFlight[lane, default: 0] += 1
+            maxInFlight[lane] = max(maxInFlight[lane, default: 0], inFlight[lane, default: 0])
+            defer { inFlight[lane, default: 0] -= 1 }
+            if blocked.contains(lane) || (lane == "directory" && directoryBlocksAfterFirst && counts[lane, default: 0] > 1) {
+                return try await withCheckedThrowingContinuation { pending[lane] = $0 }
+            }
+            if failed.contains(lane) { throw V2Error.transport }
+            return try response(lane, module: path.contains(v2OtherID) ? v2OtherID : v2ID)
+        }
+        model = CloudV2Model(client: V2Client(transport: transport, tokens: tokens, now: { [unowned self] in currentNow }), defaults: defaults, root: root, tokens: tokens, now: { [unowned self] in currentNow })
+    }
+    func response(_ lane: String, module: String = v2ID) throws -> V2HTTPResponse {
+        let body: Data
+        if lane == "directory" {
+            body = try v2Data(["server_id": v2ID, "modules": [v2ID, v2OtherID].map { ["module_id": $0, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID] }])
+        } else if lane == "snapshot" { body = try v2SnapshotData(module: module, age: -currentNow.timeIntervalSince(v2Now)) }
+        else { body = try v2Data(["server_id": v2ID, "module_id": module, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": []]) }
+        return V2HTTPResponse(status: 200, body: body)
+    }
+    func release(_ lane: String, status: Int = 200) throws {
+        pending.removeValue(forKey: lane)?.resume(returning: status == 200 ? try response(lane) : V2HTTPResponse(status: status, body: Data()))
+    }
+    func close() async {
+        let stop = Task { await model.stop() }
+        await v2Yield()
+        for continuation in pending.values { continuation.resume(throwing: CancellationError()) }
+        pending.removeAll()
+        await stop.value
+        defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root)
+    }
+}
+@MainActor private func v2PollWait(_ condition: () -> Bool) async throws {
+    for _ in 0..<1000 {
+        if condition() { return }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    XCTFail("Polling condition did not complete within ten seconds")
+}
+extension CloudV2Tests {
+    @MainActor func testIndependentPollingKeepsSnapshotsFlowingWhileOtherLanesBlock() async throws {
+        for lane in ["messages", "directory"] {
+            let fixture = try V2PollFixture()
+            if lane == "directory" { fixture.directoryBlocksAfterFirst = true }
+            else { fixture.blocked.insert(lane) }
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { fixture.pending[lane] != nil }
+            let before = fixture.counts["snapshot", default: 0]
+            try await v2PollWait { fixture.counts["snapshot", default: 0] >= before + 2 }
+            XCTAssertTrue(fixture.model.telephonyReady)
+            XCTAssertLessThan(fixture.currentNow.timeIntervalSince(try XCTUnwrap(fixture.model.snapshot?.snapshot?.observedAt)), 2)
+            XCTAssertEqual(fixture.maxInFlight[lane], 1)
+            XCTAssertTrue(fixture.maxInFlight.values.allSatisfy { $0 == 1 })
+            XCTAssertEqual(fixture.writes, 0)
+            await fixture.close()
+        }
+    }
+    @MainActor func testPollingInactiveActiveDoesNotRestartOrCancelLiveLanes() async throws {
+        let fixture = try V2PollFixture(); fixture.blocked = ["snapshot", "messages", "directory"]
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.pending.count == 3 }
+        await fixture.model.sceneChanged(.inactive)
+        await fixture.model.sceneChanged(.active)
+        XCTAssertEqual(fixture.counts, ["snapshot": 1, "messages": 1, "directory": 1])
+        fixture.blocked.removeAll()
+        for lane in ["snapshot", "messages", "directory"] { try fixture.release(lane) }
+        try await v2PollWait { fixture.model.telephonyReady && fixture.model.messagesResponse != nil }
+        await fixture.close()
+    }
+    @MainActor func testPollingLaneFailureIsNotHiddenBySnapshotSuccess() async throws {
+        let fixture = try V2PollFixture(); fixture.failed.insert("messages")
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.counts["snapshot", default: 0] >= 3 }
+        XCTAssertTrue(fixture.model.telephonyReady)
+        XCTAssertTrue(fixture.model.syncStatus?.contains("短信") == true)
+        fixture.failed.remove("messages")
+        try await v2PollWait { fixture.model.messagesResponse != nil && fixture.model.syncStatus == nil }
+        await fixture.close()
+    }
+    @MainActor func testPollingBackgroundWaitsForAllLanesAndRejectsLateResults() async throws {
+        let fixture = try V2PollFixture(); fixture.blocked = ["snapshot", "messages", "directory"]
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.pending.count == 3 }
+        var finished = false
+        let background = Task { await fixture.model.sceneChanged(.background); finished = true }
+        await v2Yield(); XCTAssertFalse(finished)
+        for lane in ["snapshot", "messages", "directory"] { try fixture.release(lane) }
+        await background.value
+        XCTAssertNil(fixture.model.snapshot); XCTAssertNil(fixture.model.messagesResponse)
+        XCTAssertTrue(fixture.model.modules.isEmpty); XCTAssertTrue(fixture.model.history.calls.isEmpty)
+        XCTAssertEqual(fixture.writes, 0)
+        await fixture.close()
+    }
+    @MainActor func testPollingModuleSwitchJoinsOldLanesBeforeApplyingNewModule() async throws {
+        let fixture = try V2PollFixture(); fixture.blocked = ["snapshot", "messages"]
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.pending.count == 2 && fixture.model.modules.count == 2 }
+        var finished = false
+        let change = Task { await fixture.model.selectModule(v2OtherID); finished = true }
+        await v2Yield(); XCTAssertFalse(finished)
+        fixture.blocked.removeAll()
+        try fixture.release("snapshot", status: 401); try fixture.release("messages")
+        await change.value
+        try await v2PollWait { fixture.model.snapshot?.module_id == v2OtherID && fixture.model.messagesResponse?.module_id == v2OtherID }
+        XCTAssertTrue(fixture.model.connected)
+        XCTAssertEqual(fixture.model.selectedModuleID, v2OtherID)
+        XCTAssertTrue(fixture.maxInFlight.values.allSatisfy { $0 == 1 })
+        XCTAssertEqual(fixture.writes, 0)
+        await fixture.close()
+    }
+    @MainActor func testPolling401CancelsAllLanesWithoutLateStateOrStatusOverwrite() async throws {
+        let fixture = try V2PollFixture(); fixture.blocked = ["snapshot", "messages", "directory"]
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.pending.count == 3 }
+        try fixture.release("messages", status: 401)
+        try await v2PollWait { !fixture.model.connected }
+        let status = fixture.model.syncStatus
+        try fixture.release("snapshot"); try fixture.release("directory")
+        await v2Yield(100)
+        XCTAssertNil(fixture.model.snapshot); XCTAssertNil(fixture.model.messagesResponse)
+        XCTAssertTrue(fixture.model.modules.isEmpty); XCTAssertEqual(fixture.model.syncStatus, status)
+        XCTAssertTrue(status?.contains("凭据") == true); XCTAssertEqual(fixture.writes, 0)
+        await fixture.close()
     }
 }
