@@ -6,7 +6,7 @@ App 保留仅本地、云端 v1、云端 v2 选择；已有安装继续使用原
 
 v2 首先使用 `service/airsim/` 的 ECS Docker Compose 服务。管理员签发的连接文件通过系统文件选择器导入，凭据存 Keychain；没有公开交互登录或自动回退 v1。用户须显式选择要使用的模块。通话和短信沿用原界面，未提供的 v2 功能不显示可执行的旧协议入口。
 
-原视图接入已通过 15 项 UI 自动化；全量单元测试 132 项中 131 通过、1 项硬件音频测试按条件跳过。CallKit 与已有通话的后台生命周期按 [R7 契约](../protocol/v2/R7.md) 实施，真机呼出、后台保持及 App 挂断已通过，系统来电接听验收进行中。v2 空闲后台及冷启动来电唤醒不在本阶段范围。此前 [R5](../docs/IOS_AIRSIM_R5.md) 为模拟器前台闭环，[R6](../docs/IOS_AIRSIM_R6.md) 已确认实体双向音频，但通话质量尚未通过。当前状态、设计审核与 QA 记录见 [R7](../docs/IOS_AIRSIM_R7.md)。Watch v2 暂不支持。
+原视图接入已通过 15 项 UI 自动化；全量单元测试 132 项中 131 通过、1 项硬件音频测试按条件跳过。CallKit 与已有通话的后台生命周期按 [R7 契约](../protocol/v2/R7.md) 实施，真机呼出、后台保持及 App 挂断已通过，系统来电接听待补充真机验收。v2 空闲后台及冷启动来电唤醒不在本阶段范围。此前 [R5](../docs/IOS_AIRSIM_R5.md) 为模拟器前台闭环，[R6](../docs/IOS_AIRSIM_R6.md) 已确认实体双向音频，但通话质量尚未通过。当前状态、设计审核与 QA 记录见 [R7](../docs/IOS_AIRSIM_R7.md)。Watch v2 暂不支持。
 
 该目录包含面向三星 Android 电话端的 iPhone、Apple Watch、Live Activity 与共享模型。客户端通过 VoWLAN 直连三星手机，或通过独立 Cloudflare Relay 使用远程通话与短信。
 

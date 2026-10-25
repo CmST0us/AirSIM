@@ -1,6 +1,6 @@
 # AirSIM — Android 与 iPhone / Apple Watch 跨设备通话、短信和 VoWLAN
 
-> **v2 架构（2026-10-25）**：新 [airsim-agent](module/airsim-agent/README.md) 位于 `module/airsim-agent/`；[ECS 服务](service/airsim/README.md) 位于 `service/airsim/`，使用 [Docker Compose](service/airsim/deploy/compose/README.md)；[Worker v2](service/airsim-worker/README.md) 保留独立目录。RM500 已完成 Agent 本地与 ECS 云端通话、短信及音频限定范围验收。App 保留 v1/v2 选择，正在完成 [R7 原界面与 CallKit 接入](docs/IOS_AIRSIM_R7.md)：原五标签适配、15 项 UI 自动化及单元回归已通过，真机呼出和后台保持已验证，系统来电验收进行中。实体双向音频已连通，通话质量优化暂缓。旧 Agent 与旧 Worker 保留；架构边界见 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)。下文发布基线与旧安装说明仍属于 v1。
+> **v2 架构（2026-10-25）**：新 [airsim-agent](module/airsim-agent/README.md) 位于 `module/airsim-agent/`；[ECS 服务](service/airsim/README.md) 位于 `service/airsim/`，使用 [Docker Compose](service/airsim/deploy/compose/README.md)；[Worker v2](service/airsim-worker/README.md) 保留独立目录。RM500 已完成 Agent 本地与 ECS 云端通话、短信及音频限定范围验收。App 保留 v1/v2 选择，正在完成 [R7 原界面与 CallKit 接入](docs/IOS_AIRSIM_R7.md)：原五标签适配、15 项 UI 自动化及单元回归已通过，真机呼出和后台保持已验证，系统来电接听待补充真机验收。实体双向音频已连通，通话质量优化暂缓。旧 Agent 与旧 Worker 保留；架构边界见 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)。下文发布基线与旧安装说明仍属于 v1。
 
 [![Android Standalone](https://img.shields.io/badge/Android-Standalone%20APK-3DDC84?logo=android&logoColor=white)](android-standalone/README.md)
 [![iOS](https://img.shields.io/badge/iOS-16.3%2B-000000?logo=apple&logoColor=white)](iOS/README.md)
