@@ -1502,7 +1502,9 @@ extension CloudV2Tests {
     func release(_ lane: String, status: Int = 200) throws {
         pending.removeValue(forKey: lane)?.resume(returning: status == 200 ? try response(lane) : V2HTTPResponse(status: status, body: Data()))
     }
+    private var closed = false
     func close() async {
+        guard !closed else { return }; closed = true
         let stop = Task { await model.stop() }
         await v2Yield()
         for continuation in pending.values { continuation.resume(throwing: CancellationError()) }
@@ -1936,6 +1938,7 @@ extension CloudV2Tests {
         for background in [false, true] {
             for answer in [false, true] {
                 let fixture = try V2PollFixture(); fixture.delayedReceipts = true
+                addTeardownBlock { await fixture.close() }
                 if answer {
                     var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
                     fixture.snapshotCalls = [incoming]
@@ -1944,13 +1947,16 @@ extension CloudV2Tests {
                 fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(5))
                 await fixture.model.sceneChanged(.active)
                 try await v2PollWait { fixture.model.freshBinding != nil }
-                if !answer { system.currentSystemCallUUID = UUID() }
+                if answer {
+                    try await v2PollWait { system.currentSystemCallUUID != nil }
+                } else { system.currentSystemCallUUID = UUID() }
                 let uuid = try XCTUnwrap(system.currentSystemCallUUID)
                 let controller = try XCTUnwrap(fixture.model.systemCalls)
                 let start = Task {
                     if answer { try await controller.callKitAnswer(origin: .system) }
                     else { try await controller.callKitStart(number: "00000000001") }
                 }
+                addTeardownBlock { start.cancel(); _ = await start.result }
                 try await v2PollWait { fixture.writes == 1 }
                 XCTAssertEqual(controller.authorizedBinding, fixture.model.freshBinding)
                 if background { await fixture.model.sceneChanged(.background) }
@@ -1973,6 +1979,7 @@ extension CloudV2Tests {
     @MainActor func testR7System202FailureClearsPendingAndTimeoutPreservesItWithoutReplay() async throws {
         for failure in [false, true] {
             let fixture = try V2PollFixture(); fixture.delayedReceipts = true
+            addTeardownBlock { await fixture.close() }
             fixture.receiptFails = failure; fixture.receiptCompletionAfter = failure ? 0 : Int.max
             fixture.receiptUnknown = !failure
             let system = R7TestSystemCalls()
@@ -1991,6 +1998,7 @@ extension CloudV2Tests {
     @MainActor func testR7SystemEndBeforeAssociationWaitsForDirectedHangup() async throws {
         for resolves in [false, true] {
             let fixture = try V2PollFixture(); fixture.delayedReceipts = true
+            addTeardownBlock { await fixture.close() }
             fixture.receiptCompletionAfter = resolves ? 1 : Int.max
             let system = R7TestSystemCalls()
             fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(5), endAssociationTimeout: resolves ? .seconds(4) : .milliseconds(100))
@@ -1999,6 +2007,7 @@ extension CloudV2Tests {
             system.currentSystemCallUUID = UUID()
             let controller = try XCTUnwrap(fixture.model.systemCalls)
             let start = Task { try await controller.callKitStart(number: "00000000001") }
+            addTeardownBlock { start.cancel(); _ = await start.result }
             try await v2PollWait { fixture.writes == 1 }
             if resolves { fixture.snapshotCalls = [v2CallObject(state: "active")] }
             try await controller.callKitEnd()
@@ -2015,12 +2024,14 @@ extension CloudV2Tests {
     }
     @MainActor func testR7SystemOldAssociationCannotTakeOverReplacementUUID() async throws {
         let fixture = try V2PollFixture(); fixture.delayedReceipts = true
+        addTeardownBlock { await fixture.close() }
         let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4))
         await fixture.model.sceneChanged(.active)
         try await v2PollWait { fixture.model.freshBinding != nil }
         system.currentSystemCallUUID = UUID()
         let controller = try XCTUnwrap(fixture.model.systemCalls)
         let start = Task { try await controller.callKitStart(number: "00000000001") }
+        addTeardownBlock { start.cancel(); _ = await start.result }
         try await v2PollWait { fixture.writes == 1 }
         let replacement = UUID(); system.currentSystemCallUUID = replacement
         try await start.value
@@ -2033,6 +2044,7 @@ extension CloudV2Tests {
 extension CloudV2Tests {
     @MainActor func testR7SystemDTMF202RetainsPendingWithoutFailure() async throws {
         let fixture = try V2PollFixture(); fixture.commandHTTPStatus = 200
+        addTeardownBlock { await fixture.close() }
         var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
         fixture.snapshotCalls = [incoming]
         let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
@@ -2054,6 +2066,7 @@ extension CloudV2Tests {
 extension CloudV2Tests {
     @MainActor func testR7SystemExplicitRejectionReleasesPending() async throws {
         let fixture = try V2PollFixture(); fixture.commandHTTPStatus = 409
+        addTeardownBlock { await fixture.close() }
         let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
         await fixture.model.sceneChanged(.active)
         try await v2PollWait { fixture.model.freshBinding != nil }
