@@ -1847,3 +1847,26 @@ extension CloudV2Tests {
         await fixture.close()
     }
 }
+
+extension CloudV2Tests {
+    @MainActor func testR7MessageGapUsesOnlySelectedModuleHistory() throws {
+        let suite = "airsim.r7.gap." + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
+        let tokens = V2TestTokens()
+        _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
+        let message = try V2JSON.decode(V2Message.self, from: v2Data(["message_id": v2ID, "direction": "incoming", "sender": "00000000001", "recipient": "", "text": "QA 测试消息", "state": "received", "delivery": "unknown", "observed_at": V2Validation.timestamp(v2Now)]), limit: 1024)
+        let gap = V2StoredMessage(domain: V2HistoryDomain(identity: v2Config().identity, moduleID: v2OtherID, bootID: v2ID, backendEpoch: v2ID), message: message, inboxGap: true, inboxDropped: 1)
+        var history = V2History(); history.merge(messages: [gap])
+        try V2ProtectedFile<V2History>(url: root.appendingPathComponent("history.json")).save(history)
+        defaults.set(v2ID, forKey: V2LocalPaths.selectionKey(v2Config().identity))
+        let first = CloudV2Model(defaults: defaults, root: root, tokens: tokens, now: { v2Now })
+        XCTAssertFalse(first.hasMessageGap)
+        defaults.set(v2OtherID, forKey: V2LocalPaths.selectionKey(v2Config().identity))
+        let second = CloudV2Model(defaults: defaults, root: root, tokens: tokens, now: { v2Now })
+        XCTAssertTrue(second.hasMessageGap)
+        second.clearCurrentMessages()
+        XCTAssertFalse(second.hasMessageGap)
+    }
+}

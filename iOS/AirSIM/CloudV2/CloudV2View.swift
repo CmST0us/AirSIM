@@ -72,6 +72,7 @@ private struct V2DiagnosticsView: View {
                 if let status = model.syncStatus { Text(status) }
             }
 #if DEBUG
+                LegacyRuntimeDiagnosticsSection()
                 Section("Debug · 音频诊断") {
 #if targetEnvironment(simulator)
                     Toggle("模拟器音频注入：提示与回声", isOn: $model.diagnosticAudio).disabled(model.media.active)

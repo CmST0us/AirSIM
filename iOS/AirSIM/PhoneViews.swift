@@ -771,10 +771,7 @@ struct MessagesView: View {
     var body: some View {
         NavigationStack(path: $conversationPath) {
             List {
-                if conversations.isEmpty {
-                    EmptyStateView(title: L10n.t("暂无短信"), systemImage: "message")
-                        .listRowBackground(Color.clear)
-                } else {
+                if !conversations.isEmpty {
                     ForEach(conversations, id: \.sender) { conversation in
                         NavigationLink(value: conversation.sender) {
                             MessageConversationRow(sender: conversation.sender, messages: conversation.messages)
@@ -791,6 +788,33 @@ struct MessagesView: View {
                             PhoneListMetrics.separatorLeading
                         }
                     }
+                }
+            }
+            .overlay {
+                if conversations.isEmpty {
+                    EmptyStateView(
+                        title: model.cloudV2?.messageListStatus ?? L10n.t("暂无短信"),
+                        systemImage: "message",
+                        actionTitle: model.cloudV2?.messageListStatus == nil ? nil : "连接设置",
+                        action: openConnectionSettings
+                    )
+                }
+            }
+            .safeAreaInset(edge: .top) {
+                if let cloud = model.cloudV2 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !conversations.isEmpty, let status = cloud.messageListStatus {
+                            Text(status).foregroundStyle(.secondary)
+                            Button("连接设置", action: openConnectionSettings)
+                        }
+                        if cloud.hasMessageGap {
+                            Label("部分短信未同步，记录可能不完整", systemImage: "exclamationmark.circle")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
                 }
             }
             .listStyle(.plain)
@@ -827,10 +851,8 @@ struct MessagesView: View {
             .task {
                 await model.loadMessagesFromAgent(silently: true)
             }
-            .onAppear { showPendingConversation() }
-            .onChange(of: pendingRecipient) { recipient in
-                if recipient != nil { showingComposer = true }
-            }
+            .onAppear { showPendingConversation(); showPendingComposer() }
+            .onChange(of: pendingRecipient) { _ in showPendingComposer() }
             .onChange(of: pendingConversation) { _ in showPendingConversation() }
             .sheet(isPresented: $showingComposer, onDismiss: { pendingRecipient = nil }) {
                 MessageComposer(initialRecipient: pendingRecipient ?? "")
@@ -848,6 +870,15 @@ struct MessagesView: View {
                 Text(model.isV2 ? "仅清理当前模块的本机短信副本，不删除模块上的短信。" : "这会删除本机短信以及尚未交付的模块短信，无法恢复。")
             }
         }
+    }
+
+    private func openConnectionSettings() {
+        R7UITestScenario.defaults.set(PhoneTab.settings.rawValue, forKey: "airsim.selected-tab")
+    }
+
+    private func showPendingComposer() {
+        guard pendingRecipient != nil else { return }
+        showingComposer = true
     }
 
     private func showPendingConversation() {
@@ -1240,6 +1271,7 @@ private struct MessageContactPicker: View {
 struct ContactsView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.openURL) private var openURL
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let onCall: (String) -> Void
     let onMessage: (String) -> Void
     @State private var search = ""
@@ -1287,12 +1319,13 @@ struct ContactsView: View {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(contact.name)
                                         .font(.body.weight(.semibold))
-                                        .lineLimit(1)
+                                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                                     Text(contact.phones.first ?? "")
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
-                                        .lineLimit(1)
+                                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                                 }
+                                .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .frame(minHeight: PhoneListMetrics.rowHeight)

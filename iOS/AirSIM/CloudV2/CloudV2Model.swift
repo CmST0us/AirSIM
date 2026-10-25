@@ -153,6 +153,21 @@ final class CloudV2Model: ObservableObject {
     var visibleCalls: [V2StoredCall] {
         history.calls.filter { $0.domain.identity == configuration?.identity && $0.domain.moduleID == selectedModuleID }
     }
+    var hasMessageGap: Bool {
+        let currentGap = messagesResponse?.server_id == configuration?.identity.serverID
+            && messagesResponse?.module_id == selectedModuleID && messagesResponse?.inbox_gap == true
+        return currentGap || visibleMessages.contains(where: \.inboxGap)
+    }
+    var messageListStatus: String? {
+        guard let configuration else { return "尚未配置短信连接" }
+        if configuration.expiresAt <= now() { return "连接凭据已过期，请重新导入配置" }
+        if !connected { return "连接未建立，显示本机短信副本" }
+        if selectedModuleID == nil { return "请选择短信使用的模块" }
+        if selectedModule?.online != true { return "模块离线，显示本机短信副本" }
+        if syncStatus != nil { return "同步暂时中断，请刷新重试" }
+        if messagesResponse == nil { return "正在同步短信…" }
+        return nil
+    }
     func isCurrentInbox(_ item: V2StoredMessage) -> Bool {
         item.domain.bootID == messagesResponse?.agent_boot_id && item.domain.backendEpoch == messagesResponse?.backend_epoch && messagesResponse?.online == true
     }

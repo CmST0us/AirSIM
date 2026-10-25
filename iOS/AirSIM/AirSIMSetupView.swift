@@ -114,9 +114,6 @@ struct AirSIMSettingsView: View {
                 Section("连接版本") {
                     RuntimeChoiceButtons()
                     if activityEvents.limitReached { Text("Live Activity token 观察已达上限，需重启 App 恢复；通话和普通推送不受影响。") }
-#if DEBUG
-                    Text("只读源保留：全局 \(activityEvents.globalCount) · 活动 \(activityEvents.activityCount) · retired \(activityEvents.retiredCount) · 订阅 \(activityEvents.subscriptionCount)").font(.caption)
-#endif
                     if !R7UITestScenario.active && LegacySwitchFence.shared.blocked {
                         Text("旧版操作结果待核对，暂不能迁移。")
                         Button("查询旧云端操作收据") { Task { await VoIPPushController.shared.recoverSwitchFences(); model.objectWillChange.send() } }
@@ -144,7 +141,7 @@ struct AirSIMSettingsView: View {
                     LabeledContent(
                         "云端 Relay",
                         value: localModeEnabled
-                            ? "本地模式已关闭"
+                            ? "已关闭（仅本地模式）"
                             : (!cloudModeEnabled
                             ? "已关闭"
                             : (model.cloudAgentStatus?.cloudOnline == true ? "Agent 在线" : "不可达"))
@@ -276,6 +273,13 @@ struct AirSIMSettingsView: View {
                 }
 
                 Section("关于") {
+#if DEBUG
+                    if !model.isV2 {
+                        NavigationLink("运行诊断") {
+                            List { LegacyRuntimeDiagnosticsSection() }.navigationTitle("诊断")
+                        }
+                    }
+#endif
                     LabeledContent("项目", value: model.isV2 ? "AirSIM" : "AirSIM · Samsung")
                     Picker("外观", selection: $settings.appearance) {
                         ForEach(AppAppearance.allCases) { appearance in
@@ -332,3 +336,17 @@ struct AirSIMSettingsView: View {
         }
     }
 }
+
+#if DEBUG
+struct LegacyRuntimeDiagnosticsSection: View {
+    @ObservedObject private var events = LegacyActivityEvents.shared
+    var body: some View {
+        Section("旧运行时只读源") {
+            LabeledContent("全局", value: String(events.globalCount))
+            LabeledContent("活动", value: String(events.activityCount))
+            LabeledContent("已退役", value: String(events.retiredCount))
+            LabeledContent("订阅", value: String(events.subscriptionCount))
+        }
+    }
+}
+#endif

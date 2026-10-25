@@ -42,6 +42,7 @@ final class R7ModuleIsolationTests: R7ConversationTestCase {
     func testModuleSwitchSeparatesMessagesRecentsAndReplyDraft() {
         openConversation("QA甲消息")
         enterReply("QA甲未发送草稿")
+        app.navigationBars.buttons.firstMatch.tap()
         openTab("设置")
         let second = app.buttons["module-10112233-4455-4677-8899-aabbccddeeff"]
         for _ in 0..<5 where !second.isHittable { app.swipeUp() }
@@ -93,6 +94,7 @@ final class R7UnknownCommandTests: R7ConversationTestCase {
         openConversation("QA甲消息")
         enterReply("QA未知结果不重发")
         XCTAssertFalse(app.buttons["message-send"].isEnabled)
+        app.navigationBars.buttons.firstMatch.tap()
         openTab("设置")
         let local = app.buttons["仅本地 VoWLAN"]
         XCTAssertTrue(local.waitForExistence(timeout: 5))
