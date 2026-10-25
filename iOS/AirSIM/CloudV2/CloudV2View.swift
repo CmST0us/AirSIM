@@ -163,13 +163,15 @@ private struct V2SettingsView: View {
                     Text("APNs：不可用 · 正式登录：不可用 · Watch v2：未支持")
                     Text("权限弹窗不会挂断；进入后台会停止轮询，并对本客户端已拥有的通话提交一次挂断。")
                 }.font(.footnote)
-#if DEBUG && targetEnvironment(simulator)
+#if DEBUG
                 Section("Debug · 音频诊断") {
+#if targetEnvironment(simulator)
                     Toggle("模拟器音频注入：提示与回声", isOn: $model.diagnosticAudio).disabled(model.media.active)
                     Text("默认关闭；开启时不采集真实麦克风，最多 75 秒后定向挂断。")
                     Button("断开本次媒体") { model.media.disconnectForDiagnostics() }.disabled(!model.media.active)
                     Button("测试本机音频（3秒）") { model.testLocalAudio() }.disabled(model.busy || model.media.active || model.ownedCall != nil || model.activeCall != nil)
                     Text(model.localAudioResult)
+#endif
                     if let failure = model.lastEligibilityFailure {
                         Text("最后资格失败：\(failure.reason.rawValue) · 当时快照年龄：\(failure.snapshotAgeSeconds.map { String(format: "%.3f s", $0) } ?? "—")")
                     } else { Text("最后资格失败：无") }
@@ -181,8 +183,16 @@ private struct V2SettingsView: View {
                     Text("快照年龄：\(model.selectedSnapshotAgeSeconds.map { String(format: "%.1f s", $0) } ?? "—")")
                     Text("audioReady=\(model.audioReady ? "true" : "false") · ownedControlReady=\(model.ownedControlReady ? "true" : "false")")
                     let stats = model.media.statistics
+                    let metrics = model.media.audioMetrics
+                    Text("引擎：\(metrics.running ? "运行" : "停止") · 输入 \(String(format: "%.0f", metrics.sampleRate)) Hz / \(metrics.channels) 声道 · VoiceProcessing=\(metrics.voiceProcessing ? "true" : "false")")
+                    Text("实际输入：\(metrics.inputRoute.map(\.rawValue).joined(separator: ",")) · 实际输出：\(metrics.outputRoute.map(\.rawValue).joined(separator: ","))")
+                    Text("请求 speaker=\(model.media.speaker ? "true" : "false")")
+                    Text("发送成功 PCM：RMS \(String(format: "%.1f", stats.sentPCMEnergy.rms)) · peak \(stats.sentPCMEnergy.peak) · 非零帧 \(stats.sentPCMEnergy.nonzeroFrames)/\(stats.sentPCMEnergy.frames)")
+                    Text("ASMP 校验后 PCM：RMS \(String(format: "%.1f", stats.receivedPCMEnergy.rms)) · peak \(stats.receivedPCMEnergy.peak) · 非零帧 \(stats.receivedPCMEnergy.nonzeroFrames)/\(stats.receivedPCMEnergy.frames)")
+#if targetEnvironment(simulator)
                     Text("下行 PCM：RMS \(String(format: "%.1f", stats.diagnosticReceivedEnergy.rms)) · peak \(stats.diagnosticReceivedEnergy.peak) · 非零帧 \(stats.diagnosticReceivedEnergy.nonzeroFrames)/\(stats.diagnosticReceivedEnergy.frames)")
                     Text("回声输出：RMS \(String(format: "%.1f", stats.diagnosticEchoEnergy.rms)) · peak \(stats.diagnosticEchoEnergy.peak) · 非零帧 \(stats.diagnosticEchoEnergy.nonzeroFrames) · echo 帧 \(stats.diagnosticEchoEnergy.frames)")
+#endif
                     Text("接收 \(stats.received) · 发送 \(stats.sent) · 序号缺口 \(stats.sequenceGaps)")
                     Text("队列丢弃 \(stats.queueDrops) · 跳过节拍 \(stats.skippedSlots) · 写超时 \(stats.writeTimeouts)")
                     Text("采集 \(stats.captureFrames) · 已播放 \(stats.rendered) · 播放补零 \(stats.playbackZero) · 注入补零 \(stats.diagnosticZero)")

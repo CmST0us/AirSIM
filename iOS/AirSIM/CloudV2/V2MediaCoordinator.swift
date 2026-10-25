@@ -7,6 +7,8 @@ struct V2MediaStatistics {
     var rendered: UInt64 = 0, captureFrames: UInt64 = 0, writeTimeouts: UInt64 = 0
     var diagnosticZero: UInt64 = 0
 #if DEBUG
+    var sentPCMEnergy = V2PCMEnergySummary()
+    var receivedPCMEnergy = V2PCMEnergySummary()
     var diagnosticReceivedEnergy = V2PCMEnergySummary()
     var diagnosticEchoEnergy = V2PCMEnergySummary()
 #endif
@@ -185,6 +187,9 @@ final class V2MediaCoordinator: ObservableObject {
                     guard self.generation == stamp, !Task.isCancelled else { return }
                     guard case .data(let data) = message else { throw V2MediaFailure.handshake }
                     let result = try V2ASMPFrame.decode(data, sessionID: id, direction: 2, after: self.receiveSequence)
+#if DEBUG
+                    self.counters.receivedPCMEnergy.record(result.frame.pcm)
+#endif
                     self.receiveSequence = result.frame.sequence
                     self.counters.received += 1; self.counters.sequenceGaps += result.gaps
                     self.lastDownlink = self.clock.now; self.lastDownlinkFrame = self.lastDownlink
@@ -226,6 +231,9 @@ final class V2MediaCoordinator: ObservableObject {
                             do {
                                 try await self.write(.data(binary), socket: socket)
                                 guard self.generation == stamp else { return }
+#if DEBUG
+                                self.counters.sentPCMEnergy.record(pcm)
+#endif
                                 self.counters.sent += 1; self.up?.completed(at: self.clock.now, generation: stamp)
                             } catch {
                                 if case V2MediaFailure.timeout = error { self.counters.writeTimeouts += 1 }

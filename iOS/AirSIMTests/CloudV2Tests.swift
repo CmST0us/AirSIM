@@ -1043,6 +1043,43 @@ extension CloudV2Tests {
         await v2Yield(); XCTAssertEqual(media.state, .paired)
         await media.stop()
     }
+    func testV2RouteCategoriesAreFixedDeduplicatedAndHandleEmpty() {
+#if DEBUG
+        XCTAssertEqual(V2AudioPortCategory.categories([]), [.none])
+        XCTAssertEqual(V2AudioPortCategory.categories([.builtInMic, .builtInReceiver, .builtInSpeaker]), [.builtInMicrophone, .receiver, .speaker])
+        XCTAssertEqual(V2AudioPortCategory.categories([.headphones, .headsetMic, .usbAudio, .lineIn, .lineOut]), [.wired])
+        XCTAssertEqual(V2AudioPortCategory.categories([.bluetoothHFP, .bluetoothA2DP, .bluetoothLE]), [.bluetooth])
+        XCTAssertEqual(V2AudioPortCategory.classify(AVAudioSession.Port(rawValue: "unrecognized")), .other)
+#endif
+    }
+    @MainActor func testV2RealPathEnergyFreezesAndResetsWithSilentSend() async throws {
+#if DEBUG
+        let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
+        socket.messages = v2HandshakeMessages()
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
+        let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        media.start(context: context, diagnosticMode: false, validate: { true })
+        await v2Yield()
+        audio.frames = [Data(repeating: 0, count: 320)]
+        socket.deliver(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, pcm: Data(repeating: 1, count: 320)).encode()))
+        clock.advance(5_000_000); await v2Yield()
+        clock.advance(45_000_000); await v2Yield()
+        await media.stop()
+        let sent = media.statistics.sentPCMEnergy, received = media.statistics.receivedPCMEnergy
+        XCTAssertEqual(sent.frames, 1); XCTAssertEqual(sent.nonzeroFrames, 0)
+        XCTAssertEqual(sent.rms, 0); XCTAssertEqual(sent.peak, 0)
+        XCTAssertEqual(received.frames, 1); XCTAssertEqual(received.nonzeroFrames, 1)
+        XCTAssertEqual(received.rms, 257); XCTAssertEqual(received.peak, 257)
+        await media.stop(); media.requestStop(); await v2Yield(100)
+        XCTAssertEqual(media.statistics.sentPCMEnergy, sent); XCTAssertEqual(media.statistics.receivedPCMEnergy, received)
+        socket.messages = v2HandshakeMessages()
+        media.start(context: context, diagnosticMode: false, validate: { true })
+        XCTAssertEqual(media.statistics.sentPCMEnergy, V2PCMEnergySummary())
+        XCTAssertEqual(media.statistics.receivedPCMEnergy, V2PCMEnergySummary())
+        await v2Yield(); await media.stop()
+#endif
+    }
+
     @MainActor func testV2RepeatedStopPreservesNonzeroFinalQueueStatistics() async throws {
         let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
         let pcm = Data(repeating: 1, count: 320)
@@ -1254,6 +1291,12 @@ extension CloudV2Tests {
         XCTAssertGreaterThan(muted.metrics.captured, 0)
         XCTAssertLessThanOrEqual(muted.frames.count, 5)
         XCTAssertTrue(muted.frames.allSatisfy { $0 == Data(repeating: 0, count: 320) })
+#if DEBUG
+        var mutedEnergy = V2PCMEnergySummary()
+        muted.frames.forEach { mutedEnergy.record($0) }
+        XCTAssertGreaterThan(mutedEnergy.frames, 0)
+        XCTAssertEqual(mutedEnergy.nonzeroFrames, 0); XCTAssertEqual(mutedEnergy.rms, 0); XCTAssertEqual(mutedEnergy.peak, 0)
+#endif
         XCTAssertTrue(capture.pull().frames.isEmpty) // Mute does not synthesize frames without capture.
         capture.setMuted(false); capture.push(buffer)
         try await Task.sleep(for: .milliseconds(20))

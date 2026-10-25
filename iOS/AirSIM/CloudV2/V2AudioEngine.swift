@@ -68,6 +68,26 @@ enum V2AudioError: Error {
     }
 }
 
+#if DEBUG
+enum V2AudioPortCategory: String, CaseIterable {
+    case builtInMicrophone, receiver, speaker, wired, bluetooth, other, none
+    static func classify(_ port: AVAudioSession.Port) -> Self {
+        switch port {
+        case .builtInMic: return .builtInMicrophone
+        case .builtInReceiver: return .receiver
+        case .builtInSpeaker: return .speaker
+        case .headphones, .headsetMic, .lineIn, .lineOut, .usbAudio: return .wired
+        case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE: return .bluetooth
+        default: return .other
+        }
+    }
+    static func categories(_ ports: [AVAudioSession.Port]) -> [Self] {
+        let values = Set(ports.map(classify))
+        return values.isEmpty ? [.none] : allCases.filter { values.contains($0) }
+    }
+}
+#endif
+
 struct V2AudioMetrics {
     var captured: UInt64 = 0
     var inputDrops: UInt64 = 0
@@ -79,6 +99,10 @@ struct V2AudioMetrics {
     var voiceProcessing = false
     var running = false
     var queuedPlayback = 0
+#if DEBUG
+    var inputRoute: [V2AudioPortCategory] = [.none]
+    var outputRoute: [V2AudioPortCategory] = [.none]
+#endif
 }
 
 // The tap only copies into five preallocated 20ms mono slots. At most one drain
@@ -262,11 +286,17 @@ final class V2AudioEngine: V2AudioIO {
             engine.prepare()
             do { try engine.start() } catch { throw V2AudioError.engine((error as NSError).code) }
             metrics.running = true
+#if DEBUG
+            updateRoute()
+#endif
             let center = NotificationCenter.default
             for name in [AVAudioSession.interruptionNotification, AVAudioSession.mediaServicesWereResetNotification, AVAudioSession.routeChangeNotification, .AVAudioEngineConfigurationChange] {
                 observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                     Task { @MainActor in
                         guard let self, self.generation == stamp else { return }
+#if DEBUG
+                        if notification.name == AVAudioSession.routeChangeNotification { self.updateRoute() }
+#endif
                         if notification.name == AVAudioSession.interruptionNotification {
                             guard (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue else { return }
                             self.onFailure?(.interrupted)
@@ -306,7 +336,19 @@ final class V2AudioEngine: V2AudioIO {
         return true
     }
     func setMuted(_ value: Bool) { capture?.setMuted(value) }
-    func setSpeaker(_ value: Bool) throws { try AVAudioSession.sharedInstance().overrideOutputAudioPort(value ? .speaker : .none) }
+    func setSpeaker(_ value: Bool) throws {
+        try AVAudioSession.sharedInstance().overrideOutputAudioPort(value ? .speaker : .none)
+#if DEBUG
+        updateRoute()
+#endif
+    }
+#if DEBUG
+    private func updateRoute() {
+        let route = AVAudioSession.sharedInstance().currentRoute
+        metrics.inputRoute = V2AudioPortCategory.categories(route.inputs.map(\.portType))
+        metrics.outputRoute = V2AudioPortCategory.categories(route.outputs.map(\.portType))
+    }
+#endif
     private func cancelPermission() {
         let pending = permission; permission = nil; pending?.resume(throwing: CancellationError())
     }
