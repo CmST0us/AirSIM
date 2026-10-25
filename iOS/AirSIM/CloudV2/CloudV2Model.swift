@@ -112,18 +112,24 @@ final class CloudV2Model: ObservableObject {
         }
         refreshCommandStatus()
     }
-    func activateSystemIntegration(calls: (any V2SystemCallReporting)? = nil) {
+    func activateSystemIntegration(calls: (any V2SystemCallReporting)? = nil, associationTimeout: Duration = .seconds(25), endAssociationTimeout: Duration = .seconds(10)) {
         guard systemCalls == nil, !R7UITestScenario.active else { return }
         media.useCallKitAudioSession()
-        systemCalls = V2SystemCallController(model: self, calls: calls ?? CallKitController.shared)
+        systemCalls = V2SystemCallController(model: self, calls: calls ?? CallKitController.shared, associationTimeout: associationTimeout, endAssociationTimeout: endAssociationTimeout)
         systemCalls?.start()
     }
     func systemCallScopeChanged() async {
         await cancelPolling()
         if foreground || systemBinding != nil { startPolling() }
     }
-    func systemCommand(_ action: String, args: [String: String]) async -> Bool {
-        await perform(action: action, args: args)
+    private var systemSubmission: V2SystemCommandSubmission?
+    func systemCommand(_ action: String, args: [String: String], binding: V2ControlBinding? = nil,
+                       submitted: ((V2SystemCommandSubmission) -> Void)? = nil) async -> V2SystemCommandSubmission {
+        var submission: V2SystemCommandSubmission?
+        _ = await perform(action: action, args: args, expectedBinding: binding) { ticket in
+            submission = ticket; self.systemSubmission = ticket; submitted?(ticket)
+        }
+        return submission ?? V2SystemCommandSubmission(commandID: nil, binding: binding, outcome: .failed)
     }
 
     var ownedCall: V2CallContext? { machine?.ownedCall }
@@ -411,7 +417,7 @@ final class CloudV2Model: ObservableObject {
         do { try await machine?.recover(); try finishResolvedCommand() } catch { self.error = "查询失败，操作结果仍未确认。" }
     }
     @discardableResult
-    private func perform(action: String, args: [String: String]) async -> Bool {
+    private func perform(action: String, args: [String: String], expectedBinding: V2ControlBinding? = nil, submitted: ((V2SystemCommandSubmission) -> Void)? = nil) async -> Bool {
         guard canAct, let machine else { return false }
         guard foreground || (systemBinding != nil && ["call.answer", "call.hangup", "call.dtmf"].contains(action) && args["call_id"] == (ownedCall?.callID ?? systemCalls?.currentCallID)) else { return false }
         let binding: V2ControlBinding
@@ -420,25 +426,42 @@ final class CloudV2Model: ObservableObject {
         } else {
             guard let freshBinding, action == "sms.send" ? messagingReady : telephonyReady else { error = "模块状态或对应能力尚未就绪。"; return false }; binding = freshBinding
         }
+        guard expectedBinding == nil || expectedBinding == binding else { return false }
         busy = true; actionInFlight = true
         defer { busy = false; actionInFlight = false; objectWillChange.send() }
         do {
             if action == "call.hangup" { await media.stop() }
             let command = try V2Command(binding: binding, action: action, args: args, now: now())
             if action == "call.dial" || action == "call.answer" { runtimeCallCommandID = command.command_id }
+            submitted?(V2SystemCommandSubmission(commandID: command.command_id, binding: binding, outcome: .pending))
             try await machine.submit(command, binding: binding)
             let succeeded: Bool
             if case let .receipt(server, state) = machine.phase { succeeded = server == "completed" && ["accepted", "observed"].contains(state) }
             else { succeeded = false }
             try finishResolvedCommand()
-            if !succeeded { error = hasUnresolvedCommand ? "操作结果待核对，请查询原操作结果。" : "操作未成功，请核对连接与模块状态。" }
+            if !succeeded, submitted == nil { error = hasUnresolvedCommand ? "操作结果待核对，请查询原操作结果。" : "操作未成功，请核对连接与模块状态。" }
             return succeeded
-        } catch { self.error = "操作未成功，请核对连接与模块能力后重试。"; return false }
+        } catch {
+            if submitted != nil, machine.pending == nil { systemSubmission?.outcome = .failed }
+            self.error = "操作未成功，请核对连接与模块能力后重试。"; return false
+        }
     }
     private func finishResolvedCommand() throws {
         refreshCommandStatus()
         guard let machine else { return }
         if let commandID = machine.pending?.commandID, commandID == runtimeCallCommandID, let owned = machine.ownedCall { newlyOwnedCall = owned }
+        if let ticket = systemSubmission, ticket.commandID == machine.pending?.commandID {
+            switch machine.phase {
+            case let .receipt(server, state):
+                if ["failed", "expired"].contains(state) { ticket.outcome = .failed }
+                else if server == "completed", ["accepted", "observed"].contains(state) { ticket.outcome = .completed }
+                else { ticket.outcome = .pending; return }
+                if ticket.outcome == .completed, ["call.dial", "call.answer"].contains(machine.pending?.action ?? ""),
+                   machine.ownedCall?.binding == ticket.binding { ticket.ownedCall = machine.ownedCall }
+            case .rejected: ticket.outcome = .failed
+            default: break
+            }
+        }
         switch machine.phase {
         case let .receipt(_, state) where machine.pending?.action == "call.hangup" && (state == "accepted" || state == "observed"): break // Snapshot confirms disconnect before releasing this pending.
         case .receipt, .rejected: try machine.acknowledgeResolved()

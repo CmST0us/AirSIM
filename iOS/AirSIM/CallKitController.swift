@@ -545,7 +545,7 @@ final class CallKitController: NSObject {
                 },
                 backend: { try await handler.callKitAnswer(origin: origin) }
             )
-            if let backendError, currentUUID == action.callUUID {
+            if let backendError, currentUUID == action.callUUID, self.handler === handler {
                 finishCurrentCall(previous: nil, reason: .failed)
                 handler.callKitDidFail(backendError.localizedDescription)
             }
@@ -595,12 +595,12 @@ final class CallKitController: NSObject {
                 },
                 backend: { try await handler.callKitStart(number: action.handle.value) }
             )
-            if let backendError, currentUUID == action.callUUID {
+            if let backendError, currentUUID == action.callUUID, self.handler === handler {
                 finishCurrentCall(previous: nil, reason: .failed)
                 handler.callKitDidFail(backendError.localizedDescription)
                 return
             }
-            if currentState == "active" {
+            if currentUUID == action.callUUID, self.handler === handler, currentState == "active" {
                 provider.reportOutgoingCall(with: action.callUUID, connectedAt: Date())
             }
         } catch {
@@ -636,7 +636,7 @@ final class CallKitController: NSObject {
 
         // CallKit owns the local system-call lifecycle. A temporarily missing
         // module must not leave the UUID registered after the user hangs up.
-        guard currentUUID == action.callUUID else { action.fulfill(); return }
+        guard currentUUID == action.callUUID, handler === currentHandler else { action.fulfill(); return }
         endActionFulfilled = true
         action.fulfill()
         incomingDeduplicator.recordEnded(

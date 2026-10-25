@@ -1437,6 +1437,11 @@ extension CloudV2Tests {
     var snapshotCalls: [[String: Any]] = []
     var writes = 0
     var commandHTTPStatus: Int?
+    var delayedReceipts = false
+    var receiptReads = 0
+    var receiptCompletionAfter = 1
+    var receiptFails = false
+    var receiptUnknown = false
     var commands: [[String: Any]] = []
     init(media: V2MediaCoordinator? = nil) throws {
         defaults = UserDefaults(suiteName: suite)!
@@ -1445,6 +1450,25 @@ extension CloudV2Tests {
         let transport = V2TestTransport { [unowned self] request in
             if request.httpMethod != "GET" { writes += 1 }
             let path = request.url!.path
+            if path.contains("commands"), delayedReceipts {
+                if request.httpMethod == "POST", let data = request.httpBody,
+                   let wrapper = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let command = wrapper["command"] as? [String: Any] {
+                    commands.append(command)
+                    return V2HTTPResponse(status: 202, body: try v2Data(["command_id": command["command_id"]!, "state": "pending", "generation": v2ID, "receipt": NSNull()]))
+                }
+                receiptReads += 1
+                let command = commands.last!
+                let id = command["command_id"] as! String
+                if receiptReads <= receiptCompletionAfter {
+                    return V2HTTPResponse(status: 200, body: try v2Data(["command_id": id, "state": receiptUnknown ? "outcome_unknown" : "pending", "generation": v2ID, "receipt": NSNull()]))
+                }
+                var result = try JSONSerialization.jsonObject(with: v2Accepted(id: id, action: command["action"] as! String)) as! [String: Any]
+                if receiptFails {
+                    var receipt = result["receipt"] as! [String: Any]; receipt["state"] = "failed"; result["receipt"] = receipt
+                }
+                return V2HTTPResponse(status: 200, body: try v2Data(result))
+            }
             if path.contains("commands"), let status = commandHTTPStatus {
                 if status == 200, let data = request.httpBody,
                    let wrapper = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1904,5 +1928,140 @@ extension CloudV2Tests {
                 XCTAssertTrue(transport.requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == nil })
             }
         }
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testR7System202AssociatesOriginalCommandInForegroundAndBackground() async throws {
+        for background in [false, true] {
+            for answer in [false, true] {
+                let fixture = try V2PollFixture(); fixture.delayedReceipts = true
+                if answer {
+                    var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+                    fixture.snapshotCalls = [incoming]
+                }
+                let system = R7TestSystemCalls()
+                fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(5))
+                await fixture.model.sceneChanged(.active)
+                try await v2PollWait { fixture.model.freshBinding != nil }
+                if !answer { system.currentSystemCallUUID = UUID() }
+                let uuid = try XCTUnwrap(system.currentSystemCallUUID)
+                let controller = try XCTUnwrap(fixture.model.systemCalls)
+                let start = Task {
+                    if answer { try await controller.callKitAnswer(origin: .system) }
+                    else { try await controller.callKitStart(number: "00000000001") }
+                }
+                try await v2PollWait { fixture.writes == 1 }
+                XCTAssertEqual(controller.authorizedBinding, fixture.model.freshBinding)
+                if background { await fixture.model.sceneChanged(.background) }
+                let directoryCount = fixture.counts["directory", default: 0]
+                let messagesCount = fixture.counts["messages", default: 0]
+                try await start.value
+                XCTAssertGreaterThanOrEqual(fixture.receiptReads, 2)
+                XCTAssertEqual(system.currentSystemCallUUID, uuid)
+                XCTAssertEqual(fixture.model.ownedCall?.callID, v2OtherID)
+                XCTAssertEqual(fixture.writes, 1); XCTAssertFalse(fixture.model.hasUnresolvedCommand)
+                XCTAssertNil(fixture.model.error)
+                if background {
+                    XCTAssertEqual(fixture.counts["directory", default: 0], directoryCount)
+                    XCTAssertEqual(fixture.counts["messages", default: 0], messagesCount)
+                }
+                await fixture.close()
+            }
+        }
+    }
+    @MainActor func testR7System202FailureClearsPendingAndTimeoutPreservesItWithoutReplay() async throws {
+        for failure in [false, true] {
+            let fixture = try V2PollFixture(); fixture.delayedReceipts = true
+            fixture.receiptFails = failure; fixture.receiptCompletionAfter = failure ? 0 : Int.max
+            fixture.receiptUnknown = !failure
+            let system = R7TestSystemCalls()
+            fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(2))
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { fixture.model.freshBinding != nil }
+            system.currentSystemCallUUID = UUID()
+            do { try await fixture.model.systemCalls?.callKitStart(number: "00000000001"); XCTFail("Expected failed association") }
+            catch { }
+            XCTAssertEqual(fixture.model.hasUnresolvedCommand, !failure); XCTAssertNil(fixture.model.ownedCall)
+            XCTAssertEqual(fixture.model.canAct, failure)
+            XCTAssertEqual(fixture.writes, 1)
+            await fixture.close()
+        }
+    }
+    @MainActor func testR7SystemEndBeforeAssociationWaitsForDirectedHangup() async throws {
+        for resolves in [false, true] {
+            let fixture = try V2PollFixture(); fixture.delayedReceipts = true
+            fixture.receiptCompletionAfter = resolves ? 1 : Int.max
+            let system = R7TestSystemCalls()
+            fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(5), endAssociationTimeout: resolves ? .seconds(4) : .milliseconds(100))
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { fixture.model.freshBinding != nil }
+            system.currentSystemCallUUID = UUID()
+            let controller = try XCTUnwrap(fixture.model.systemCalls)
+            let start = Task { try await controller.callKitStart(number: "00000000001") }
+            try await v2PollWait { fixture.writes == 1 }
+            if resolves { fixture.snapshotCalls = [v2CallObject(state: "active")] }
+            try await controller.callKitEnd()
+            XCTAssertEqual(fixture.writes, resolves ? 2 : 1)
+            if resolves {
+                XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.hangup")
+                XCTAssertEqual((fixture.commands.last?["args"] as? [String: String])?["call_id"], v2OtherID)
+            }
+            XCTAssertTrue(fixture.model.hasUnresolvedCommand)
+            controller.callKitCallDidEnd(); system.currentSystemCallUUID = nil
+            try await start.value
+            await fixture.close()
+        }
+    }
+    @MainActor func testR7SystemOldAssociationCannotTakeOverReplacementUUID() async throws {
+        let fixture = try V2PollFixture(); fixture.delayedReceipts = true
+        let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4))
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.freshBinding != nil }
+        system.currentSystemCallUUID = UUID()
+        let controller = try XCTUnwrap(fixture.model.systemCalls)
+        let start = Task { try await controller.callKitStart(number: "00000000001") }
+        try await v2PollWait { fixture.writes == 1 }
+        let replacement = UUID(); system.currentSystemCallUUID = replacement
+        try await start.value
+        XCTAssertEqual(system.currentSystemCallUUID, replacement); XCTAssertEqual(system.endings, 0)
+        XCTAssertEqual(fixture.writes, 1)
+        await fixture.close()
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testR7SystemDTMF202RetainsPendingWithoutFailure() async throws {
+        let fixture = try V2PollFixture(); fixture.commandHTTPStatus = 200
+        var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+        fixture.snapshotCalls = [incoming]
+        let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { system.currentSystemCallUUID != nil }
+        let controller = try XCTUnwrap(fixture.model.systemCalls)
+        try await controller.callKitAnswer(origin: .system)
+        fixture.snapshotCalls = [v2CallObject(state: "active")]
+        try await v2PollWait { fixture.model.activeCall?.state == "active" }
+        fixture.delayedReceipts = true
+        try await controller.callKitPlayDTMF("1")
+        XCTAssertEqual(fixture.writes, 2); XCTAssertTrue(fixture.model.hasUnresolvedCommand)
+        XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.dtmf")
+        XCTAssertNil(fixture.model.error)
+        await fixture.close()
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testR7SystemExplicitRejectionReleasesPending() async throws {
+        let fixture = try V2PollFixture(); fixture.commandHTTPStatus = 409
+        let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.freshBinding != nil }
+        system.currentSystemCallUUID = UUID()
+        do { try await fixture.model.systemCalls?.callKitStart(number: "00000000001"); XCTFail("Expected explicit rejection") }
+        catch { }
+        XCTAssertFalse(fixture.model.hasUnresolvedCommand); XCTAssertTrue(fixture.model.canAct)
+        XCTAssertNil(fixture.model.ownedCall); XCTAssertEqual(fixture.writes, 1)
+        await fixture.close()
     }
 }
