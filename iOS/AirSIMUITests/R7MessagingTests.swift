@@ -3,6 +3,14 @@ import XCTest
 final class R7MessagingTests: R7UITestCase {
     func testEmptyMessageCannotBeSentAndComposerCanBeCancelled() {
         openTab("短信")
+        let recovery = app.buttons["连接设置"]
+        XCTAssertTrue(recovery.waitForExistence(timeout: 5))
+        XCTAssertTrue(recovery.isHittable)
+        capture("v2-unconfigured-message-recovery")
+        recovery.tap()
+        XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
+        XCTAssertTrue(app.buttons["导入连接配置 JSON"].waitForExistence(timeout: 5))
+        openTab("短信")
         let compose = app.buttons["新信息"]
         XCTAssertTrue(compose.waitForExistence(timeout: 5))
         guard compose.exists else { return }
@@ -63,11 +71,16 @@ final class R7ModuleIsolationTests: R7ConversationTestCase {
         let contact = app.staticTexts["QA虚构联系人"].firstMatch
         XCTAssertTrue(contact.waitForExistence(timeout: 5))
         contact.tap()
-        app.buttons["发短信"].tap()
-        XCTAssertTrue(app.navigationBars["新信息"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields.matching(NSPredicate(format: "value == %@", "00000000001")).firstMatch.exists)
-        XCTAssertFalse(app.navigationBars.buttons["发送"].isEnabled)
-        capture("contact-message-composer")
+        for attempt in 1...2 {
+            app.buttons["发短信"].tap()
+            XCTAssertTrue(app.navigationBars["新信息"].waitForExistence(timeout: 5))
+            XCTAssertEqual(app.textFields["输入号码或姓名"].value as? String, "00000000001")
+            XCTAssertFalse(app.navigationBars.buttons["发送"].isEnabled)
+            capture("contact-message-composer-\(attempt)")
+            app.navigationBars.buttons["取消"].tap()
+            XCTAssertTrue(app.buttons["新信息"].waitForExistence(timeout: 5))
+            if attempt == 1 { openTab("联系人") }
+        }
     }
 }
 

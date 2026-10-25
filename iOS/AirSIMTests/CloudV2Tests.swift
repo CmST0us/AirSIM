@@ -1870,3 +1870,39 @@ extension CloudV2Tests {
         XCTAssertFalse(second.hasMessageGap)
     }
 }
+
+
+extension CloudV2Tests {
+    @MainActor func testKnownDiscoveryProfilesWithoutAPNsRetainIdentityAndOriginChecks() async throws {
+        for profile in ["airsim-v2-r4.1", "airsim-v2-r7"] {
+            for mismatch in ["none", "server_id", "api_origin", "media_origin", "apns", "profile"] {
+                var discovery = try JSONSerialization.jsonObject(with: v2Discovery()) as! [String: Any]
+                discovery["profile"] = profile
+                switch mismatch {
+                case "server_id": discovery["server_id"] = v2OtherID
+                case "api_origin", "media_origin": discovery[mismatch] = "https://other.example.invalid"
+                case "apns":
+                    var capabilities = discovery["capabilities"] as! [String: Any]
+                    capabilities["apns"] = true; discovery["capabilities"] = capabilities
+                case "profile": discovery["profile"] = "airsim-v2-unknown"
+                default: break
+                }
+                let body = try v2Data(discovery)
+                let tokens = V2TestTokens()
+                let transport = V2TestTransport { _ in V2HTTPResponse(status: 200, body: body) }
+                let client = V2Client(transport: transport, tokens: tokens, now: { v2Now })
+                do {
+                    let result = try await client.connect(v2Config())
+                    XCTAssertEqual(mismatch, "none")
+                    XCTAssertEqual(result.profile, profile)
+                    XCTAssertFalse(result.capabilities.apns)
+                } catch {
+                    XCTAssertNotEqual(mismatch, "none", "Known no-push profile must connect")
+                    XCTAssertEqual(tokens.reads, 0)
+                    XCTAssertNil(client.configuration)
+                }
+                XCTAssertTrue(transport.requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == nil })
+            }
+        }
+    }
+}

@@ -58,6 +58,12 @@ final class R7NavigationTests: R7UITestCase {
         XCTAssertFalse(app.buttons["运行云端模式自检"].exists)
         XCTAssertFalse(app.buttons["保存 Relay 地址"].exists)
         capture("v2-settings")
+        let diagnostics = app.buttons["连接与音频诊断"]
+        for _ in 0..<5 where !diagnostics.isHittable { app.swipeUp() }
+        XCTAssertTrue(diagnostics.isHittable)
+        diagnostics.tap()
+        XCTAssertTrue(app.navigationBars["诊断"].waitForExistence(timeout: 5))
+        capture("v2-diagnostics")
     }
 
     func testV2CanReturnToDialAfterBrowsingMessagesAndRecents() {
@@ -123,4 +129,43 @@ final class R7LargeTextTests: R7UITestCase {
     }
 
     func testLargeTextNavigationRemainsReachable() { verifyOriginalTabs() }
+}
+
+final class R7IncomingCallViewTests: R7UITestCase {
+    override var scenario: String { "v2-incoming-fixture" }
+
+    func testIncomingUsesOriginalAnswerAndRejectControls() {
+        let answer = app.buttons["接听"]
+        XCTAssertTrue(answer.waitForExistence(timeout: 15))
+        XCTAssertTrue(answer.isHittable)
+        XCTAssertTrue(app.buttons["拒接"].isHittable)
+        XCTAssertFalse(app.buttons["录音"].exists)
+        XCTAssertFalse(app.buttons["停止录音"].exists)
+        XCTAssertFalse(app.tabBars.buttons["模块与通话"].exists)
+        capture("v2-incoming-original-controls")
+    }
+}
+
+final class R7ActiveCallViewTests: R7UITestCase {
+    override var scenario: String { "v2-active-fixture" }
+
+    func testActiveUsesOriginalControlsWithoutMediaOrRecording() {
+        let hangup = app.buttons["挂断"]
+        XCTAssertTrue(hangup.waitForExistence(timeout: 15))
+        XCTAssertTrue(hangup.isHittable)
+        XCTAssertTrue(app.buttons["键盘"].isHittable)
+        XCTAssertTrue(app.buttons["静音"].exists)
+        XCTAssertFalse(app.buttons["静音"].isEnabled)
+        XCTAssertTrue(app.buttons["扬声器"].exists)
+        XCTAssertFalse(app.buttons["扬声器"].isEnabled)
+        XCTAssertFalse(app.buttons["录音"].exists)
+        XCTAssertFalse(app.buttons["停止录音"].exists)
+        capture("v2-active-original-controls")
+        app.buttons["键盘"].tap()
+        XCTAssertTrue(app.navigationBars["通话键盘"].waitForExistence(timeout: 5))
+        capture("v2-active-original-keypad")
+        app.buttons["取消"].tap()
+        XCTAssertTrue(hangup.waitForExistence(timeout: 5))
+        XCTAssertTrue(hangup.isHittable)
+    }
 }
