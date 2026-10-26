@@ -1,6 +1,6 @@
 import { PairingController } from './controller';
 import type { State } from './controller';
-import type { Device, FailureCode } from './transport';
+import type { Device, FailureCode } from './pairing';
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text?: string) {
   const node = document.createElement(tag);

@@ -15,7 +15,7 @@ Node 22.12+ is required by the pinned toolchain. Run commands from this director
 
 `src/adapter.ts` is the production composition point. It currently returns no transport. Supported desktop browsers therefore stop at “设备连接暂不可用”; unsupported browsers and mobile devices show their own instructions. There is no production mock, fixture query parameter, or fallback transport.
 
-`src/transport.ts` describes the provisional page-facing interface, not a frozen wire protocol. Supply one `DeviceTransport` to `PairingController`. The actual WebUSB adapter, permission filters, device protocol and response mapping are provided separately. See [frontend handoff](../../../docs/PAIRING_WEB_FRONTEND.md).
+`src/pairing.ts` describes the provisional page-facing interface, not a frozen wire protocol. Supply one `DeviceTransport` to `PairingController`. The actual WebUSB adapter, permission filters, device protocol and response mapping are provided separately. See [frontend handoff](../../../docs/PAIRING_WEB_FRONTEND.md).
 
 ## Tests
 

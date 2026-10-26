@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PairingController } from '../src/controller';
-import { TransportFailure } from '../src/transport';
-import type { ConnectionResult, Device } from '../src/transport';
+import { TransportFailure } from '../src/pairing';
+import type { ConnectionResult, Device } from '../src/pairing';
 import { adapter, deferred, device, environment, operationStore } from './fixtures';
 
 async function setup() {

@@ -8,9 +8,9 @@
 
 ## 适配器接入点
 
-[adapter.ts](../service/airsim/web/src/adapter.ts) 是生产装配入口，目前返回 `undefined`。主控冻结协议并提供 WebUSB 实现后，在此返回实现对象。页面状态与 DOM 视图不依赖 USB 类或服务器响应格式。
+[adapter.ts](../service/airsim/web/src/adapter.ts) 是生产装配入口，目前返回 `undefined`。主控独占 `service/airsim/web/src/transport/` 实现 WebUSB 适配器。主控冻结协议并提供实现后，在此返回实现对象。页面状态与 DOM 视图不依赖 USB 类或服务器响应格式。
 
-[transport.ts](../service/airsim/web/src/transport.ts) 是暂定页面接口，不是对外协议：
+[pairing.ts](../service/airsim/web/src/pairing.ts) 是暂定页面接口，不是对外协议：
 
 | 方法 | 页面用途与约束 |
 | --- | --- |

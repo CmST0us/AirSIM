@@ -1,8 +1,8 @@
 import '../src/styles.css';
 import { PairingController } from '../src/controller';
 import { mountPairing } from '../src/view';
-import { TransportFailure } from '../src/transport';
-import type { DeviceTransport } from '../src/transport';
+import { TransportFailure } from '../src/pairing';
+import type { DeviceTransport } from '../src/pairing';
 
 const scenario = new URLSearchParams(location.search).get('state') ?? 'ready';
 const device = { id: 'fixture-only', name: 'RM500', shortId: 'A7K2' };

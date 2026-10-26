@@ -1,9 +1,9 @@
 import { afterEach, expect, it } from 'vitest';
 import { PairingController } from '../src/controller';
 import { mountPairing } from '../src/view';
-import { TransportFailure } from '../src/transport';
+import { TransportFailure } from '../src/pairing';
 import { adapter, deferred, device, environment } from './fixtures';
-import type { ConnectionResult } from '../src/transport';
+import type { ConnectionResult } from '../src/pairing';
 
 let unmount = () => {};
 afterEach(() => { unmount(); document.body.replaceChildren(); });

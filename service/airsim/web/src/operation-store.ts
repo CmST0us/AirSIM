@@ -1,4 +1,4 @@
-import type { Operation } from './transport';
+import type { Operation } from './pairing';
 
 export interface OperationStore {
   load(): Operation | undefined;

@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { Device, DeviceTransport, Operation } from '../src/transport';
+import type { Device, DeviceTransport, Operation } from '../src/pairing';
 import type { OperationStore } from '../src/operation-store';
 
 export const device: Device = { id: 'test-device', name: 'RM500', shortId: 'A7K2' };

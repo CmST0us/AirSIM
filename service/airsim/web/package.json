@@ -10,9 +10,14 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "devDependencies": {
+    "jsdom": "^27.0.0",
     "typescript": "~5.9.3",
     "vite": "8.3.5",
-    "vitest": "5.0.5",
-    "jsdom": "^27.0.0"
+    "vitest": "5.0.5"
+  },
+  "dependencies": {
+    "@yume-chan/adb": "2.6.4",
+    "@yume-chan/adb-credential-web": "2.1.0",
+    "@yume-chan/adb-daemon-webusb": "2.3.2"
   }
 }

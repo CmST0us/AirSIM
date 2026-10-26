@@ -1,7 +1,7 @@
 import type { OperationStore } from './operation-store';
 import type { Environment } from './environment';
-import { TransportFailure } from './transport';
-import type { ConnectionResult, Device, DeviceTransport, FailureCode, Operation } from './transport';
+import { TransportFailure } from './pairing';
+import type { ConnectionResult, Device, DeviceTransport, FailureCode, Operation } from './pairing';
 
 export type State =
   | { kind: 'mobile' | 'unsupported' | 'unavailable' | 'loading' }
