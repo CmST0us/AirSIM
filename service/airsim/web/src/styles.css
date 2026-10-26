@@ -91,3 +91,8 @@ dialog::backdrop { background: #14141b45; backdrop-filter: blur(8px); }
   header { background: #fafafc; backdrop-filter: none; }
   dialog::backdrop { backdrop-filter: none; background: #14141b99; }
 }
+
+.connection-code { display: block; text-align: center; font-size: 40px; font-weight: 600; letter-spacing: 6px; font-variant-numeric: tabular-nums; margin: 24px 0 12px; white-space: nowrap; }
+.connection-code[hidden] { display: none; }
+.code-expiry { text-align: center; color: var(--muted); font-size: 13px; margin: 0; }
+@media (max-width: 600px) { .connection-code { font-size: 30px; letter-spacing: 3px; } }

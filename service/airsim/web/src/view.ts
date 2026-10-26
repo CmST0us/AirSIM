@@ -14,6 +14,7 @@ const failures: Record<FailureCode, [string, string]> = {
   busy: ['设备被占用', '关闭使用此设备的程序。选择设备，重试连接。'],
   disconnected: ['设备连接已断开', '检查电源和数据线。连接原设备。'],
   unsupported: ['设备不受支持', '选择受支持的设备。'],
+  not_ready: ['设备未准备', '完成设备准备后重试。'],
   failed: ['连接失败', '检查设备电源和连接。选择设备，重试连接。'],
   unknown: ['无法读取设备', '检查设备连接。选择设备重试。'],
 };
@@ -62,6 +63,8 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
   dialog.onclick = event => { if (event.target === dialog) dialog.close(); };
   root.append(skip, header, main, dialog);
   let first = true;
+  let previous: State | undefined;
+  let expiryTimer: ReturnType<typeof setInterval> | undefined;
 
   function button(label: string, action: () => void, secondary = false) {
     const node = element('button', secondary ? 'plain' : 'primary', label);
@@ -83,6 +86,11 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
   }
 
   const unsubscribe = controller.subscribe((state: State) => {
+    if (state.kind === 'awaiting_phone' && previous?.kind === 'awaiting_phone'
+      && state.operation.id === previous.operation.id && state.code === previous.code
+      && state.expiresAt === previous.expiresAt) return;
+    previous = state;
+    clearInterval(expiryTimer);
     content.replaceChildren();
     const heading = element('h1');
     heading.tabIndex = -1;
@@ -130,6 +138,34 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
         content.append(deviceCard(state.device));
         actions.append(button('连接设备', () => { void controller.connect(); }), button('选择其他设备', choose, true));
         break;
+      case 'awaiting_phone': {
+        copy('输入连接码', '在 AirSIM 中添加设备，输入连接码。');
+        content.append(deviceCard(state.operation.device));
+        const code = element('output', 'connection-code', `${state.code.slice(0, 4)} ${state.code.slice(4)}`);
+        code.setAttribute('aria-label', `连接码：${state.code.split('').join(' ')}`);
+        const expiry = element('p', 'code-expiry');
+        const updateExpiry = () => {
+          const remaining = Math.max(0, Math.ceil((Date.parse(state.expiresAt) - Date.now()) / 1000));
+          code.hidden = remaining === 0;
+          expiry.textContent = remaining > 0
+            ? `有效期 ${Math.floor(remaining / 60).toString().padStart(2, '0')}:${(remaining % 60).toString().padStart(2, '0')}`
+            : '有效期已到，核对连接结果。';
+        };
+        updateExpiry();
+        expiryTimer = setInterval(updateExpiry, 1000);
+        content.append(code, expiry, element('p', 'flow-note', '等待手机确认。'));
+        actions.append(button('取消', () => { void controller.cancel(); }, true));
+        break;
+      }
+      case 'expired':
+      case 'cancelled':
+        copy(state.kind === 'expired' ? '连接码已过期' : '连接已取消', '设备配对未完成。');
+        content.append(deviceCard(state.operation.device));
+        actions.append(button('重新连接', () => { void controller.retry(); }));
+        break;
+      case 'cancelling':
+        copy('取消连接', '核对连接结果。');
+        content.append(deviceCard(state.operation.device)); loading(); break;
       case 'connecting':
       case 'checking':
         copy(state.kind === 'connecting' ? '等待设备响应' : '查询连接结果', '保持设备供电与数据线连接。');
@@ -157,5 +193,5 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
     if (!first && !dialog.open) heading.focus({ preventScroll: true });
     first = false;
   });
-  return () => { unsubscribe(); controller.dispose(); root.replaceChildren(); };
+  return () => { clearInterval(expiryTimer); unsubscribe(); controller.dispose(); root.replaceChildren(); };
 }

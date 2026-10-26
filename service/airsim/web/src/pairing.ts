@@ -12,10 +12,12 @@ export interface Operation {
 
 export type ConnectionResult =
   | { state: 'pending' }
+  | { state: 'awaiting_phone'; code: string; expiresAt: string }
+  | { state: 'expired' | 'cancelled' }
   | { state: 'connected'; online: boolean }
   | { state: 'failed' };
 
-export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'unsupported' | 'failed' | 'unknown';
+export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'unsupported' | 'not_ready' | 'failed' | 'unknown';
 
 export class TransportFailure extends Error {
   constructor(readonly code: FailureCode) { super(code); }
@@ -29,6 +31,8 @@ export interface DeviceTransport {
   /** Repeated delivery of the same Operation must not start another write. */
   connect(operation: Operation, signal: AbortSignal): Promise<ConnectionResult>;
   status(operation: Operation, signal: AbortSignal): Promise<ConnectionResult>;
+  /** Cancel an unclaimed session; an already claimed session returns connected. */
+  cancel(operation: Operation, signal: AbortSignal): Promise<ConnectionResult>;
   /** Release local handles only; never unpair or reset a device. */
   disconnect(device: Device): Promise<void>;
 }

@@ -7,7 +7,8 @@ export type State =
   | { kind: 'mobile' | 'unsupported' | 'unavailable' | 'loading' }
   | { kind: 'devices' | 'selecting'; devices: readonly Device[] }
   | { kind: 'inspecting' | 'ready'; device: Device }
-  | { kind: 'connecting' | 'pending' | 'checking' | 'unknown'; operation: Operation }
+  | { kind: 'connecting' | 'pending' | 'checking' | 'unknown' | 'cancelling' | 'expired' | 'cancelled'; operation: Operation }
+  | { kind: 'awaiting_phone'; operation: Operation; code: string; expiresAt: string }
   | { kind: 'connected'; operation: Operation; online: boolean }
   | { kind: 'failed'; code: FailureCode; device?: Device };
 
@@ -24,6 +25,8 @@ export class PairingController {
   private lifetime = new AbortController();
   private generation = 0;
   private disposed = false;
+  private pollTimer?: ReturnType<typeof setTimeout>;
+  private statusInFlight = false;
   private heldDevice?: Device;
   private readonly operationId: () => string;
 
@@ -39,7 +42,11 @@ export class PairingController {
 
   private set(state: State) {
     if (this.disposed) return;
+    clearTimeout(this.pollTimer);
     this.state = state;
+    if (state.kind === 'awaiting_phone' || state.kind === 'pending') {
+      this.pollTimer = setTimeout(() => { void this.status(true); }, 2000);
+    }
     for (const listener of this.listeners) listener(state);
   }
 
@@ -124,31 +131,63 @@ export class PairingController {
     }
   }
 
-  async status() {
-    if (this.disposed || !['unknown', 'pending', 'connected'].includes(this.state.kind)
+  async status(background = false) {
+    if (this.disposed || this.statusInFlight || !['unknown', 'pending', 'connected', 'awaiting_phone'].includes(this.state.kind)
       || !('operation' in this.state)) return;
     const operation = this.state.operation;
     const generation = ++this.generation;
-    this.set({ kind: 'checking', operation });
+    this.statusInFlight = true;
+    if (!background) this.set({ kind: 'checking', operation });
     try {
       const result = await this.options.transport!.status(operation, this.lifetime.signal);
+      if (this.current(generation)) this.result(operation, result);
+    } catch {
+      if (this.current(generation)) this.set({ kind: 'unknown', operation });
+    } finally {
+      if (this.current(generation)) this.statusInFlight = false;
+    }
+  }
+
+  async cancel() {
+    if (this.disposed || !['awaiting_phone', 'pending', 'unknown'].includes(this.state.kind)
+      || !('operation' in this.state)) return;
+    const operation = this.state.operation;
+    const generation = ++this.generation;
+    this.statusInFlight = false;
+    this.set({ kind: 'cancelling', operation });
+    try {
+      const result = await this.options.transport!.cancel(operation, this.lifetime.signal);
       if (this.current(generation)) this.result(operation, result);
     } catch {
       if (this.current(generation)) this.set({ kind: 'unknown', operation });
     }
   }
 
+  async retry() {
+    if (this.disposed || !['expired', 'cancelled'].includes(this.state.kind)
+      || !('operation' in this.state)) return;
+    await this.inspect(this.state.operation.device, ++this.generation);
+  }
+
   private result(operation: Operation, result: ConnectionResult) {
-    if (result.state !== 'pending') {
+    if (['connected', 'expired', 'cancelled', 'failed'].includes(result.state)) {
       try { this.options.store?.clear(); } catch { /* A later reload can query the completed operation. */ }
     }
     if (result.state === 'connected') this.set({ kind: 'connected', operation, online: result.online });
+    else if (result.state === 'awaiting_phone') {
+      if (!/^\d{8}$/.test(result.code) || !Number.isFinite(Date.parse(result.expiresAt))) {
+        this.set({ kind: 'unknown', operation }); return;
+      }
+      this.set({ kind: 'awaiting_phone', operation, code: result.code, expiresAt: result.expiresAt });
+    }
+    else if (result.state === 'expired' || result.state === 'cancelled') this.set({ kind: result.state, operation });
     else if (result.state === 'pending') this.set({ kind: 'pending', operation });
     else this.set({ kind: 'failed', code: 'failed', device: operation.device });
   }
 
   dispose() {
     this.disposed = true;
+    clearTimeout(this.pollTimer);
     this.generation++;
     this.lifetime.abort();
     this.listeners.clear();

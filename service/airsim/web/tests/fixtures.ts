@@ -17,6 +17,7 @@ export function adapter() {
     inspect: vi.fn<DeviceTransport['inspect']>().mockResolvedValue(device),
     connect: vi.fn<DeviceTransport['connect']>().mockResolvedValue({ state: 'pending' }),
     status: vi.fn<DeviceTransport['status']>().mockResolvedValue({ state: 'pending' }),
+    cancel: vi.fn<DeviceTransport['cancel']>().mockResolvedValue({ state: 'cancelled' }),
     disconnect: vi.fn<DeviceTransport['disconnect']>().mockResolvedValue(undefined),
   };
 }
