@@ -64,7 +64,7 @@ func (s *Server) pushRegistration(w http.ResponseWriter, r *http.Request, user, 
 	v.VoIP = strings.ToLower(v.VoIP)
 	v.Alert = strings.ToLower(v.Alert)
 	var allowed bool
-	if e := s.db.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM modules WHERE id=$1 AND user_id=$2 AND NOT revoked)", v.Module, user).Scan(&allowed); e != nil {
+	if e := s.db.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM modules m JOIN clients c ON c.id=$3 WHERE m.id=$1 AND m.user_id=$2 AND NOT m.revoked AND (c.module_id IS NULL OR c.module_id=m.id))", v.Module, user, client).Scan(&allowed); e != nil {
 		wire.Error(w, 503, "database_unavailable")
 		return
 	}
@@ -133,7 +133,7 @@ func (s *Server) currentPush(ctx context.Context, sub subscription, event pushEv
 	var valid bool
 	e := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM push_registrations r JOIN clients c ON c.id=r.client_id JOIN modules m ON m.id=r.module_id
  WHERE r.client_id=$1 AND r.registration_id=$2 AND r.module_id=$3 AND r.voip_token=$4 AND r.alert_token=$5
- AND NOT c.revoked AND c.expires_at>now() AND NOT m.revoked AND m.user_id=c.user_id)`, sub.Client, sub.ID, sub.Module, sub.VoIP, sub.Alert).Scan(&valid)
+ AND `+sessionAuthorization+` AND NOT m.revoked AND m.user_id=c.user_id AND (c.module_id IS NULL OR c.module_id=m.id))`, sub.Client, sub.ID, sub.Module, sub.VoIP, sub.Alert).Scan(&valid)
 	if e != nil || !valid {
 		return pushEvent{}, false
 	}
@@ -206,7 +206,7 @@ func (s *Server) pushCycle(ctx context.Context) {
 	defer cancel()
 	rows, e := s.db.Query(ctx, `SELECT r.client_id,r.registration_id,r.module_id,r.bundle_id,r.environment,r.voip_token,r.alert_token,r.registered_at
  FROM push_registrations r JOIN clients c ON c.id=r.client_id JOIN modules m ON m.id=r.module_id
- WHERE NOT c.revoked AND c.expires_at>now() AND NOT m.revoked AND m.user_id=c.user_id LIMIT 16`)
+ WHERE `+sessionAuthorization+` AND NOT m.revoked AND m.user_id=c.user_id AND (c.module_id IS NULL OR c.module_id=m.id) LIMIT 16`)
 	if e != nil {
 		return
 	}
@@ -252,7 +252,7 @@ func (s *Server) RunPush(ctx context.Context) {
 		case <-tick.C:
 			s.pushCycle(ctx)
 		case <-cleanup.C:
-			_, _ = s.db.Exec(ctx, `DELETE FROM push_registrations r USING clients c WHERE r.client_id=c.id AND (c.revoked OR c.expires_at<=now())`)
+			_, _ = s.db.Exec(ctx, `DELETE FROM push_registrations r USING clients c WHERE r.client_id=c.id AND (c.revoked OR (c.refresh_expires_at IS NULL AND c.expires_at<=now()) OR c.refresh_expires_at<=now())`)
 			_, _ = s.db.Exec(ctx, `DELETE FROM push_calls WHERE last_seen<now()-interval '31 days'`)
 		}
 	}

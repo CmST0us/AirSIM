@@ -118,6 +118,7 @@ services:
       - ${AIRSIM_SECRET_DIR}/identity/device-ca.pem:/run/secrets/device-ca.pem:ro
       - ${AIRSIM_SECRET_DIR}/identity/edge-token:/run/secrets/edge-token:ro
       - ${AIRSIM_SECRET_DIR}/tls:/run/tls:ro
+      - ${AIRSIM_WEB_DIR:-../../web/dist}:/srv/airsim-web:ro
       - tls-state:/data
       - edge-config:/config
     environment:

@@ -54,7 +54,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if e = tx.QueryRow(ctx, "SELECT COALESCE(max(version),0) FROM schema_version").Scan(&version); e != nil {
 			return e
 		}
-		if version > 2 {
+		if version > 3 {
 			return errors.New("schema_version_unsupported")
 		}
 	}
@@ -68,12 +68,17 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return e
 		}
 	}
+	if version < 3 {
+		if _, e = tx.Exec(ctx, migrations.Pairing); e != nil {
+			return e
+		}
+	}
 	return tx.Commit(ctx)
 }
 func (s *Store) Ready(ctx context.Context) error {
 	var v int
 	e := s.QueryRow(ctx, "SELECT max(version) FROM schema_version").Scan(&v)
-	if e != nil || v != 2 {
+	if e != nil || v != 3 {
 		return errors.New("schema_not_ready")
 	}
 	return nil

@@ -2,9 +2,6 @@
 """Render public-TLS Caddy config; creates a new 0600 file and does not deploy."""
 import os,pathlib,re,urllib.parse
 root=pathlib.Path(os.environ['AIRSIM_SECRET_DIR'])
-check_html=(pathlib.Path(__file__).resolve().parent.parent/'https-check.html').read_text(encoding='utf-8')
-if '`' in check_html:
-    raise SystemExit('https_check_template_backtick_forbidden')
 hosts=[]
 for name in ('API','DEVICE','MEDIA'):
     origin=os.environ['AIRSIM_'+name+'_ORIGIN']
@@ -39,32 +36,46 @@ def proxy(host, target, path=''):
 """
 config+=f"""https://{api} {{
 """
-config+=""" handle / {
-  header {
-   Content-Type "text/html; charset=utf-8"
-   Cache-Control "no-store"
-   X-Content-Type-Options "nosniff"
-   Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-  }
-  respond `"""+check_html+"""` 200
- }
+config+=""" route {
+   @pairing path /v2/pairing/*
+   handle @pairing {
+    reverse_proxy control:8080 {
+     header_up -X-AirSIM-Client-Cert
+     header_up X-AirSIM-Edge-Token {file./run/secrets/edge-token}
+     header_up X-AirSIM-Remote-IP {http.request.remote.host}
+    }
+   }
 """
 if media==api:
-    config+=""" handle /v2/media {
+    config+="""  handle /v2/media {
   reverse_proxy media:8080 {
    header_up -X-AirSIM-Client-Cert
    header_up -X-AirSIM-Edge-Token
   }
  }
 """
-config+=""" @control path /.well-known/airsim /v2/modules /v2/modules/* /v2/push/registration /healthz /readyz
- handle @control {
+config+=""" @control path /.well-known/airsim /v2/device/control /v2/modules /v2/modules/* /v2/push/registration /v2/client-sessions/refresh /healthz /readyz
+  handle @control {
   reverse_proxy control:8080 {
    header_up -X-AirSIM-Client-Cert
    header_up -X-AirSIM-Edge-Token
   }
  }
- respond 404
+  handle /v2/* {
+   respond 404
+  }
+  handle {
+   root * /srv/airsim-web
+   header {
+    Cache-Control "no-store"
+    X-Content-Type-Options "nosniff"
+    Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    Permissions-Policy "usb=(self), camera=(), microphone=()"
+   }
+   try_files {path} /index.html
+   file_server
+  }
+ }
 }
 """
 if media!=api:

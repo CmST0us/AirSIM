@@ -38,21 +38,22 @@ type peer struct {
 	messages                     Messages
 }
 type Server struct {
-	mediaJobs  chan *mediaSession
-	mediaOwner func(context.Context, media.Spec) (bool, error)
-	mediaHTTP  *http.Client
-	db         *store.Store
-	cfg        Config
-	mu         sync.Mutex
-	peers      map[string]*peer
-	last       map[string]*peer
-	sessions   map[string]*mediaSession
+	pairingRates pairingLimiter
+	mediaJobs    chan *mediaSession
+	mediaOwner   func(context.Context, media.Spec) (bool, error)
+	mediaHTTP    *http.Client
+	db           *store.Store
+	cfg          Config
+	mu           sync.Mutex
+	peers        map[string]*peer
+	last         map[string]*peer
+	sessions     map[string]*mediaSession
 }
 
 func New(db *store.Store, cfg Config) *Server {
 	return &Server{mediaJobs: make(chan *mediaSession, 32), mediaOwner: func(ctx context.Context, spec media.Spec) (bool, error) {
 		var owned bool
-		e := db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM reservations r JOIN clients c ON c.id=r.client_id WHERE r.module_id=$1 AND r.client_id=$2 AND r.generation=$3 AND NOT c.revoked AND c.expires_at>now())", spec.Module, spec.Client, spec.Generation).Scan(&owned)
+		e := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM reservations r JOIN clients c ON c.id=r.client_id WHERE r.module_id=$1 AND r.client_id=$2 AND r.generation=$3 AND `+sessionAuthorization+` AND EXISTS(SELECT 1 FROM modules m WHERE m.id=r.module_id AND m.user_id=c.user_id AND NOT m.revoked AND (c.module_id IS NULL OR c.module_id=m.id)))`, spec.Module, spec.Client, spec.Generation).Scan(&owned)
 		return owned, e
 	}, mediaHTTP: &http.Client{Timeout: time.Second, Transport: &http.Transport{Proxy: nil, MaxIdleConns: 4, MaxIdleConnsPerHost: 4, MaxConnsPerHost: 4, IdleConnTimeout: 30 * time.Second, ResponseHeaderTimeout: time.Second}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, db: db, cfg: cfg, peers: map[string]*peer{}, last: map[string]*peer{}, sessions: map[string]*mediaSession{}}
 }
@@ -71,12 +72,14 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /.well-known/airsim", s.discovery)
 	m.HandleFunc("GET /v2/device/control", s.device)
 	m.HandleFunc("/v2/push/registration", s.client)
+	m.HandleFunc("/v2/pairing/", s.pairing)
+	m.HandleFunc("POST /v2/client-sessions/refresh", s.refresh)
 	m.HandleFunc("/v2/modules", s.client)
 	m.HandleFunc("/v2/modules/", s.client)
 	return m
 }
 func (s *Server) discovery(w http.ResponseWriter, r *http.Request) {
-	wire.JSON(w, 200, map[string]any{"protocol_version": 2, "profile": "airsim-v2-r7", "server_id": s.cfg.Server, "api_origin": s.cfg.API, "device_origin": s.cfg.Device, "media_origin": s.cfg.Media, "capabilities": map[string]bool{"controlled_test_client": true, "telephony": true, "messaging": true, "experimental_audio": true, "apns": s.cfg.Push != nil, "interactive_login": false}})
+	wire.JSON(w, 200, map[string]any{"protocol_version": 2, "profile": "airsim-v2-r7", "server_id": s.cfg.Server, "api_origin": s.cfg.API, "device_origin": s.cfg.Device, "media_origin": s.cfg.Media, "capabilities": map[string]bool{"controlled_test_client": true, "telephony": true, "messaging": true, "experimental_audio": true, "apns": s.cfg.Push != nil, "interactive_login": false, "device_pairing": true, "client_session_refresh": true}})
 }
 func (s *Server) authenticateDevice(r *http.Request) (string, time.Time, error) {
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-AirSIM-Edge-Token")), []byte(s.cfg.EdgeToken)) != 1 {

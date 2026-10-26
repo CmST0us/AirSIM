@@ -1,6 +1,8 @@
 # AirSIM v2 Go Relay
 
-R7 adds installation-scoped APNs registration and incoming-call/SMS notifications to the R4 control and media relay. Public contracts are [`R4`](../../protocol/v2/R4.md) and [`R7 M2`](../../protocol/v2/R7.md). Discovery advertises `airsim-v2-r7`; `apns` is enabled only with a complete provider configuration. Interactive login, automatic token renewal, Watch v2, OTA and v1 compatibility are not implemented. Only the main controller deploys to ECS and performs physical-module tests.
+R7 adds installation-scoped APNs registration and incoming-call/SMS notifications to the R4 control and media relay. Public contracts are [`R4`](../../protocol/v2/R4.md) and [`R7 M2`](../../protocol/v2/R7.md). Discovery advertises `airsim-v2-r7`; `apns` is enabled only with a complete provider configuration. Interactive login, Watch v2, OTA and v1 compatibility are not implemented; administrator clients remain temporary, while R8 paired clients have renewable sessions. Only the main controller deploys to ECS and performs physical-module tests.
+
+R8 adds the device-bound web pairing and renewable client session contract in [`R8_PAIRING.md`](../../protocol/v2/R8_PAIRING.md). New paired clients are scoped to one module; administrator-issued clients retain the existing owner-wide R4 behavior. The browser build is served from the same HTTPS API origin through the Compose edge.
 
 - `cmd/airsim-server`: PostgreSQL-backed control, device authentication, directed commands, ownership and media orchestration.
 - `cmd/airsim-media`: independent ephemeral PCM relay; no database or CA private key.

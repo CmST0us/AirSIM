@@ -9,9 +9,12 @@ export AIRSIM_API_ORIGIN="https://api.airsim.test:$AIRSIM_EDGE_PORT"
 export AIRSIM_DEVICE_ORIGIN="https://device.airsim.test:$AIRSIM_EDGE_PORT"
 export AIRSIM_MEDIA_ORIGIN="https://media.airsim.test:$AIRSIM_EDGE_PORT"
 export AIRSIM_UID=$(id -u) AIRSIM_GID=$(id -g)
+AIRSIM_WEB_DIR=$(cd "$(dirname "$0")/../../../web" && pwd)/dist
+export AIRSIM_WEB_DIR
+project=${AIRSIM_TEST_PROJECT:-airsim-r4-test}
 cd "$(dirname "$0")/../../.."
 "$GO" run ./cmd/airsim-test-setup --dir "$AIRSIM_SECRET_DIR" --operation tls --port "$AIRSIM_EDGE_PORT"
-compose() { docker compose -p airsim-r4-test -f deploy/compose/compose.yaml "$@"; }
+compose() { docker compose -p "$project" -f deploy/compose/compose.yaml "$@"; }
 compose build control
 compose up -d postgres
 compose run -T --interactive=false --rm migrate </dev/null

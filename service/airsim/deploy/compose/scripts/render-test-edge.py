@@ -16,9 +16,36 @@ https://api.airsim.test:8443 {
  tls /run/tls/server.pem /run/tls/server-key.pem {
   protocols tls1.2 tls1.3
  }
- reverse_proxy control:8080 {
-  header_up -X-AirSIM-Client-Cert
-  header_up -X-AirSIM-Edge-Token
+ route {
+  @pairing path /v2/pairing/*
+  handle @pairing {
+   reverse_proxy control:8080 {
+    header_up -X-AirSIM-Client-Cert
+    header_up X-AirSIM-Edge-Token {file./run/secrets/edge-token}
+    header_up X-AirSIM-Remote-IP {http.request.remote.host}
+   }
+  }
+  @control path /.well-known/airsim /v2/device/control /v2/modules /v2/modules/* /v2/push/registration /v2/client-sessions/refresh /healthz /readyz
+  handle @control {
+   reverse_proxy control:8080 {
+    header_up -X-AirSIM-Client-Cert
+    header_up -X-AirSIM-Edge-Token
+   }
+  }
+  handle /v2/* {
+   respond 404
+  }
+  handle {
+   root * /srv/airsim-web
+   header {
+    Cache-Control "no-store"
+    X-Content-Type-Options "nosniff"
+    Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    Permissions-Policy "usb=(self), camera=(), microphone=()"
+   }
+   try_files {path} /index.html
+   file_server
+  }
  }
 }
 https://media.airsim.test:8443 {

@@ -27,7 +27,7 @@ func (s *Server) client(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var user, client string
-	if s.db.QueryRow(ctx, "SELECT user_id,id FROM clients WHERE token_hash=$1 AND NOT revoked AND expires_at>now()", wire.Hash(auth)).Scan(&user, &client) != nil {
+	if s.db.QueryRow(ctx, "SELECT user_id,id FROM clients WHERE token_hash=$1 AND NOT revoked AND expires_at>now() AND (refresh_expires_at IS NULL OR refresh_expires_at>now())", wire.Hash(auth)).Scan(&user, &client) != nil {
 		wire.Error(w, 401, "unauthorized")
 		return
 	}
@@ -37,12 +37,12 @@ func (s *Server) client(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/v2/modules"), "/"), "/")
 	if parts[0] == "" && r.Method == "GET" {
-		s.list(w, r, user)
+		s.list(w, r, user, client)
 		return
 	}
 	module := parts[0]
 	var exists bool
-	if !wire.UUID.MatchString(module) || s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM modules WHERE id=$1 AND user_id=$2 AND NOT revoked)", module, user).Scan(&exists) != nil || !exists {
+	if !wire.UUID.MatchString(module) || s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM modules m JOIN clients c ON c.id=$3 WHERE m.id=$1 AND m.user_id=$2 AND NOT m.revoked AND (c.module_id IS NULL OR c.module_id=m.id))", module, user, client).Scan(&exists) != nil || !exists {
 		wire.Error(w, 404, "not_found")
 		return
 	}
@@ -96,8 +96,8 @@ func (s *Server) client(w http.ResponseWriter, r *http.Request) {
 	}
 	wire.Error(w, 404, "not_found")
 }
-func (s *Server) list(w http.ResponseWriter, r *http.Request, user string) {
-	rows, e := s.db.Query(r.Context(), "SELECT id FROM modules WHERE user_id=$1 AND NOT revoked ORDER BY id", user)
+func (s *Server) list(w http.ResponseWriter, r *http.Request, user, client string) {
+	rows, e := s.db.Query(r.Context(), "SELECT m.id FROM modules m JOIN clients c ON c.id=$2 WHERE m.user_id=$1 AND NOT m.revoked AND (c.module_id IS NULL OR c.module_id=m.id) ORDER BY m.id", user, client)
 	if e != nil {
 		wire.Error(w, 503, "database_unavailable")
 		return

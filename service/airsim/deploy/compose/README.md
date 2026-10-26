@@ -1,4 +1,4 @@
-# Compose operations — R4
+# Compose operations — R8
 
 Four resident services: `postgres`, `control`, `media`, `edge`. `migrate`, `admin`, and production `edge-storage-init` are one-shot tasks. The controller alone selects the host/domains and executes production deployment. These scripts never connect to ECS themselves.
 
@@ -12,9 +12,18 @@ Four resident services: `postgres`, `control`, `media`, `edge`. `migrate`, `admi
 
 Copy `.env.example` to an external non-secret deployment configuration and export its values. Never place bearer tokens, database passwords or CA keys in environment variables. Set `AIRSIM_BUSINESS_IMAGE` to the verified immutable reference before using `scripts/production-compose.sh`.
 
+Build the pairing page before preparing the release directory:
+
+```sh
+(cd web && npm ci && npm test && npm run build)
+export AIRSIM_WEB_DIR=/absolute/release/path/web
+```
+
+Copy `web/dist` to that directory. The edge mounts it read-only at `/srv/airsim-web` and serves it from the API origin. `Permissions-Policy` permits WebUSB only on this origin; other API paths remain proxied or return 404.
+
 Create a new deployment directory and external protected directory (0700, owner 65532:65532). Generate `database-password` there using a cryptographically random generator, file mode 0600. Create the `tls/` subdirectory; public production certificates are managed in the Caddy volume, not copied from local test fixtures. All business and edge processes run as 65532:65532. The device CA private key is only mounted in admin.
 
-API and device hostnames must differ. `AIRSIM_MEDIA_ORIGIN` may equal the API origin, or use a third hostname. The production renderer directs `/v2/media` to media, the discovery/module APIs to control, and only `/v2/device/control` through the separate device mTLS host. The edge has its own ordinary ingress/ACME-egress network; database/control/media networks remain internal with no published ports.
+API and device hostnames must differ. `AIRSIM_MEDIA_ORIGIN` may equal the API origin, or use a third hostname. The production renderer serves the pairing page and assets on the API host, directs `/v2/pairing`, `/v2/client-sessions/refresh`, `/v2/media`, discovery and module APIs to their existing services, and routes real device control only through the separate device mTLS host. The edge has its own ordinary ingress/ACME-egress network; database/control/media networks remain internal with no published ports.
 
 ## Initialize on the authorized host
 
@@ -28,6 +37,8 @@ scripts/production-compose.sh run -T --interactive=false --rm admin --operation 
 ```
 
 `init` creates `identity/identity.json`, the five-year device CA, independent edge/media bearers and command-HMAC key. It refuses an existing identity directory. Read only the public `server_id` from `identity.json` into `AIRSIM_SERVER_ID`; never dump the directory. Initialization failure must be inspected rather than deleting existing identity material.
+
+Existing schema 1 or 2 installations are backed up before the R8 migration. The migration adds module-scoped renewable clients and pairing transactions. Do not start the new control binary against an unmigrated database; Compose gates control on the one-shot migrate service.
 
 ```sh
 python3 scripts/render-production-edge.py
@@ -49,7 +60,7 @@ scripts/production-compose.sh run -T --interactive=false --rm admin --operation 
 scripts/production-compose.sh run -T --interactive=false --rm admin --operation revoke-client --client-id '<installation UUID>' </dev/null
 ```
 
-The output file is 0600 and must not already exist. Token validity defaults to 60 minutes; `--client-ttl` accepts 1h through 720h (30 days). There is no automatic refresh or interactive login. Transfer it only through an authorized protected channel, never a URL, terminal output or ordinary logs.
+The output file is 0600 and must not already exist. Administrator clients remain temporary compatibility clients: validity defaults to 60 minutes and `--client-ttl` accepts 1h through 720h (30 days). They have no refresh. User devices added through the R8 web flow receive one-hour access tokens with a 90-day sliding refresh session; that refresh does not change the installation or module scope.
 
 The controller calls the Agent's local Unix `cloud/prepare` endpoint using the frozen request. Preserve the exact request and response as 0600 files under the protected directory. Do not copy the device private key; the response contains public key/CSR/proof only.
 
