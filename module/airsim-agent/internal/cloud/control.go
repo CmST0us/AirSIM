@@ -147,7 +147,7 @@ func (a *Agent) discover(ctx context.Context, s *saved) error {
 		Media        string          `json:"media_origin"`
 		Capabilities json.RawMessage `json:"capabilities"`
 	}
-	if exact(b, "protocol_version,profile,server_id,api_origin,device_origin,media_origin,capabilities", &v) != nil || v.Protocol != 2 || v.Profile != Profile || v.Server != s.Request.ServerID || v.API != s.Request.API || v.Device != s.Request.Device || v.Media != s.Request.Media {
+	if exact(b, "protocol_version,profile,server_id,api_origin,device_origin,media_origin,capabilities", &v) != nil || v.Protocol != 2 || (v.Profile != Profile && v.Profile != "airsim-v2-r7") || v.Server != s.Request.ServerID || v.API != s.Request.API || v.Device != s.Request.Device || v.Media != s.Request.Media {
 		return errConfig
 	}
 	var caps struct {
@@ -157,8 +157,10 @@ func (a *Agent) discover(ctx context.Context, s *saved) error {
 		Audio     bool `json:"experimental_audio"`
 		APNS      bool `json:"apns"`
 		Login     bool `json:"interactive_login"`
+		Pairing   bool `json:"device_pairing"`
+		Refresh   bool `json:"client_session_refresh"`
 	}
-	if exact(v.Capabilities, "controlled_test_client,telephony,messaging,experimental_audio,apns,interactive_login", &caps) != nil || !caps.Test || !caps.Telephony || !caps.Messaging || !caps.Audio || caps.APNS || caps.Login {
+	if exactOptional(v.Capabilities, "controlled_test_client,telephony,messaging,experimental_audio,apns,interactive_login", "device_pairing,client_session_refresh", &caps) != nil || !caps.Test || !caps.Telephony || !caps.Messaging || !caps.Audio || caps.APNS || caps.Login {
 		return errConfig
 	}
 	return nil

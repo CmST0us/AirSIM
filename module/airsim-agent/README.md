@@ -4,6 +4,8 @@
 
 R3 已实现原生音频 helper、本机媒体会话与通话 lease；本机验证和构建见 [R3 交接记录](R3_TESTING.md)及[构建证据](R3_BUILD_EVIDENCE.json)。R3 裁决04构建已部署，当前固件、厂商16kHz语音时钟下75.004秒双向内容验收通过；用户确认听清提示语及自己的回声。运行时 voice_ready=false、verification=unverified 仍保留为实验发布门槛。权威事实见[验收证据](R3_ACCEPTANCE_EVIDENCE.json)与[历史诊断证据](R3_DIAGNOSTIC_EVIDENCE.json)。下文 R2 证据保留为历史基线。
 
+R8 在现有身份上增加网页配对所需的新鲜 Ed25519 证明，不导出私钥，也不新增网络监听。实现和验证边界见 [R8 记录](R8_TESTING.md)。
+
 ## 范围
 
 R1 AT 只读采样与精确 RM500 profile 校验继续保留。R2 新增长期私有 oFono D-Bus 连接、串行控制协调器、有界持久去重记录及本机呼叫/短信控制。R3 Audio 已通过上述限定范围的本地内容验收，运行时 voice_ready 固定 false。
@@ -46,6 +48,8 @@ R1 诊断接口保留在 `control.sock`（0600），仅接受 GET：
 - `/v2/local/snapshot`：脱敏只读快照。
 
 R2 增加 GET `/v2/local/control`、`/v2/local/calls`、`/v2/local/messages`、`/v2/local/commands/<UUID>` 和 POST `/v2/local/commands`。请求与动作精确结构见主控契约。业务接口可返回号码/正文，仅限本机受控调用；只读 snapshot 不含这些内容。
+
+R8 增加 GET `/v2/local/pairing` 和 POST `/v2/local/pairing/authorize`。前者只返回模块身份、服务绑定和连接状态；后者对网页生成的五分钟请求签名。两者仍只存在于 0600 Unix socket；调用方必须已经能访问该 socket。证明不替代手机确认，也不创建 App token。
 
 这不是冻结的云端 v2 协议。无 TCP 监听、自动启动、Relay/TLS、更新或固件修改。R3 音频仅在授权本地媒体会话及通话 lease 内运行。消息正文仅保留进程内存；命令记录最多1024条且不自动淘汰。
 

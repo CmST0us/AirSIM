@@ -89,6 +89,16 @@ func exact(b []byte, keys string, out any) error {
 	}
 	return strictjson.Decode(b, required, nil, out)
 }
+func exactOptional(b []byte, keys, optional string, out any) error {
+	var required, allowed []string
+	if keys != "" {
+		required = strings.Split(keys, ",")
+	}
+	if optional != "" {
+		allowed = strings.Split(optional, ",")
+	}
+	return strictjson.Decode(b, required, allowed, out)
+}
 func origin(s string) bool {
 	u, e := url.Parse(s)
 	return e == nil && u.Scheme == "https" && u.Host != "" && u.Hostname() != "" && u.User == nil && u.Path == "" && u.RawQuery == "" && !u.ForceQuery && u.Fragment == "" && u.Opaque == "" && !strings.ContainsAny(s, "\r\n") && u.String() == s
@@ -455,6 +465,9 @@ func (p *Provisioner) client(s *saved, mtls bool) (*http.Client, error) {
 }
 func WithLocal(next http.Handler, p *Provisioner, a *Agent) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if p.pairingRoute(w, r) {
+			return
+		}
 		if r.URL.Path != "/v2/local/cloud" && r.URL.Path != "/v2/local/cloud/prepare" && r.URL.Path != "/v2/local/cloud/activate" && r.URL.Path != "/v2/local/cloud/media-stats" {
 			next.ServeHTTP(w, r)
 			return
