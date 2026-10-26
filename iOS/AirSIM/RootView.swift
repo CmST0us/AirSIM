@@ -111,7 +111,7 @@ struct RootView: View {
         }
         .onOpenURL(perform: handleSystemCommunicationURL)
         .onAppear {
-            if !R7UITestScenario.active, let sender = IncomingSMSPresentationRequest.consume() {
+            if !UITestScenario.active, let sender = IncomingSMSPresentationRequest.consume() {
                 openSMSConversation(sender)
             }
         }

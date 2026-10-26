@@ -1,4 +1,4 @@
-# R8 网页配对与持续连接
+# 网页设备配对与持续连接
 
 2026-10-26。主控冻结的实现契约。网页沿用 `design/pairing-web/index.html` 的最终设计；不引入账户注册、登录、JSON 导入或服务地址填写。旧 Figma 中的账户步骤不适用本阶段。
 
@@ -19,7 +19,7 @@
 Ed25519 签名字节为 UTF-8：
 
 ```text
-airsim-v2-r8-pairing\n
+airsim-v2-pairing\n
 request_id\n
 server_id\n
 module_id\n
@@ -36,7 +36,7 @@ poll_token_hash\n
 
 1. `POST /v2/pairing/challenges`：`{request_id,module_id,poll_token}`。已登记、未撤销且有效证书模块返回 `{request_id,module_id,server_id,nonce,expires_at}`。服务持久化 nonce、期限及 poll_token 的 hash。相同 ID/模块/token 精确重试返回同一挑战；不同内容 409。不能覆盖已有 pending。每模块最多八个未过期挑战，全局最多128个；新建请求每来源地址每分钟最多八次，来源取受控入口而非任意用户头。过期记录不占 pending 数量。
 
-2. `POST /v2/pairing/{request_id}/approve`：Bearer poll_token，body `{public_key_base64,proof_base64}`。验证以上证明、模块公钥/未撤销/证书期限，设置状态 `awaiting_phone`，生成随机八位十进制连接码（保留前导零）。连接码与本事务同期限；不签发 App 凭据。重复同一证明返回同一结果，不生成第二个连接码。code lookup 使用 hash；如为返回同一结果而保留明文响应，使用 AES-GCM 加密，密钥由现有 HMAC 根通过 HMAC-SHA256、固定域 `airsim-v2-r8-pairing-code` 派生，与命令摘要用途区分。已确认事务不再返回连接码。
+2. `POST /v2/pairing/{request_id}/approve`：Bearer poll_token，body `{public_key_base64,proof_base64}`。验证以上证明、模块公钥/未撤销/证书期限，设置状态 `awaiting_phone`，生成随机八位十进制连接码（保留前导零）。连接码与本事务同期限；不签发 App 凭据。重复同一证明返回同一结果，不生成第二个连接码。code lookup 使用 hash；如为返回同一结果而保留明文响应，使用 AES-GCM 加密，密钥由现有 HMAC 根通过 HMAC-SHA256、固定域 `airsim-v2-pairing-code` 派生，与命令摘要用途区分。已确认事务不再返回连接码。
 
 3. `GET /v2/pairing/{request_id}`：Bearer poll_token，返回 `{request_id,module_id,state,expires_at,code,online}`。state 为 `awaiting_device/awaiting_phone/connected/expired/cancelled`，code 仅在 awaiting_phone 返回，其余为空字符串。online 由真实服务连接状态提供。结果未知时只读本接口，不重新签名、绑定、安装或制造新身份。设备失联不自动撤销已完成手机配对。
 
@@ -64,7 +64,7 @@ App 在恢复连接、token 剩余不足五分钟时主动刷新；401 时最多
 
 ## 发布与验证
 
-服务端增加 schema 3，并在 R7 profile 上添加 `device_pairing:true,client_session_refresh:true` 能力；`interactive_login:false,apns:false` 保持。Agent 接受原 R4.1 与 R7 profile 的既有规则保持，配对能力不改变通话媒体协议。生产升级同时包含已提交的 schema 2，但不启用 APNs。
+服务端增加 schema 3，并在 CallKit profile 上添加 `device_pairing:true,client_session_refresh:true` 能力；`interactive_login:false,apns:false` 保持。Agent 接受原 R4.1 与 CallKit profile 的既有规则保持，配对能力不改变通话媒体协议。配对签名的固定域已统一为 `airsim-v2-pairing`，服务端与 Agent 必须同步部署。生产升级同时包含已提交的 schema 2，但不启用 APNs。
 
 网页由现有443入口同源静态提供；设备 mTLS 子域名、控制/媒体路径保持。CSP 仅允许本站脚本/样式/连接，WebUSB 权限仅本站；不引入任意脚本执行、终端或文件浏览器。通过 ADB localfilesystem socket 发送有限 HTTP 方法/路径，正文大小/响应时限有界；只对用户选择的设备操作。
 

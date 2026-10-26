@@ -69,7 +69,7 @@ struct VoWLANRequestSigner: Sendable {
 enum VoWLANCredentialStore {
     private static var service: String {
 #if DEBUG && targetEnvironment(simulator) && os(iOS)
-        if R7UITestScenario.active { return "com.example.airsim.r7.ui.vowlan." + R7UITestScenario.root.lastPathComponent }
+        if UITestScenario.active { return "com.example.airsim.ui.vowlan." + UITestScenario.root.lastPathComponent }
 #endif
         return "com.example.airsim.vowlan"
     }

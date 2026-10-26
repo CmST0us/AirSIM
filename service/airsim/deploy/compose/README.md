@@ -1,4 +1,4 @@
-# Compose operations — R8
+# Compose operations — pairing
 
 Four resident services: `postgres`, `control`, `media`, `edge`. `migrate`, `admin`, and production `edge-storage-init` are one-shot tasks. The controller alone selects the host/domains and executes production deployment. These scripts never connect to ECS themselves.
 
@@ -38,7 +38,7 @@ scripts/production-compose.sh run -T --interactive=false --rm admin --operation 
 
 `init` creates `identity/identity.json`, the five-year device CA, independent edge/media bearers and command-HMAC key. It refuses an existing identity directory. Read only the public `server_id` from `identity.json` into `AIRSIM_SERVER_ID`; never dump the directory. Initialization failure must be inspected rather than deleting existing identity material.
 
-Existing schema 1 or 2 installations are backed up before the R8 migration. The migration adds module-scoped renewable clients and pairing transactions. Do not start the new control binary against an unmigrated database; Compose gates control on the one-shot migrate service.
+Existing schema 1 or 2 installations are backed up before the pairing migration. The migration adds module-scoped renewable clients and pairing transactions. Do not start the new control binary against an unmigrated database; Compose gates control on the one-shot migrate service.
 
 ```sh
 python3 scripts/render-production-edge.py
@@ -60,7 +60,7 @@ scripts/production-compose.sh run -T --interactive=false --rm admin --operation 
 scripts/production-compose.sh run -T --interactive=false --rm admin --operation revoke-client --client-id '<installation UUID>' </dev/null
 ```
 
-The output file is 0600 and must not already exist. Administrator clients remain temporary compatibility clients: validity defaults to 60 minutes and `--client-ttl` accepts 1h through 720h (30 days). They have no refresh. User devices added through the R8 web flow receive one-hour access tokens with a 90-day sliding refresh session; that refresh does not change the installation or module scope.
+The output file is 0600 and must not already exist. Administrator clients remain temporary compatibility clients: validity defaults to 60 minutes and `--client-ttl` accepts 1h through 720h (30 days). They have no refresh. User devices added through the web pairing flow receive one-hour access tokens with a 90-day sliding refresh session; that refresh does not change the installation or module scope.
 
 The controller calls the Agent's local Unix `cloud/prepare` endpoint using the frozen request. Preserve the exact request and response as 0600 files under the protected directory. Do not copy the device private key; the response contains public key/CSR/proof only.
 
@@ -87,9 +87,9 @@ Run migrations explicitly before starting a new control version. An unsupported 
 All one-shot `docker compose run` commands use `-T --interactive=false`. Remote script invocations also redirect stdin from `/dev/null` so they cannot consume subsequent commands.
 
 
-## R7 APNs
+## APNs
 
-The control process sends APNs over HTTP/2 on its dedicated `push_egress` network. No control ports are published. The device, media and command contracts remain unchanged. Discovery reports `airsim-v2-r7`; all four APNs settings empty disables push, while partial configuration or an invalid/restricted-file permission failure prevents startup.
+The control process sends APNs over HTTP/2 on its dedicated `push_egress` network. No control ports are published. The device, media and command contracts remain unchanged. Discovery reports `airsim-v2-callkit`; all four APNs settings empty disables push, while partial configuration or an invalid/restricted-file permission failure prevents startup.
 
 Set `APNS_KEY_ID`, `APNS_TEAM_ID` and `APNS_BUNDLE_ID` for the signed iPhone App. Set `AIRSIM_APNS_KEY_PATH` to the existing external `.p8` file. The production wrapper then includes `compose.apns.yaml`, mounting that file read-only as `APNS_KEY_FILE=/run/secrets/apns.p8`. The file must be readable by control UID 65532 with no group/other permissions (normally owner 65532, mode 0600); parent directories must allow the container runtime to mount it. Never place the key in build context, Git, environment values or logs. A missing host file is rejected instead of being created as a directory. For direct Compose usage, include the same overlay explicitly. Keep these settings on subsequent control recreation.
 

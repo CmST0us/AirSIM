@@ -1801,8 +1801,8 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
-    @MainActor func testR7ProjectionAndLocalClearRemainDomainScoped() async throws {
-        let suite = "airsim.r7.test." + UUID().uuidString
+    @MainActor func testProjectionAndLocalClearRemainDomainScoped() async throws {
+        let suite = "airsim.ui.test." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
@@ -1836,8 +1836,8 @@ extension CloudV2Tests {
         XCTAssertNil(try JSONDecoder().decode(V2History.self, from: oldData).clearedMessageIDs)
     }
 
-    @MainActor func testR7FailedLocalClearPreservesVisibleMessages() throws {
-        let suite = "airsim.r7.clear." + UUID().uuidString
+    @MainActor func testFailedLocalClearPreservesVisibleMessages() throws {
+        let suite = "airsim.ui.clear." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
@@ -1861,7 +1861,7 @@ extension CloudV2Tests {
 
 // The displayed composer result follows the command receipt, never transport success alone.
 extension CloudV2Tests {
-    @MainActor func testR7SMSCompletedFailureAndUnknownResults() async throws {
+    @MainActor func testSMSCompletedFailureAndUnknownResults() async throws {
         for status in [200, 409, 503] {
             let fixture = try V2PollFixture()
             fixture.commandHTTPStatus = status
@@ -1879,7 +1879,7 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
-    func testR7SystemHandlerEpochRejectsPreviousOwner() {
+    func testSystemHandlerEpochRejectsPreviousOwner() {
         let gate = SystemCallActionGate(), old = SystemCallActionGate()
         let stamp = gate.generation
         gate.advance()
@@ -1887,7 +1887,7 @@ extension CloudV2Tests {
     }
 }
 
-@MainActor private final class R7TestSystemCalls: V2SystemCallReporting {
+@MainActor private final class TestSystemCalls: V2SystemCallReporting {
     weak var handler: (any CallKitActionHandling)?
     var currentSystemCallUUID: UUID?
     var reports = 0, endings = 0
@@ -1903,7 +1903,7 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
-    @MainActor func testR7SystemIncomingDedupAudioActivationAndBackgroundScope() async throws {
+    @MainActor func testSystemIncomingDedupAudioActivationAndBackgroundScope() async throws {
         let audio = V2TestAudioIO(), socket = V2TestMediaSocket(), clock = V2TestMediaClock()
         socket.messages = v2HandshakeMessages()
         let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
@@ -1911,7 +1911,7 @@ extension CloudV2Tests {
         fixture.commandHTTPStatus = 200
         var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
         fixture.snapshotCalls = [incoming]
-        let system = R7TestSystemCalls()
+        let system = TestSystemCalls()
         fixture.model.activateSystemIntegration(calls: system)
         await fixture.model.sceneChanged(.active)
         try await v2PollWait { system.reports == 1 }
@@ -1941,11 +1941,11 @@ extension CloudV2Tests {
         await fixture.close()
     }
 
-    @MainActor func testR7SystemRejectTargetsTheVerifiedIncomingCall() async throws {
+    @MainActor func testSystemRejectTargetsTheVerifiedIncomingCall() async throws {
         let fixture = try V2PollFixture(); fixture.commandHTTPStatus = 200
         var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
         fixture.snapshotCalls = [incoming]
-        let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
+        let system = TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
         await fixture.model.sceneChanged(.active)
         try await v2PollWait { system.reports == 1 }
         try await fixture.model.systemCalls?.callKitEnd()
@@ -1959,12 +1959,12 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
-    @MainActor func testR7ProviderResetSubmitsOneOwnedHangup() async throws {
+    @MainActor func testProviderResetSubmitsOneOwnedHangup() async throws {
         let fixture = try V2PollFixture(); fixture.commandHTTPStatus = 200
         fixture.model.experimentalAudio = false
         var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
         fixture.snapshotCalls = [incoming]
-        let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
+        let system = TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
         await fixture.model.sceneChanged(.active)
         try await v2PollWait { system.reports == 1 }
         try await fixture.model.systemCalls?.callKitAnswer(origin: .system)
@@ -1981,8 +1981,8 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
-    @MainActor func testR7MessageGapUsesOnlySelectedModuleHistory() throws {
-        let suite = "airsim.r7.gap." + UUID().uuidString
+    @MainActor func testMessageGapUsesOnlySelectedModuleHistory() throws {
+        let suite = "airsim.ui.gap." + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
@@ -2006,7 +2006,7 @@ extension CloudV2Tests {
 
 extension CloudV2Tests {
     @MainActor func testKnownDiscoveryProfilesWithoutAPNsRetainIdentityAndOriginChecks() async throws {
-        for profile in ["airsim-v2-r4.1", "airsim-v2-r7"] {
+        for profile in ["airsim-v2-r4.1", "airsim-v2-callkit"] {
             for mismatch in ["none", "server_id", "api_origin", "media_origin", "apns", "profile"] {
                 var discovery = try JSONSerialization.jsonObject(with: v2Discovery()) as! [String: Any]
                 discovery["profile"] = profile
@@ -2040,7 +2040,7 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
-    @MainActor func testR7System202AssociatesOriginalCommandInForegroundAndBackground() async throws {
+    @MainActor func testSystem202AssociatesOriginalCommandInForegroundAndBackground() async throws {
         for background in [false, true] {
             for answer in [false, true] {
                 let fixture = try V2PollFixture(); fixture.delayedReceipts = true
@@ -2049,7 +2049,7 @@ extension CloudV2Tests {
                     var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
                     fixture.snapshotCalls = [incoming]
                 }
-                let system = R7TestSystemCalls()
+                let system = TestSystemCalls()
                 fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(5))
                 await fixture.model.sceneChanged(.active)
                 try await v2PollWait { fixture.model.freshBinding != nil }
@@ -2082,13 +2082,13 @@ extension CloudV2Tests {
             }
         }
     }
-    @MainActor func testR7System202FailureClearsPendingAndTimeoutPreservesItWithoutReplay() async throws {
+    @MainActor func testSystem202FailureClearsPendingAndTimeoutPreservesItWithoutReplay() async throws {
         for failure in [false, true] {
             let fixture = try V2PollFixture(); fixture.delayedReceipts = true
             addTeardownBlock { await fixture.close() }
             fixture.receiptFails = failure; fixture.receiptCompletionAfter = failure ? 0 : Int.max
             fixture.receiptUnknown = !failure
-            let system = R7TestSystemCalls()
+            let system = TestSystemCalls()
             fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(2))
             await fixture.model.sceneChanged(.active)
             try await v2PollWait { fixture.model.freshBinding != nil }
@@ -2101,12 +2101,12 @@ extension CloudV2Tests {
             await fixture.close()
         }
     }
-    @MainActor func testR7SystemEndBeforeAssociationWaitsForDirectedHangup() async throws {
+    @MainActor func testSystemEndBeforeAssociationWaitsForDirectedHangup() async throws {
         for resolves in [false, true] {
             let fixture = try V2PollFixture(); fixture.delayedReceipts = true
             addTeardownBlock { await fixture.close() }
             fixture.receiptCompletionAfter = resolves ? 1 : Int.max
-            let system = R7TestSystemCalls()
+            let system = TestSystemCalls()
             fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(5), endAssociationTimeout: resolves ? .seconds(4) : .milliseconds(100))
             await fixture.model.sceneChanged(.active)
             try await v2PollWait { fixture.model.freshBinding != nil }
@@ -2128,10 +2128,10 @@ extension CloudV2Tests {
             await fixture.close()
         }
     }
-    @MainActor func testR7SystemOldAssociationCannotTakeOverReplacementUUID() async throws {
+    @MainActor func testSystemOldAssociationCannotTakeOverReplacementUUID() async throws {
         let fixture = try V2PollFixture(); fixture.delayedReceipts = true
         addTeardownBlock { await fixture.close() }
-        let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4))
+        let system = TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4))
         await fixture.model.sceneChanged(.active)
         try await v2PollWait { fixture.model.freshBinding != nil }
         system.currentSystemCallUUID = UUID()
@@ -2148,12 +2148,12 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
-    @MainActor func testR7SystemDTMF202RetainsPendingWithoutFailure() async throws {
+    @MainActor func testSystemDTMF202RetainsPendingWithoutFailure() async throws {
         let fixture = try V2PollFixture(); fixture.commandHTTPStatus = 200
         addTeardownBlock { await fixture.close() }
         var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
         fixture.snapshotCalls = [incoming]
-        let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
+        let system = TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
         await fixture.model.sceneChanged(.active)
         try await v2PollWait { system.currentSystemCallUUID != nil }
         let controller = try XCTUnwrap(fixture.model.systemCalls)
@@ -2170,10 +2170,10 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
-    @MainActor func testR7SystemExplicitRejectionReleasesPending() async throws {
+    @MainActor func testSystemExplicitRejectionReleasesPending() async throws {
         let fixture = try V2PollFixture(); fixture.commandHTTPStatus = 409
         addTeardownBlock { await fixture.close() }
-        let system = R7TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
+        let system = TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
         await fixture.model.sceneChanged(.active)
         try await v2PollWait { fixture.model.freshBinding != nil }
         system.currentSystemCallUUID = UUID()

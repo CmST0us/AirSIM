@@ -99,7 +99,7 @@ struct AirSIMSettingsView: View {
     @AppStorage(CloudModePreference.key) private var cloudModeEnabled = true
     @AppStorage(LiveActivityVisibilityPreference.key) private var liveActivityEnabled = true
     @State private var relayURL = RelayConfiguration.effectiveURL(
-        stored: R7UITestScenario.defaults.string(forKey: "airsim.push-relay-url"),
+        stored: UITestScenario.defaults.string(forKey: "airsim.push-relay-url"),
         buildSetting: Bundle.main.object(forInfoDictionaryKey: "AirSIMPushRelayURL") as? String,
         bundleID: Bundle.main.bundleIdentifier
     )
@@ -114,7 +114,7 @@ struct AirSIMSettingsView: View {
                 Section("连接版本") {
                     RuntimeChoiceButtons()
                     if activityEvents.limitReached { Text("Live Activity token 观察已达上限，需重启 App 恢复；通话和普通推送不受影响。") }
-                    if !R7UITestScenario.active && LegacySwitchFence.shared.blocked {
+                    if !UITestScenario.active && LegacySwitchFence.shared.blocked {
                         Text("旧版操作结果待核对，暂不能迁移。")
                         Button("查询旧云端操作收据") { Task { await VoIPPushController.shared.recoverSwitchFences(); model.objectWillChange.send() } }
                     }

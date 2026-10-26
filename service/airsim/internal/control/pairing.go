@@ -89,10 +89,10 @@ func (s *Server) pairingSource(r *http.Request) string {
 
 func (s *Server) pairingKey(domain string) []byte {
 	outer := hmac.New(sha256.New, []byte(s.cfg.HMAC))
-	_, _ = outer.Write([]byte("airsim-v2-r8-pairing-" + domain))
+	_, _ = outer.Write([]byte("airsim-v2-pairing-" + domain))
 
 	inner := hmac.New(sha256.New, outer.Sum(nil))
-	_, _ = inner.Write([]byte("airsim-v2-r8-pairing-" + domain))
+	_, _ = inner.Write([]byte("airsim-v2-pairing-" + domain))
 	return inner.Sum(nil)
 }
 
@@ -156,7 +156,7 @@ func leftPadDecimal(n int64, width int) string {
 }
 
 func pairingProofBytes(requestID, serverID, moduleID, nonce, expires, pollHash string) []byte {
-	return []byte("airsim-v2-r8-pairing\n" + strings.Join(
+	return []byte("airsim-v2-pairing\n" + strings.Join(
 		[]string{requestID, serverID, moduleID, nonce, expires, pollHash}, "\n") + "\n")
 }
 

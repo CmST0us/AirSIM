@@ -102,7 +102,7 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         Self.current = self
-        if R7UITestScenario.active { LegacyRuntimeGate.configure(false); return true }
+        if UITestScenario.active { LegacyRuntimeGate.configure(false); return true }
         let router = AppRouteCoordinator.shared
         if router.choice == .v2 { router.ensureRuntime() }
         let selection = router.choice

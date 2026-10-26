@@ -79,7 +79,7 @@ func (s *Server) Handler() http.Handler {
 	return m
 }
 func (s *Server) discovery(w http.ResponseWriter, r *http.Request) {
-	wire.JSON(w, 200, map[string]any{"protocol_version": 2, "profile": "airsim-v2-r7", "server_id": s.cfg.Server, "api_origin": s.cfg.API, "device_origin": s.cfg.Device, "media_origin": s.cfg.Media, "capabilities": map[string]bool{"controlled_test_client": true, "telephony": true, "messaging": true, "experimental_audio": true, "apns": s.cfg.Push != nil, "interactive_login": false, "device_pairing": true, "client_session_refresh": true}})
+	wire.JSON(w, 200, map[string]any{"protocol_version": 2, "profile": "airsim-v2-callkit", "server_id": s.cfg.Server, "api_origin": s.cfg.API, "device_origin": s.cfg.Device, "media_origin": s.cfg.Media, "capabilities": map[string]bool{"controlled_test_client": true, "telephony": true, "messaging": true, "experimental_audio": true, "apns": s.cfg.Push != nil, "interactive_login": false, "device_pairing": true, "client_session_refresh": true}})
 }
 func (s *Server) authenticateDevice(r *http.Request) (string, time.Time, error) {
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-AirSIM-Edge-Token")), []byte(s.cfg.EdgeToken)) != 1 {

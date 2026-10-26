@@ -1,16 +1,16 @@
-# AirSIM R7：原有界面的 v2 适配审核
+# AirSIM 原有界面的 v2 适配审核
 
 2026-10-25。范围为 iPhone/iPad 原五视图的 ECS v2 兼容与 CallKit 系统通话交互闭环，保留本地、云端 v1/v2 选择。本文件提供产品行为、视觉建议和验收标准；协议与后台生命周期方案由主控确定。M3 已批准 V01–V04 及收件箱缺口提示，保留现有电话式视觉。
 
-M1 首轮截图已确认 v2 共用五标签和原电话式视觉。下文 D01–D10 记录实施前源码基线，不能视为 M1 后仍全部存在；当前截图结论与修复建议见文末“02 · M1 五页视觉复核”。技术范围以 [R7 主控契约](../protocol/v2/R7.md) 为准：当前操作限定用户显式选择的单模块，Watch v2 不实现；M2 聚焦 CallKit 与已有系统通话的后台生命周期。
+M1 首轮截图已确认 v2 共用五标签和原电话式视觉。下文 D01–D10 记录实施前源码基线，不能视为 M1 后仍全部存在；当前截图结论与修复建议见文末“02 · M1 五页视觉复核”。技术范围以 [系统通话主控契约](../protocol/v2/CALLKIT.md) 为准：当前操作限定用户显式选择的单模块，Watch v2 不实现；M2 聚焦 CallKit 与已有系统通话的后台生命周期。
 
 M3 `a0d5b44` 截图复核已确认 V01、V03、V04、V02 未配置空态及联系人首次/取消后重开发信入口的修复；详情见第 06 节。`7e85c9c` 原通话视图三张夹具截图通过限定范围复核，见第 07 节；真实系统通话证据单独记录。
 
 ## 结论
 
-保留原五标签导航、拨号盘、联系人、短信会话和全屏通话界面。当前 v2 独立三标签实验界面缺少最近通话、联系人和原有通知导航，不宜成为 R7 的产品入口。把模块选择放进原拨号页设备卡，把连接版本与配置放进原设置页；不同服务的历史和操作身份继续隔离。
+保留原五标签导航、拨号盘、联系人、短信会话和全屏通话界面。当前 v2 独立三标签实验界面缺少最近通话、联系人和原有通知导航，不宜成为原视图的产品入口。把模块选择放进原拨号页设备卡，把连接版本与配置放进原设置页；不同服务的历史和操作身份继续隔离。
 
-原 UI 的系统 TabView、统一列表尺寸、联系人头像、带文字的连接状态和独立通话覆盖层可以继续使用。通讯录拒绝授权后的“前往系统设置”、短信清空确认、拨号删除键的无障碍说明也值得保留。R7 不需要重新设计一套视觉语言。
+原 UI 的系统 TabView、统一列表尺寸、联系人头像、带文字的连接状态和独立通话覆盖层可以继续使用。通讯录拒绝授权后的“前往系统设置”、短信清空确认、拨号删除键的无障碍说明也值得保留。原视图接入不需要重新设计一套视觉语言。
 
 ## 证据与覆盖
 
@@ -39,7 +39,7 @@ M3 `a0d5b44` 截图复核已确认 V01、V03、V04、V02 未配置空态及联�
 
 ### D02 · 高：CallKit 与已有通话后台生命周期需要闭环
 
-**证据。** 实施前 CloudV2Model 在 background 停止轮询并启动本客户端通话的挂断清理，CloudV2View 使用独立 App 内通话控制。该行为符合 R5/R6；R7 需要将已发现的来电与已建立通话接入 CallKit，并统一系统和 App 内状态。
+**证据。** 实施前 CloudV2Model 在 background 停止轮询并启动本客户端通话的挂断清理，CloudV2View 使用独立 App 内通话控制。该行为符合 R5/R6；原视图接入需要将已发现的来电与已建立通话接入 CallKit，并统一系统和 App 内状态。
 
 **建议。** 前台发现来电后进入 CallKit 系统界面，并与原 ActiveCallView 保持同一通话身份。接听、拒接、挂断、切回 App、权限弹窗和音频中断的状态一致。已有 App 管理的系统通话普通切后台不应表现为用户主动挂断；远端结束后系统与 App 同步收起。
 
@@ -152,7 +152,7 @@ M3 `a0d5b44` 截图复核已确认 V01、V03、V04、V02 未配置空态及联�
 
 ### 01 · 首次选择连接方式：基线布局正常
 
-QA 提供 `/tmp/airsim-r7-qa/01-launch.jpg`，iPhone Air / iOS 27.0，新安装、无配置。本图只覆盖版本选择前的首屏。
+QA 提供 `/tmp/airsim-ui-qa/01-launch.jpg`，iPhone Air / iOS 27.0，新安装、无配置。本图只覆盖版本选择前的首屏。
 
 标题、分组说明、三项操作和权限说明层级清楚；三行操作完整显示，无可见裁切、遮挡或异常换行。沿用现有系统分组列表即可，无需调整配色、卡片或整体布局。
 
@@ -160,23 +160,23 @@ QA 提供 `/tmp/airsim-r7-qa/01-launch.jpg`，iPhone Air / iOS 27.0，新安装�
 
 ### 02 · M1 五页视觉复核
 
-证据目录：`/tmp/airsim-r7-qa/m1-screenshots/`，文件对应关系由同目录 `manifest.json` 保存。QA 标注为 `6f1882c` 前的首轮可测构建，尚未包含 ready capability 修正；以下只评价图中实际状态。已逐张查看 30 张：三个 v2 五页集合、v1/local 两个五页集合、首次选择与本地引导、空短信编辑器、v1/local 设置滚动位置。原图保留在 QA 目录，不复制为新的证据版本。
+证据目录：`/tmp/airsim-ui-qa/m1-screenshots/`，文件对应关系由同目录 `manifest.json` 保存。QA 标注为 `6f1882c` 前的首轮可测构建，尚未包含 ready capability 修正；以下只评价图中实际状态。已逐张查看 30 张：三个 v2 五页集合、v1/local 两个五页集合、首次选择与本地引导、空短信编辑器、v1/local 设置滚动位置。原图保留在 QA 目录，不复制为新的证据版本。
 
 | 步骤 | 已查看截图 | 结果 |
 | --- | --- | --- |
-| 1 · 选择与引导 | `R7FreshInstallTests/` 两图 | 标题、说明和主次操作清楚，默认字号未见裁切 |
-| 2 · 拨号 | `R7NavigationTests/`、`R7DarkAppearanceTests/`、`R7LargeTextTests/` 的 `v2-unconfigured-拨号.png` | v2 已显示未配置原因和连接设置入口；浅深一致；最大辅助字号状态完整、全部按键和标签栏可见 |
+| 1 · 选择与引导 | `FreshInstallTests/` 两图 | 标题、说明和主次操作清楚，默认字号未见裁切 |
+| 2 · 拨号 | `NavigationTests/`、`DarkAppearanceTests/`、`LargeTextTests/` 的 `v2-unconfigured-拨号.png` | v2 已显示未配置原因和连接设置入口；浅深一致；最大辅助字号状态完整、全部按键和标签栏可见 |
 | 3 · 最近通话 | 上述三目录的 `v2-unconfigured-最近.png` | 居中空态与标题完整，大字号自动换行，无可见重叠 |
-| 4 · 短信 | 上述三目录的 `v2-unconfigured-短信.png`；`R7MessagingTests/v2-empty-composer.png` | 原工具栏和编辑器已复用；空态仍需状态区分与局部排版调整，见 V02 |
+| 4 · 短信 | 上述三目录的 `v2-unconfigured-短信.png`；`MessagingTests/v2-empty-composer.png` | 原工具栏和编辑器已复用；空态仍需状态区分与局部排版调整，见 V02 |
 | 5 · 联系人 | 上述三目录的 `v2-unconfigured-联系人.png` | 默认字号行距、头像、搜索框正常；最大辅助字号身份截断，见 V01 |
 | 6 · 设置 | 上述三目录的 `v2-unconfigured-设置.png` | 版本勾选清楚；v2 配置分组正确；Debug 信息占据主要位置，见 V03 |
-| 7 · 旧模式对照 | `R7V1NavigationTests/v1-unpaired-*`、`R7LocalNavigationTests/local-unpaired-*` 及两张设置滚动图 | 五标签、列表、拨号盘保持一致；local 状态文字有矛盾，见 V04；无设备拨号缺少连接入口，与 D09 一致 |
+| 7 · 旧模式对照 | `V1NavigationTests/v1-unpaired-*`、`LocalNavigationTests/local-unpaired-*` 及两张设置滚动图 | 五标签、列表、拨号盘保持一致；local 状态文字有矛盾，见 V04；无设备拨号缺少连接入口，与 D09 一致 |
 
 **整体判断。** 这些画面支持继续沿用现有电话式视觉，不需要重做颜色、玻璃材质、圆角或导航。列表无内容时的大面积留白正常。联系人内联标题配合搜索框、其他列表大标题的差异没有阻碍导航。设置内容滚入系统悬浮标签栏下方是滚动过程，单张截图不能证明底部控件不可达。
 
 #### V01 · 中：最大辅助字号下联系人身份同时截断
 
-`R7LargeTextTests/v2-unconfigured-联系人.png` 中，虚构联系人姓名与号码均出现省略号。当前 ContactsView 对两者使用 `.lineLimit(1)`；号码尾部无法比较，姓名相似时会增加误选风险。
+`LargeTextTests/v2-unconfigured-联系人.png` 中，虚构联系人姓名与号码均出现省略号。当前 ContactsView 对两者使用 `.lineLimit(1)`；号码尾部无法比较，姓名相似时会增加误选风险。
 
 建议仅在辅助字号下允许姓名和号码换行、行高自然增长，必要时把头像与文字改为更节省横向空间的排列；保留默认字号布局，不整体缩小字体。验收使用当前同一联系人和两个同名前缀、不同号码尾部的虚构联系人，列表可辨别身份，进入详情后完整号码可读，箭头和点击区域不与文字重叠。
 
@@ -196,7 +196,7 @@ QA 提供 `/tmp/airsim-r7-qa/01-launch.jpg`，iPhone Air / iOS 27.0，新安装�
 
 #### V04 · 中：本地模式开启时出现“本地模式已关闭”
 
-`R7LocalNavigationTests/local-unpaired-设置.png` 同时显示“仅本地模式”勾选、开关开启，以及“云端 Relay：本地模式已关闭”。AirSIMSettingsView 的 localModeEnabled 分支返回该文字，实际想表达的是本地模式关闭了云端，不是本地模式本身关闭。
+`LocalNavigationTests/local-unpaired-设置.png` 同时显示“仅本地模式”勾选、开关开启，以及“云端 Relay：本地模式已关闭”。AirSIMSettingsView 的 localModeEnabled 分支返回该文字，实际想表达的是本地模式关闭了云端，不是本地模式本身关闭。
 
 建议改成“已关闭（仅本地模式）”。滚动图中的远程开关虽然不可操作，但仍显示开启的保存值；在仅本地模式下用说明明确该偏好当前不生效，避免误读。验收本地选择、开关和云端状态语义一致，不改变已保存的 v1 偏好或运行逻辑。
 
@@ -221,13 +221,13 @@ V01–V04 按主控批准范围实施。短信页还须保留 v2 `inbox_gap` 能
 
 ### 04 · M1 短信闭环复核
 
-证据为 QA 在 `6f1882c` 独立副本的固定虚构数据运行，目录 `/tmp/airsim-r7-qa/m1-closure-screenshots/`。已查看以下三图，不涉及真实短信或号码。
+证据为 QA 在 `6f1882c` 独立副本的固定虚构数据运行，目录 `/tmp/airsim-ui-qa/m1-closure-screenshots/`。已查看以下三图，不涉及真实短信或号码。
 
 | 步骤 | 截图 | 结论 |
 | --- | --- | --- |
-| 1 · 回复被拒绝 | `R7SendFailureTests/testRejectedReplyPreservesText/reply-rejected.png` | 错误弹窗呈现，底部正文仍保留；没有把失败消息显示成已发送 |
+| 1 · 回复被拒绝 | `SendFailureTests/testRejectedReplyPreservesText/reply-rejected.png` | 错误弹窗呈现，底部正文仍保留；没有把失败消息显示成已发送 |
 | 2 · 关闭错误后继续编辑 | 同目录 `reply-preserved.png` | 正文保留，键盘与编辑区可见；QA 报告该用例通过，D06 的明确拒绝分支已有修复证据 |
-| 3 · 联系人发短信 | `R7ModuleIsolationTests/testContactMessageActionOpensOriginalComposer/failure.png` | QA 报告从联系人点发短信后只到列表；截图确实停在列表，没有新信息编辑器，D01 的联系人入口闭环尚未通过 |
+| 3 · 联系人发短信 | `ModuleIsolationTests/testContactMessageActionOpensOriginalComposer/failure.png` | QA 报告从联系人点发短信后只到列表；截图确实停在列表，没有新信息编辑器，D01 的联系人入口闭环尚未通过 |
 
 联系人发短信修复验收：从联系人详情选择号码后，原编辑器打开且收件人正确；首次进入短信标签与此前已访问该标签两种情况都成立。取消后可再次从同一联系人打开，切换联系人不残留旧收件人。保持原编辑器，不增加新的发信界面。当前源码 MessagesView 的 onAppear 仅处理待打开会话，待收件人依赖 onChange；这与首次进入路径相关，具体修复由执行会话确定。
 
@@ -235,13 +235,13 @@ V01–V04 按主控批准范围实施。短信页还须保留 v2 `inbox_gap` 能
 
 ### 05 · 模块隔离与未知操作恢复入口
 
-已查看 `/tmp/airsim-r7-qa/m1-return-screenshots/` 的四张固定虚构数据截图。QA 报告模块/历史隔离及未知命令禁发、切换阻止、恢复入口两项通过；图像核对结果如下。
+已查看 `/tmp/airsim-ui-qa/m1-return-screenshots/` 的四张固定虚构数据截图。QA 报告模块/历史隔离及未知命令禁发、切换阻止、恢复入口两项通过；图像核对结果如下。
 
 | 步骤 | 截图 | 结论 |
 | --- | --- | --- |
-| 1 · 切换模块后进入会话 | `R7ModuleIsolationTests/module-b-conversation.png` | 显示乙模块会话，回复输入为空，未见甲模块正文或草稿残留；文字、返回和编辑区无可见重叠 |
+| 1 · 切换模块后进入会话 | `ModuleIsolationTests/module-b-conversation.png` | 显示乙模块会话，回复输入为空，未见甲模块正文或草稿残留；文字、返回和编辑区无可见重叠 |
 | 2 · 查看该模块最近记录 | 同目录 `module-b-recents.png` | 只显示本场景乙模块记录，行内名称、日期和回拨入口清楚 |
-| 3 · 结果未知时尝试切换 | `R7UnknownCommandTests/unknown-blocks-switch.png` | 显示“无法切换”，v2 勾选保持；阻止说明完整可读 |
+| 3 · 结果未知时尝试切换 | `UnknownCommandTests/unknown-blocks-switch.png` | 显示“无法切换”，v2 勾选保持；阻止说明完整可读 |
 | 4 · 查找原操作恢复入口 | 同目录 `unknown-recovery.png` | “待核对操作”说明与“查询原操作结果”入口明确可见，模块选择呈禁用态 |
 
 模块隔离与未知命令用例按 QA 运行结果通过，不保留键盘相关产品缺陷。截图证明上述呈现；查询后收据终态、真实网络恢复及跨服务隔离不能仅凭这四图推断。切换弹窗仍使用合并原因文案，后续按已批准错误恢复范围核对：仅有未知操作时，应指向原操作核对，不让用户误以为必须结束一通并不存在的电话。
@@ -250,18 +250,18 @@ V01–V04 按主控批准范围实施。短信页还须保留 v2 `inbox_gap` 能
 
 ### 06 · M3 修复复核：a0d5b44
 
-证据目录 `/tmp/airsim-r7-qa/m3-a0d5b44-screenshots/`。`BUILD.txt` 记录生产源码为 `a0d5b44`，测试附加联系人重复打开、短信恢复设置和诊断导航断言；QA 报告 13 项 UI 全部通过。此次逐张查看 15 张重点截图，未将其余导出图片计为已审阅。
+证据目录 `/tmp/airsim-ui-qa/m3-a0d5b44-screenshots/`。`BUILD.txt` 记录生产源码为 `a0d5b44`，测试附加联系人重复打开、短信恢复设置和诊断导航断言；QA 报告 13 项 UI 全部通过。此次逐张查看 15 张重点截图，未将其余导出图片计为已审阅。
 
 | 修复项 / 步骤 | 已查看证据 | 视觉复核结果 |
 | --- | --- | --- |
-| V01 · 辅助字号联系人 | `R7LargeTextTests/v2-unconfigured-联系人.png` | 姓名与号码完整换行，行高自然增加，无省略号、重叠或箭头遮字；当前样例通过 |
-| V02 · 未配置短信与恢复入口 | `R7MessagingTests/v2-unconfigured-message-recovery.png`；`R7LargeTextTests/v2-unconfigured-短信.png`；深色短信图 | 显示“尚未配置短信连接”和连接设置，空态独立居中，无上下列表分隔线；辅助字号内容与动作完整可见，通过 |
-| V03 · 诊断位置 | `R7NavigationTests/v2-settings.png`、`v2-diagnostics.png`；大字及深色设置图 | 连接版本区不再显示只读源统计，诊断页仍保留对应字段；导入操作层级明确，通过 |
-| V04 · 本地模式状态 | `R7LocalNavigationTests/local-unpaired-设置.png` | 本地选择、开启开关与“已关闭（仅本地模式）”一致，通过 |
-| 联系人首次发短信 | `R7ModuleIsolationTests/contact-message-composer-1.png` | 原新信息编辑器已打开，收件号码和识别联系人正确，通过 |
+| V01 · 辅助字号联系人 | `LargeTextTests/v2-unconfigured-联系人.png` | 姓名与号码完整换行，行高自然增加，无省略号、重叠或箭头遮字；当前样例通过 |
+| V02 · 未配置短信与恢复入口 | `MessagingTests/v2-unconfigured-message-recovery.png`；`LargeTextTests/v2-unconfigured-短信.png`；深色短信图 | 显示“尚未配置短信连接”和连接设置，空态独立居中，无上下列表分隔线；辅助字号内容与动作完整可见，通过 |
+| V03 · 诊断位置 | `NavigationTests/v2-settings.png`、`v2-diagnostics.png`；大字及深色设置图 | 连接版本区不再显示只读源统计，诊断页仍保留对应字段；导入操作层级明确，通过 |
+| V04 · 本地模式状态 | `LocalNavigationTests/local-unpaired-设置.png` | 本地选择、开启开关与“已关闭（仅本地模式）”一致，通过 |
+| 联系人首次发短信 | `ModuleIsolationTests/contact-message-composer-1.png` | 原新信息编辑器已打开，收件号码和识别联系人正确，通过 |
 | 取消后再次打开 | 同目录 `contact-message-composer-2.png` | 同一原编辑器再次出现，收件人正确，取消及发送控件位置稳定；结合 QA 动作断言通过 |
-| 空编辑器 | `R7MessagingTests/v2-empty-composer.png` | 原收件人与正文输入区完整，无新增布局问题 |
-| 深色五页一致性 | `R7DarkAppearanceTests/` 五张 | 拨号、最近、短信、联系人、设置保持原导航与电话式视觉；状态及主操作可辨，无需追加视觉改造 |
+| 空编辑器 | `MessagingTests/v2-empty-composer.png` | 原收件人与正文输入区完整，无新增布局问题 |
+| 深色五页一致性 | `DarkAppearanceTests/` 五张 | 拨号、最近、短信、联系人、设置保持原导航与电话式视觉；状态及主操作可辨，无需追加视觉改造 |
 
 收件箱缺口提示“部分短信未同步，记录可能不完整”已在 PhoneViews 的短信列表条件分支确认。本批没有触发缺口的截图，因此记录为源码已实现、该状态像素未复核；离线、同步中与真实空历史的状态区别也不由未配置截图代证。
 
@@ -269,7 +269,7 @@ V01–V04 按主控批准范围实施。短信页还须保留 v2 `inbox_gap` 能
 
 ### 07 · 原通话视图复核：7e85c9c
 
-已查看 `/tmp/airsim-r7-qa/call-7e85c9c-screenshots/` 三张图片。`BUILD.txt` 标注生产与 QA 提交 `7e85c9c`、iPhone Air / iOS 27.0、两项 UI 测试通过，未使用真实网络或媒体。
+已查看 `/tmp/airsim-ui-qa/call-7e85c9c-screenshots/` 三张图片。`BUILD.txt` 标注生产与 QA 提交 `7e85c9c`、iPhone Air / iOS 27.0、两项 UI 测试通过，未使用真实网络或媒体。
 
 | 步骤 | 截图 | 复核结果 |
 | --- | --- | --- |

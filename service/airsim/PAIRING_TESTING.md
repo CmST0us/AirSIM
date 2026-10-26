@@ -1,6 +1,6 @@
-# R8 pairing and renewable sessions
+# Device pairing and renewable sessions
 
-2026-10-27. Implements the service portion of [R8 pairing](../../protocol/v2/R8_PAIRING.md).
+2026-10-27. Implements the service portion of [pairing](../../protocol/v2/PAIRING.md).
 
 ## Verified
 
@@ -13,4 +13,4 @@
 ## Boundaries
 
 - The tests use synthetic module proofs and PostgreSQL. Physical RM500/WebUSB pairing and production ECS deployment are recorded separately.
-- APNs remains disabled. Watch v2, bare-module installation and OTA are outside R8.
+- APNs remains disabled. Watch v2, bare-module installation and OTA are outside pairing scope.

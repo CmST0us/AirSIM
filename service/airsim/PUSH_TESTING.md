@@ -1,14 +1,14 @@
-# R7 M2 server verification
+# Push notification server verification
 
 2026-10-25. Scope: `service/airsim`; contract: [APNs extension](../../protocol/v2/APNS_EXTENSION.md). No production deployment or real APNs requests were performed.
 
 ## Current scope and deployment status
 
-As confirmed by the controller on 2026-10-25, R7 delivery and acceptance cover v2 compatibility with the original five App views and CallKit system-call integration. APNs credentials, PushKit offline wakeup and SMS push notifications are outside this phase's delivery and acceptance scope. They are not prerequisites for CallKit integration.
+As confirmed by the controller on 2026-10-25, this delivery and acceptance cover v2 compatibility with the original five App views and CallKit system-call integration. APNs credentials, PushKit offline wakeup and SMS push notifications are outside this phase's delivery and acceptance scope. They are not prerequisites for CallKit integration.
 
-Commit `411bf38` retains the server-side APNs preparation code and the local verification results below. The provider remains disabled. According to the controller, production remains on R4.1, which supports the current App/CallKit integration; the R7 schema 2 and discovery profile upgrade have not been deployed.
+Commit `411bf38` retains the server-side APNs preparation code and the local verification results below. The provider remains disabled. According to the controller, production remains on R4.1, which supports the current App/CallKit integration; the system-call schema 2 and discovery profile upgrade have not been deployed.
 
-The Linux amd64 image `airsim-business:r7-411bf3834407-amd64` was built locally with image ID `sha256:6491661c798a57413c539c40a973b10b7ebba2da810792945ba835b2e4c81d64`. The controller reports that the uploaded image is staged only. Image build and upload do not establish deployment, real push delivery or CallKit acceptance. The tests below document the retained server preparation work; they do not establish iOS view compatibility or system-call behavior on a physical device.
+The Linux amd64 image `airsim-business:push-411bf3834407-amd64` was built locally with image ID `sha256:6491661c798a57413c539c40a973b10b7ebba2da810792945ba835b2e4c81d64`. The controller reports that the uploaded image is staged only. Image build and upload do not establish deployment, real push delivery or CallKit acceptance. The tests below document the retained server preparation work; they do not establish iOS view compatibility or system-call behavior on a physical device.
 
 ## Executed
 
@@ -25,15 +25,15 @@ The Linux amd64 image `airsim-business:r7-411bf3834407-amd64` was built locally 
 Use a fresh, disposable local database. The database test refuses an existing schema and does not reset user data. Commands below create only the named local test container; port 18543 must be available.
 
 ```sh
-docker run -d --name airsim-r7-push-test \
+docker run -d --name airsim-push-test \
   -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_DB=airsim_test \
   -p 127.0.0.1:18543:5432 \
   postgres:17.11-alpine3.24@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
 # Wait until this succeeds before invoking Go tests.
-docker exec airsim-r7-push-test pg_isready -U postgres -d airsim_test
+docker exec airsim-push-test pg_isready -U postgres -d airsim_test
 AIRSIM_PUSH_TEST_DATABASE_URL='postgres://postgres@127.0.0.1:18543/airsim_test?sslmode=disable' \
   go test -race ./...
-docker rm -fv airsim-r7-push-test
+docker rm -fv airsim-push-test
 ```
 
 These commands run from `service/airsim` and use `go` from the configured Go 1.24.13 toolchain. No APNs account or real key is required. For another run, create another empty database or recreate this disposable container.

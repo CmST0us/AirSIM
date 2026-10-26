@@ -30,7 +30,7 @@ enum LegacyRuntimeGate {
     private static var requests = 0
     static var allowed: Bool { lock.lock(); defer { lock.unlock() }; return enabled }
     static var generation: UInt64 { lock.lock(); defer { lock.unlock() }; return epoch }
-    static func configure(_ value: Bool) { lock.lock(); enabled = value && !R7UITestScenario.active; epoch &+= 1; lock.unlock() }
+    static func configure(_ value: Bool) { lock.lock(); enabled = value && !UITestScenario.active; epoch &+= 1; lock.unlock() }
     static func accepts(_ generation: UInt64) -> Bool { lock.lock(); defer { lock.unlock() }; return enabled && epoch == generation }
     static func begin() throws -> UInt64 { lock.lock(); defer { lock.unlock() }; guard enabled else { throw CancellationError() }; requests += 1; return epoch }
     static func end() { lock.lock(); requests -= 1; lock.unlock() }
@@ -84,7 +84,7 @@ final class AppRouteCoordinator: ObservableObject {
     @Published private(set) var model: AppModel?
     func ensureRuntime() {
         guard model == nil, let choice else { return }
-        let value = AppModel(cloudV2: choice == .v2 ? R7UITestScenario.makeCloud() : nil)
+        let value = AppModel(cloudV2: choice == .v2 ? UITestScenario.makeCloud() : nil)
         model = value; legacy = value.isV2 ? nil : value; cloud = value.cloudV2
         cloud?.activateSystemIntegration()
     }
@@ -95,15 +95,15 @@ final class AppRouteCoordinator: ObservableObject {
     private let defaults: UserDefaults
     var legacy: AppModel?
     var cloud: CloudV2Model?
-    init(defaults: UserDefaults = R7UITestScenario.defaults, paired: Bool? = nil) {
+    init(defaults: UserDefaults = UITestScenario.defaults, paired: Bool? = nil) {
         self.defaults = defaults
-        choice = R7UITestScenario.name == "fresh" ? nil : CloudVersionPreference.selection(defaults: defaults, paired: paired ?? (!R7UITestScenario.active && VoWLANCredentialStore.load() != nil))
+        choice = UITestScenario.name == "fresh" ? nil : CloudVersionPreference.selection(defaults: defaults, paired: paired ?? (!UITestScenario.active && VoWLANCredentialStore.load() != nil))
         if let choice { CloudVersionPreference.save(choice, defaults: defaults) }
         LegacyRuntimeGate.configure(choice == .v1 || choice == .local)
     }
     func choose(_ next: AirSIMRuntimeChoice) async {
         guard !transitioning, next != choice else { return }
-        guard R7UITestScenario.active || (!LegacyBusinessReservations.pending && !LegacySwitchFence.shared.blocked), legacy?.blocksRuntimeSwitch != true, cloud?.blocksSwitch != true else {
+        guard UITestScenario.active || (!LegacyBusinessReservations.pending && !LegacySwitchFence.shared.blocked), legacy?.blocksRuntimeSwitch != true, cloud?.blocksSwitch != true else {
             error = "仍有通话、媒体或未确认操作，请先结束通话并确认操作结果。"; return
         }
         transitioning = true
@@ -111,7 +111,7 @@ final class AppRouteCoordinator: ObservableObject {
         let stopStarted = Date()
 #endif
         LegacyRuntimeGate.configure(false)
-        if !R7UITestScenario.active && (choice == .v1 || choice == .local) {
+        if !UITestScenario.active && (choice == .v1 || choice == .local) {
             if let legacy { await legacy.stopRuntime() }
             await VoIPPushController.shared.stopRuntime()
             AirSIMNotificationDelegate.current?.stopRuntime()
@@ -189,11 +189,11 @@ struct SharedAppHost: View {
 }
 
 // Launch scenarios are confined to simulator Debug builds and use disposable stores.
-enum R7UITestScenario {
+enum UITestScenario {
     static let name: String? = {
 #if DEBUG && targetEnvironment(simulator)
         let args = ProcessInfo.processInfo.arguments
-        guard let index = args.firstIndex(of: "--r7-ui-scenario"), args.indices.contains(index + 1),
+        guard let index = args.firstIndex(of: "--ui-scenario"), args.indices.contains(index + 1),
               ["fresh", "local-unpaired", "v1-unpaired", "v2-unconfigured", "v2-pairing-live", "v2-offline-fixture", "v2-ready-fixture", "v2-send-failure", "v2-command-unknown", "v2-incoming-fixture", "v2-active-fixture"].contains(args[index + 1]) else { return nil }
         return args[index + 1]
 #else
@@ -203,7 +203,7 @@ enum R7UITestScenario {
     static var active: Bool { name != nil }
     static let defaults: UserDefaults = {
         guard let name else { return .standard }
-        let suite = "airsim.r7.ui." + UUID().uuidString
+        let suite = "airsim.ui." + UUID().uuidString
         let value = UserDefaults(suiteName: suite)!
         if name != "fresh" {
             CloudVersionPreference.save(name == "local-unpaired" ? .local : name == "v1-unpaired" ? .v1 : .v2, defaults: value)
@@ -211,22 +211,22 @@ enum R7UITestScenario {
         }
         return value
     }()
-    static let root = FileManager.default.temporaryDirectory.appendingPathComponent("airsim-r7-ui-" + UUID().uuidString)
+    static let root = FileManager.default.temporaryDirectory.appendingPathComponent("airsim-ui-" + UUID().uuidString)
     @MainActor static func makeCloud() -> CloudV2Model {
 #if DEBUG && targetEnvironment(simulator)
         if name == "v2-pairing-live" {
-            let tokens = R8LivePairingTokens()
-            let pairings = R8LivePairingStore()
+            let tokens = LivePairingTokens()
+            let pairings = LivePairingStore()
             return CloudV2Model(defaults: defaults, root: root, tokens: tokens, pairings: pairings)
         }
-        if active { return R7FixtureTransport.makeModel() }
+        if active { return FixtureTransport.makeModel() }
 #endif
         return CloudV2Model()
     }
 }
 
 #if DEBUG && targetEnvironment(simulator)
-private final class R8LivePairingTokens: V2TokenStore {
+private final class LivePairingTokens: V2TokenStore {
     private let lock = NSLock()
     private var values: [String: String] = [:]
 
@@ -247,7 +247,7 @@ private final class R8LivePairingTokens: V2TokenStore {
     }
 }
 
-private final class R8LivePairingStore: V2PairingStore {
+private final class LivePairingStore: V2PairingStore {
     private let lock = NSLock()
     private var data: Data?
 
@@ -264,39 +264,39 @@ private final class R8LivePairingStore: V2PairingStore {
     }
 }
 
-private struct R7FixtureTokens: V2TokenStore {
+private struct FixtureTokens: V2TokenStore {
     func save(_ token: String, account: String) throws {}
     func read(account: String) throws -> String { String(repeating: "a", count: 64) }
     func remove(account: String) throws {}
 }
-private struct R7FixtureTransport: V2HTTPTransport {
+private struct FixtureTransport: V2HTTPTransport {
     static let first = "00112233-4455-4677-8899-aabbccddeeff"
     static let second = "10112233-4455-4677-8899-aabbccddeeff"
     static let config = V2Configuration(identity: V2Identity(apiOrigin: "https://example.invalid", serverID: first, clientInstallationID: first), mediaOrigin: "https://media.example.invalid", expiresAt: Date().addingTimeInterval(3600))
     @MainActor static func makeModel() -> CloudV2Model {
-        let defaults = R7UITestScenario.defaults
-        if R7UITestScenario.name != "v2-unconfigured" && R7UITestScenario.name != "fresh" {
+        let defaults = UITestScenario.defaults
+        if UITestScenario.name != "v2-unconfigured" && UITestScenario.name != "fresh" {
             defaults.set(try? JSONEncoder().encode(config), forKey: "airsim.v2.configuration")
             if defaults.string(forKey: V2LocalPaths.selectionKey(config.identity)) == nil {
                 defaults.set(first, forKey: V2LocalPaths.selectionKey(config.identity))
             }
-            if R7UITestScenario.name == "v2-command-unknown" {
+            if UITestScenario.name == "v2-command-unknown" {
                 let pending = V2PendingCommand(binding: V2ControlBinding(identity: config.identity, moduleID: first, bootID: first, backendEpoch: first, connectionEpoch: first), commandID: second, action: "sms.send", generation: first, callID: nil)
-                try? V2FilePendingStore(url: R7UITestScenario.root.appendingPathComponent("pending.json")).save(pending)
+                try? V2FilePendingStore(url: UITestScenario.root.appendingPathComponent("pending.json")).save(pending)
             }
         }
-        let tokens = R7FixtureTokens()
-        return CloudV2Model(client: V2Client(transport: Self(), tokens: tokens), defaults: defaults, root: R7UITestScenario.root, tokens: tokens)
+        let tokens = FixtureTokens()
+        return CloudV2Model(client: V2Client(transport: Self(), tokens: tokens), defaults: defaults, root: UITestScenario.root, tokens: tokens)
     }
     func send(_ request: URLRequest, limit: Int) async throws -> V2HTTPResponse {
         let id = Self.first, second = Self.second
         let path = request.url?.path ?? ""
         let module = path.contains(second) ? second : id
-        let online = R7UITestScenario.name != "v2-offline-fixture"
+        let online = UITestScenario.name != "v2-offline-fixture"
         let date = V2Validation.timestamp(Date())
         let label = module == id ? "甲" : "乙"
-        let incomingCall = R7UITestScenario.name == "v2-incoming-fixture"
-        let activeCall = R7UITestScenario.name == "v2-active-fixture"
+        let incomingCall = UITestScenario.name == "v2-incoming-fixture"
+        let activeCall = UITestScenario.name == "v2-active-fixture"
         let callScenario = incomingCall || activeCall
         let moduleIDs = callScenario ? [id] : [id, second]
         let object: [String: Any]
@@ -322,7 +322,7 @@ private struct R7FixtureTransport: V2HTTPTransport {
         } else if path.hasSuffix("messages") {
             object = ["server_id": id, "module_id": module, "agent_boot_id": id, "backend_epoch": id, "online": online, "inbox_gap": false, "inbox_dropped": 0, "messages": [["message_id": id, "direction": "incoming", "sender": module == id ? "00000000001" : "00000000002", "recipient": "", "text": "QA\(label)消息", "state": "received", "delivery": "unknown", "observed_at": "2026-10-24T00:00:00Z"]]]
         } else if path.contains("commands") {
-            if R7UITestScenario.name == "v2-command-unknown" { throw V2Error.transport }
+            if UITestScenario.name == "v2-command-unknown" { throw V2Error.transport }
             return V2HTTPResponse(status: 409, body: Data())
         } else { throw V2Error.transport }
         return V2HTTPResponse(status: 200, body: try JSONSerialization.data(withJSONObject: object))

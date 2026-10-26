@@ -10,7 +10,7 @@
 
 [adapter.ts](../service/airsim/web/src/adapter.ts) 是生产装配入口，当前装配 [WebUSB/ADB 适配器](../service/airsim/web/src/transport/webusb.ts)。适配器通过系统设备选择器连接用户明确选择的模块，在设备本机 0600 Unix socket 上完成新鲜 Ed25519 证明，再通过同源 `/v2/pairing` 接口取得八位连接码。页面状态与 DOM 视图不依赖 USB 类或服务器响应格式。
 
-[pairing.ts](../service/airsim/web/src/pairing.ts) 是页面适配器接口；线上行为由 [R8 契约](../protocol/v2/R8_PAIRING.md) 定义：
+[pairing.ts](../service/airsim/web/src/pairing.ts) 是页面适配器接口；线上行为由 [配对契约](../protocol/v2/PAIRING.md) 定义：
 
 | 方法 | 页面用途与约束 |
 | --- | --- |

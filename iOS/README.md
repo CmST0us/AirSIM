@@ -6,7 +6,7 @@ App 保留仅本地、云端 v1、云端 v2 选择；已有安装继续使用原
 
 v2 首先使用 `service/airsim/` 的 ECS Docker Compose 服务。正常流程是在电脑网页选择设备、核对模块身份、取得五分钟有效的八位连接码，再在 App 的“添加设备”中确认。配对后 Access Token 一小时有效，90 天滑动刷新会话存 Keychain；没有自动回退 v1。旧管理员连接文件保留在“其他方式”。用户须显式选择要使用的模块。通话和短信沿用原界面，未提供的 v2 功能不显示可执行的旧协议入口。
 
-原视图接入已通过 15 项 UI 自动化；全量单元测试 132 项中 131 通过、1 项硬件音频测试按条件跳过。CallKit 与已有通话的后台生命周期按 [R7 契约](../protocol/v2/R7.md) 实施，真机呼出、系统来电接听、后台保持及原 App 挂断已通过。R8 的 WebUSB、生产 ECS claim、模块范围绑定和完整原界面配对流程已通过；实现与剩余边界见 [R8 记录](../docs/IOS_AIRSIM_R8.md)。此前 [R5](../docs/IOS_AIRSIM_R5.md) 为模拟器前台闭环，[R6](../docs/IOS_AIRSIM_R6.md) 已确认实体双向音频，但通话质量尚未通过。Watch v2 暂不支持。
+原视图接入已通过 15 项 UI 自动化；全量单元测试 132 项中 131 通过、1 项硬件音频测试按条件跳过。CallKit 与已有通话的后台生命周期按 [系统通话契约](../protocol/v2/CALLKIT.md) 实施，真机呼出、系统来电接听、后台保持及原 App 挂断已通过。设备配对的 WebUSB、生产 ECS claim、模块范围绑定和完整原界面配对流程已通过；实现与剩余边界见 [配对记录](../docs/IOS_AIRSIM_PAIRING.md)。此前 [R5](../docs/IOS_AIRSIM_R5.md) 为模拟器前台闭环，[R6](../docs/IOS_AIRSIM_R6.md) 已确认实体双向音频，但通话质量尚未通过。Watch v2 暂不支持。
 
 该目录包含面向三星 Android 电话端的 iPhone、Apple Watch、Live Activity 与共享模型。客户端通过 VoWLAN 直连三星手机，或通过独立 Cloudflare Relay 使用远程通话与短信。
 

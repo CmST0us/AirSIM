@@ -2,7 +2,7 @@
 
 ## v2 建设覆盖说明（2026-10-24）
 
-用户已明确新建多平台 v2：`module/airsim-agent/`（新 Agent）、`service/airsim/`（ECS Go 服务）、`service/airsim/deploy/compose/`（首版 Docker Compose）、`service/airsim-worker/`（独立 Worker v2）。先读 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)，再读相应新目录 README。App 云端显式选择 v1/v2，ECS 与 Worker v2 共用对外协议。新 Agent 的 RM500 R1–R3 已完成限定范围实机验收，见 [主控决策](docs/RM500_AGENT_EXECUTION.md) 和 [R3 记录](module/airsim-agent/R3_TESTING.md)。R8 已在原 App 设置中完成 WebUSB、五分钟连接码、模块证明、claim 和自动续期接线，见 [配对契约](protocol/v2/R8_PAIRING.md) 与 [iOS 记录](docs/IOS_AIRSIM_R8.md)；生产 ECS claim 和完整 UI 流程已通过，实体 iPhone Keychain 与长期刷新仍需复验。
+用户已明确新建多平台 v2：`module/airsim-agent/`（新 Agent）、`service/airsim/`（ECS Go 服务）、`service/airsim/deploy/compose/`（首版 Docker Compose）、`service/airsim-worker/`（独立 Worker v2）。先读 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)，再读相应新目录 README。App 云端显式选择 v1/v2，ECS 与 Worker v2 共用对外协议。新 Agent 的 RM500 R1–R3 已完成限定范围实机验收，见 [主控决策](docs/RM500_AGENT_EXECUTION.md) 和 [R3 记录](module/airsim-agent/R3_TESTING.md)。设备配对已在原 App 设置中完成 WebUSB、五分钟连接码、模块证明、claim 和自动续期接线，见 [配对契约](protocol/v2/PAIRING.md) 与 [iOS 记录](docs/IOS_AIRSIM_PAIRING.md)；生产 ECS claim 和完整 UI 流程已通过，实体 iPhone Keychain 与长期刷新仍需复验。
 
 下面有关当前发布、三星 Android、旧 AVF 包/端口和 Worker 的规则继续适用于 v1；不得用这些历史范围禁止用户已确认的 RM500/EG25/Android AVF v2 建设，也不得把旧安装脚本直接用于新 Agent。保留旧 `module/module-agent/`、`push-relay-worker/` 和现有改动。v2 独立建设、ECS 优先；四个执行会话使用 GPT-6-Astra / medium，仅执行主控决定，遇到技术决策交回主控，未明确调度则待命。
 

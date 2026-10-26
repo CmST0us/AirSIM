@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
   "date": "2026-10-27",
-  "version": "2.0.0-dev.r8",
+  "version": "2.0.0-dev.pairing",
   "artifact": "dist/airsim-agent",
-  "sha256": "f062a226eeaaac8a896938e25296493f7852c54b9ce766d037b08fa3093e91b0",
-  "bytes": 7340216,
+  "sha256": "4daa7b1b7dc79f38baa369fc697b231a44696c5d6bc02b9f8a152757c19ddf95",
+  "bytes": 10783629,
   "toolchain": "Go 1.24.13 CGO_ENABLED=0 GOOS=linux GOARCH=arm64",
   "tests": {
     "go_test_race": "passed",

@@ -1,6 +1,6 @@
 # AirSIM — Android 与 iPhone / Apple Watch 跨设备通话、短信和 VoWLAN
 
-> **v2 架构（2026-10-27）**：新 [airsim-agent](module/airsim-agent/README.md) 位于 `module/airsim-agent/`；[ECS 服务](service/airsim/README.md) 位于 `service/airsim/`，使用 [Docker Compose](service/airsim/deploy/compose/README.md)；[Worker v2](service/airsim-worker/README.md) 保留独立目录。RM500 已完成 Agent 本地与 ECS 云端通话、短信及音频限定范围验收。App 保留 v1/v2 选择，原五标签适配与 CallKit 接入已完成；[R8 设备配对](docs/IOS_AIRSIM_R8.md) 将“添加设备”接入真实 WebUSB、模块证明和可续期云端会话，完整原界面 UI 流程、真实 ECS claim 和模块范围绑定已验证。实体双向音频已连通，通话质量优化暂缓。旧 Agent 与旧 Worker 保留；架构边界见 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)。下文发布基线与旧安装说明仍属于 v1。
+> **v2 架构（2026-10-27）**：新 [airsim-agent](module/airsim-agent/README.md) 位于 `module/airsim-agent/`；[ECS 服务](service/airsim/README.md) 位于 `service/airsim/`，使用 [Docker Compose](service/airsim/deploy/compose/README.md)；[Worker v2](service/airsim-worker/README.md) 保留独立目录。RM500 已完成 Agent 本地与 ECS 云端通话、短信及音频限定范围验收。App 保留 v1/v2 选择，原五标签适配与 CallKit 接入已完成；[设备配对](docs/IOS_AIRSIM_PAIRING.md) 将“添加设备”接入真实 WebUSB、模块证明和可续期云端会话，完整原界面 UI 流程、真实 ECS claim 和模块范围绑定已验证。实体双向音频已连通，通话质量优化暂缓。旧 Agent 与旧 Worker 保留；架构边界见 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)。下文发布基线与旧安装说明仍属于 v1。
 
 [![Android Standalone](https://img.shields.io/badge/Android-Standalone%20APK-3DDC84?logo=android&logoColor=white)](android-standalone/README.md)
 [![iOS](https://img.shields.io/badge/iOS-16.3%2B-000000?logo=apple&logoColor=white)](iOS/README.md)
@@ -194,7 +194,7 @@ AirSIM 不附带原作者的 Apple Developer Team、App ID、证书或 provision
 | [AVF Debian 发布](module/packaging/README.md) | `.deb` 构建、签名、首次安装、升级与回滚 |
 | [AVF 安装与无损排障](docs/AVF_INSTALL_GUIDE.md) | Terminal、控制令牌、双服务健康检查与启动冲突恢复 |
 | [iOS 与 watchOS](iOS/README.md) | Xcode、Bundle ID、Apple 签名、CallKit、PushKit 与真机测试 |
-| [iOS v2 设备配对](docs/IOS_AIRSIM_R8.md) | WebUSB 模块证明、八位连接码、App claim、自动续期与验收边界 |
+| [iOS v2 设备配对](docs/IOS_AIRSIM_PAIRING.md) | WebUSB 模块证明、八位连接码、App claim、自动续期与验收边界 |
 | [Cloudflare Relay](push-relay-worker/README.md) | Wrangler、KV、Durable Objects、APNs、Secret 与自定义域名 |
 | [VoWLAN 设计](docs/2026-09-11-vowlan-design.md) | 本地传输设计与协议边界 |
 | [三星热点配对协议](docs/samsung-hotspot-pairing-protocol.md) | 配对、密钥派生、HMAC 与防重放 |

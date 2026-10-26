@@ -124,7 +124,7 @@ func TestPushDatabaseContract(t *testing.T) {
 		Profile      string          `json:"profile"`
 		Capabilities map[string]bool `json:"capabilities"`
 	}
-	if json.Unmarshal(discovery.Body.Bytes(), &advertised) != nil || advertised.Profile != "airsim-v2-r7" || !advertised.Capabilities["apns"] {
+	if json.Unmarshal(discovery.Body.Bytes(), &advertised) != nil || advertised.Profile != "airsim-v2-callkit" || !advertised.Capabilities["apns"] {
 		t.Fatal("discovery contract")
 	}
 	request := func(method string, value any, auth string) *httptest.ResponseRecorder {

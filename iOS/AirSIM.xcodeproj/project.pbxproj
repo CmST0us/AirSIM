@@ -49,7 +49,7 @@
 		A10000000000000000000030 /* VoWLANController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000030 /* VoWLANController.swift */; };
 		A1000000000000000000002B /* CallLifecycleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000002B /* CallLifecycleStore.swift */; };
 		A30000000000000000000001 /* AirSIMTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000001 /* AirSIMTests.swift */; };
-		A70000000000000000000001 /* R7NavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000001 /* R7NavigationTests.swift */; };
+		A70000000000000000000001 /* NavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000001 /* NavigationTests.swift */; };
 		A50000000000000000000001 /* V2Client.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000001 /* V2Client.swift */; };
 		A50000000000000000000002 /* V2Commands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* V2Commands.swift */; };
 		A50000000000000000000003 /* V2Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000003 /* V2Configuration.swift */; };
@@ -67,7 +67,7 @@
 		A500000000000000000000C9 /* V2MediaSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000C9 /* V2MediaSocket.swift */; };
 		A500000000000000000000CA /* V2MediaCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CA /* V2MediaCoordinator.swift */; };
 		A500000000000000000000CB /* V2DiagnosticAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CB /* V2DiagnosticAudio.swift */; };
-		A70000000000000000000002 /* R7MessagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000003 /* R7MessagingTests.swift */; };
+		A70000000000000000000002 /* MessagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000003 /* MessagingTests.swift */; };
 		A80000000000000000000001 /* V2SystemCalls.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000001 /* V2SystemCalls.swift */; };
 /* End PBXBuildFile section */
 
@@ -171,7 +171,7 @@
 		B1000000000000000000002F /* VoWLANAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoWLANAuth.swift; sourceTree = "<group>"; };
 		B10000000000000000000030 /* VoWLANController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoWLANController.swift; sourceTree = "<group>"; };
 		B30000000000000000000001 /* AirSIMTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirSIMTests.swift; sourceTree = "<group>"; };
-		B70000000000000000000001 /* R7NavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = R7NavigationTests.swift; sourceTree = "<group>"; };
+		B70000000000000000000001 /* NavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationTests.swift; sourceTree = "<group>"; };
 		B30000000000000000000002 /* AirSIMTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AirSIMTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B70000000000000000000002 /* AirSIMUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AirSIMUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B50000000000000000000001 /* V2Client.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Client.swift; sourceTree = "<group>"; };
@@ -191,7 +191,7 @@
 		B500000000000000000000C9 /* V2MediaSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2MediaSocket.swift; sourceTree = "<group>"; };
 		B500000000000000000000CA /* V2MediaCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2MediaCoordinator.swift; sourceTree = "<group>"; };
 		B500000000000000000000CB /* V2DiagnosticAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2DiagnosticAudio.swift; sourceTree = "<group>"; };
-		B70000000000000000000003 /* R7MessagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = R7MessagingTests.swift; sourceTree = "<group>"; };
+		B70000000000000000000003 /* MessagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingTests.swift; sourceTree = "<group>"; };
 		B80000000000000000000001 /* V2SystemCalls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2SystemCalls.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -344,8 +344,8 @@
 		D70000000000000000000001 /* AirSIMUITests */ = {
 			isa = PBXGroup;
 			children = (
-				B70000000000000000000001 /* R7NavigationTests.swift */,
-				B70000000000000000000003 /* R7MessagingTests.swift */,
+				B70000000000000000000001 /* NavigationTests.swift */,
+				B70000000000000000000003 /* MessagingTests.swift */,
 			);
 			path = "AirSIMUITests";
 			sourceTree = "<group>";
@@ -617,8 +617,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A70000000000000000000002 /* R7MessagingTests.swift in Sources */,
-				A70000000000000000000001 /* R7NavigationTests.swift in Sources */,
+				A70000000000000000000002 /* MessagingTests.swift in Sources */,
+				A70000000000000000000001 /* NavigationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

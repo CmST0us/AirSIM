@@ -1,6 +1,6 @@
 import XCTest
 
-class R7UITestCase: XCTestCase {
+class UITestCase: XCTestCase {
     let app = XCUIApplication()
     var scenario: String { "v2-unconfigured" }
     var presentationArguments: [String] { [] }
@@ -10,7 +10,7 @@ class R7UITestCase: XCTestCase {
         app.launchArguments = [
             "-AppleLanguages", "(zh-Hans)",
             "-AppleLocale", "zh_CN",
-            "--r7-ui-scenario", scenario
+            "--ui-scenario", scenario
         ] + presentationArguments
         app.launch()
     }
@@ -46,7 +46,7 @@ class R7UITestCase: XCTestCase {
     }
 }
 
-final class R7NavigationTests: R7UITestCase {
+final class NavigationTests: UITestCase {
     func testV2UsesAllFiveOriginalTabs() {
         verifyOriginalTabs()
         XCTAssertFalse(app.tabBars.buttons["模块与通话"].exists)
@@ -75,7 +75,7 @@ final class R7NavigationTests: R7UITestCase {
     }
 }
 
-final class R7FreshInstallTests: R7UITestCase {
+final class FreshInstallTests: UITestCase {
     override var scenario: String { "fresh" }
 
     func testFreshInstallRequiresExplicitConnectionChoice() {
@@ -93,7 +93,7 @@ final class R7FreshInstallTests: R7UITestCase {
     }
 }
 
-final class R7LocalNavigationTests: R7UITestCase {
+final class LocalNavigationTests: UITestCase {
     override var scenario: String { "local-unpaired" }
 
     func testLocalRetainsOriginalTabsAndPairingEntry() {
@@ -105,7 +105,7 @@ final class R7LocalNavigationTests: R7UITestCase {
     }
 }
 
-final class R7V1NavigationTests: R7UITestCase {
+final class V1NavigationTests: UITestCase {
     override var scenario: String { "v1-unpaired" }
 
     func testV1RetainsOriginalTabsAndRelaySettings() {
@@ -117,13 +117,13 @@ final class R7V1NavigationTests: R7UITestCase {
     }
 }
 
-final class R7DarkAppearanceTests: R7UITestCase {
+final class DarkAppearanceTests: UITestCase {
     override var presentationArguments: [String] { ["-airsim.appearance", "dark"] }
 
     func testDarkAppearanceNavigationScreenshots() { verifyOriginalTabs() }
 }
 
-final class R7LargeTextTests: R7UITestCase {
+final class LargeTextTests: UITestCase {
     override var presentationArguments: [String] {
         ["-airsim.appearance", "light", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
     }
@@ -131,12 +131,12 @@ final class R7LargeTextTests: R7UITestCase {
     func testLargeTextNavigationRemainsReachable() { verifyOriginalTabs() }
 }
 
-final class R8LivePairingTests: R7UITestCase {
+final class LivePairingTests: UITestCase {
     override var scenario: String { "v2-pairing-live" }
 
     func testLivePairingThroughWebCode() throws {
-        guard let code = ProcessInfo.processInfo.environment["R8_PAIRING_CODE"], code.count == 8 else {
-            throw XCTSkip("R8_PAIRING_CODE is supplied by the physical web pairing run")
+        guard let code = ProcessInfo.processInfo.environment["PAIRING_CODE"], code.count == 8 else {
+            throw XCTSkip("PAIRING_CODE is supplied by the physical web pairing run")
         }
         openTab("设置")
         let add = app.buttons["v2-add-device"]
@@ -159,11 +159,11 @@ final class R8LivePairingTests: R7UITestCase {
 
         XCTAssertTrue(app.staticTexts["连接会在后台自动续期。"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "模块 · ")).firstMatch.exists)
-        capture("r8-live-pairing-complete")
+        capture("live-pairing-complete")
     }
 }
 
-final class R7IncomingCallViewTests: R7UITestCase {
+final class IncomingCallViewTests: UITestCase {
     override var scenario: String { "v2-incoming-fixture" }
 
     func testIncomingUsesOriginalAnswerAndRejectControls() {
@@ -178,7 +178,7 @@ final class R7IncomingCallViewTests: R7UITestCase {
     }
 }
 
-final class R7ActiveCallViewTests: R7UITestCase {
+final class ActiveCallViewTests: UITestCase {
     override var scenario: String { "v2-active-fixture" }
 
     func testActiveUsesOriginalControlsWithoutMediaOrRecording() {

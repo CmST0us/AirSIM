@@ -45,7 +45,7 @@ type pairingProof struct {
 var pairingTime = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$`)
 
 func pairingBytes(r pairingRequest) []byte {
-	return []byte("airsim-v2-r8-pairing\n" + strings.Join([]string{r.RequestID, r.ServerID, r.ModuleID, r.Nonce, r.Expires, r.PollTokenHash}, "\n") + "\n")
+	return []byte("airsim-v2-pairing\n" + strings.Join([]string{r.RequestID, r.ServerID, r.ModuleID, r.Nonce, r.Expires, r.PollTokenHash}, "\n") + "\n")
 }
 
 // Caller holds p.mu. All service information is gated by the current certificate.

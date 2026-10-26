@@ -49,7 +49,7 @@ final class V2SystemCallController: CallKitActionHandling {
         self.associationTimeout = associationTimeout; self.endAssociationTimeout = endAssociationTimeout
     }
     func start() {
-        guard !R7UITestScenario.active else { return }
+        guard !UITestScenario.active else { return }
         calls.handler = self; calls.setEnabled(true)
     }
     func stop() {

@@ -183,7 +183,7 @@ struct DialPadView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(cloud.userStatus).font(.caption).foregroundStyle(.secondary)
                             HStack {
-                                Button("连接设置") { R7UITestScenario.defaults.set(PhoneTab.settings.rawValue, forKey: "airsim.selected-tab") }
+                                Button("连接设置") { UITestScenario.defaults.set(PhoneTab.settings.rawValue, forKey: "airsim.selected-tab") }
                                 if cloud.hasUnresolvedCommand {
                                     Button("查询原操作结果") { Task { await cloud.recoverPending() } }
                                         .accessibilityIdentifier("command-recover")
@@ -873,7 +873,7 @@ struct MessagesView: View {
     }
 
     private func openConnectionSettings() {
-        R7UITestScenario.defaults.set(PhoneTab.settings.rawValue, forKey: "airsim.selected-tab")
+        UITestScenario.defaults.set(PhoneTab.settings.rawValue, forKey: "airsim.selected-tab")
     }
 
     private func showPendingComposer() {

@@ -52,11 +52,11 @@ func TestPairingProofBindingsDomainAndNoPrivateMaterial(t *testing.T) {
 	pub, _ := decode64(proof.Public)
 	sig, _ := decode64(proof.Proof)
 	// Independent wire specification, including raw expiry and the trailing LF.
-	message := "airsim-v2-r8-pairing\n" + r.RequestID + "\n" + r.ServerID + "\n" + r.ModuleID + "\n" + r.Nonce + "\n" + r.Expires + "\n" + r.PollTokenHash + "\n"
+	message := "airsim-v2-pairing\n" + r.RequestID + "\n" + r.ServerID + "\n" + r.ModuleID + "\n" + r.Nonce + "\n" + r.Expires + "\n" + r.PollTokenHash + "\n"
 	if proof.RequestID != r.RequestID || proof.ModuleID != r.ModuleID || !ed25519.Verify(ed25519.PublicKey(pub), []byte(message), sig) {
 		t.Fatal("signature binding")
 	}
-	for _, bad := range []string{strings.Replace(message, "r8-pairing", "r4-provision", 1), strings.TrimSuffix(message, "\n"), strings.Replace(message, r.PollTokenHash, strings.Repeat("ef", 32), 1), strings.Replace(message, r.Nonce, strings.Repeat("aa", 32), 1), strings.Replace(message, r.ServerID, uid(), 1), strings.Replace(message, r.ModuleID, uid(), 1), strings.Replace(message, r.RequestID, uid(), 1), strings.Replace(message, r.Expires, now.Add(time.Minute).Format(time.RFC3339Nano), 1)} {
+	for _, bad := range []string{strings.Replace(message, "v2-pairing", "r4-provision", 1), strings.TrimSuffix(message, "\n"), strings.Replace(message, r.PollTokenHash, strings.Repeat("ef", 32), 1), strings.Replace(message, r.Nonce, strings.Repeat("aa", 32), 1), strings.Replace(message, r.ServerID, uid(), 1), strings.Replace(message, r.ModuleID, uid(), 1), strings.Replace(message, r.RequestID, uid(), 1), strings.Replace(message, r.Expires, now.Add(time.Minute).Format(time.RFC3339Nano), 1)} {
 		if ed25519.Verify(ed25519.PublicKey(pub), []byte(bad), sig) {
 			t.Fatal("unbound proof field or domain")
 		}

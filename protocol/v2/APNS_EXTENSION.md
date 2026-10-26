@@ -1,10 +1,10 @@
 # v2 APNs 推送扩展（未启用）
 
-服务端预备实现为 `411bf38`，未部署到生产。此扩展不属于 [R7 原视图与 CallKit](R7.md) 的交付或验收条件。启用前需要单独安排客户端实现、部署与真机验证。
+服务端预备实现为 `411bf38`，未部署到生产。此扩展不属于 [原视图与 CallKit](CALLKIT.md) 的交付或验收条件。启用前需要单独安排客户端实现、部署与真机验证。
 
 ## 协议
 
-ECS discovery profile 为 `airsim-v2-r7`，保留现有字段；`apns` 仅在 provider 完整配置时为 true。新 App 接受 `airsim-v2-r4.1`（无推送）和 `airsim-v2-r7`，继续拒绝未知协议。旧 R5/R6 App 不用于新的推送验收。
+ECS discovery profile 为 `airsim-v2-callkit`，保留现有字段；`apns` 仅在 provider 完整配置时为 true。新 App 接受 `airsim-v2-r4.1`（无推送）和 `airsim-v2-callkit`，继续拒绝未知协议。旧 R5/R6 App 不用于新的推送验收。
 
 认证仍用现有客户端 Bearer；客户端 ID 只能从认证结果取得。`PUT /v2/push/registration` 接收严格 JSON：`registration_id`（UUID）、`module_id`（UUID）、`bundle_id`、`environment`（sandbox/production）、`voip_token`、`alert_token`（可为空字符串）。token 为 32–256 字节的十六进制表示，不限定为 32 字节。服务器校验模块归属、配置允许的主 Bundle ID 和环境。每个安装实例只有一条注册，订阅用户显式选择的单个模块。成功返回 200：`server_id`、`client_installation_id`、`registration_id`、`module_id`、`bundle_id`、`environment`；不回显 token。
 
@@ -22,7 +22,7 @@ APNs provider 在 control 内实现，使用 ES256 JWT、HTTP/2、受限文件�
 
 后台来电处理仅允许匹配的持久化注册。及时上报 CallKit 后，给来电核对一个有界后台任务，使用原 HTTPS 身份验证、目录和快照；拿到当前绑定后才能接听/拒接/挂断。正常系统通话期间仅保留 snapshot 轮询与所属媒体，短信/目录轮询暂停。无系统通话时停止后台轮询。CallKit `didActivate` 后才启动真实音频，`didDeactivate` 暂停音频；不擅自争用系统 AudioSession。远端结束后关闭媒体和系统通话；provider reset 对已拥有通话提交一次定向挂断，未知结果按原收据恢复。
 
-R7 不实现 Watch v2；相关旧入口在 v2 下明确不可用。短信通知和 PushKit 注册的真机权限/签名验收与模拟器测试分别记录。
+当前范围不实现 Watch v2；相关旧入口在 v2 下明确不可用。短信通知和 PushKit 注册的真机权限/签名验收与模拟器测试分别记录。
 
 
 Apple 依据：[VoIP 通知处理](https://developer.apple.com/documentation/pushkit/responding-to-voip-notifications-from-pushkit)、[APNs 请求](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns)。

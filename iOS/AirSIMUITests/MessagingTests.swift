@@ -1,6 +1,6 @@
 import XCTest
 
-final class R7MessagingTests: R7UITestCase {
+final class MessagingTests: UITestCase {
     func testEmptyMessageCannotBeSentAndComposerCanBeCancelled() {
         openTab("短信")
         let recovery = app.buttons["连接设置"]
@@ -9,7 +9,10 @@ final class R7MessagingTests: R7UITestCase {
         capture("v2-unconfigured-message-recovery")
         recovery.tap()
         XCTAssertTrue(app.tabBars.buttons["设置"].isSelected)
-        XCTAssertTrue(app.buttons["导入连接配置 JSON"].waitForExistence(timeout: 5))
+        let legacy = app.buttons["其他方式"]
+        XCTAssertTrue(legacy.waitForExistence(timeout: 5))
+        legacy.tap()
+        XCTAssertTrue(app.buttons["导入旧版连接文件"].waitForExistence(timeout: 5))
         openTab("短信")
         let compose = app.buttons["新信息"]
         XCTAssertTrue(compose.waitForExistence(timeout: 5))
@@ -27,7 +30,7 @@ final class R7MessagingTests: R7UITestCase {
     }
 }
 
-class R7ConversationTestCase: R7UITestCase {
+class ConversationTestCase: UITestCase {
     func openConversation(_ text: String) {
         openTab("短信")
         let message = app.staticTexts[text].firstMatch
@@ -44,7 +47,7 @@ class R7ConversationTestCase: R7UITestCase {
     }
 }
 
-final class R7ModuleIsolationTests: R7ConversationTestCase {
+final class ModuleIsolationTests: ConversationTestCase {
     override var scenario: String { "v2-ready-fixture" }
 
     func testModuleSwitchSeparatesMessagesRecentsAndReplyDraft() {
@@ -84,7 +87,7 @@ final class R7ModuleIsolationTests: R7ConversationTestCase {
     }
 }
 
-final class R7SendFailureTests: R7ConversationTestCase {
+final class SendFailureTests: ConversationTestCase {
     override var scenario: String { "v2-send-failure" }
 
     func testRejectedReplyPreservesText() {
@@ -100,7 +103,7 @@ final class R7SendFailureTests: R7ConversationTestCase {
     }
 }
 
-final class R7UnknownCommandTests: R7ConversationTestCase {
+final class UnknownCommandTests: ConversationTestCase {
     override var scenario: String { "v2-command-unknown" }
 
     func testUnknownCommandBlocksSendingAndVersionSwitchButAllowsRecoveryQuery() {

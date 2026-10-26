@@ -1,10 +1,10 @@
 # airsim-agent v2 — R3 当前16kHz语音时钟本地验收通过
 
-本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.r8`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent、RM500 CLI 或云端服务。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false、无开机自启；详细边界见 [R2 记录](R2_TESTING.md)。
+本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.pairing`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent、RM500 CLI 或云端服务。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false、无开机自启；详细边界见 [R2 记录](R2_TESTING.md)。
 
 R3 已实现原生音频 helper、本机媒体会话与通话 lease；本机验证和构建见 [R3 交接记录](R3_TESTING.md)及[构建证据](R3_BUILD_EVIDENCE.json)。R3 裁决04构建已部署，当前固件、厂商16kHz语音时钟下75.004秒双向内容验收通过；用户确认听清提示语及自己的回声。运行时 voice_ready=false、verification=unverified 仍保留为实验发布门槛。权威事实见[验收证据](R3_ACCEPTANCE_EVIDENCE.json)与[历史诊断证据](R3_DIAGNOSTIC_EVIDENCE.json)。下文 R2 证据保留为历史基线。
 
-R8 在现有身份上增加网页配对所需的新鲜 Ed25519 证明，不导出私钥，也不新增网络监听。实现和验证边界见 [R8 记录](R8_TESTING.md)。
+设备配对在现有身份上增加网页配对所需的新鲜 Ed25519 证明，不导出私钥，也不新增网络监听。实现和验证边界见 [配对记录](PAIRING_TESTING.md)。
 
 ## 范围
 
@@ -49,7 +49,7 @@ R1 诊断接口保留在 `control.sock`（0600），仅接受 GET：
 
 R2 增加 GET `/v2/local/control`、`/v2/local/calls`、`/v2/local/messages`、`/v2/local/commands/<UUID>` 和 POST `/v2/local/commands`。请求与动作精确结构见主控契约。业务接口可返回号码/正文，仅限本机受控调用；只读 snapshot 不含这些内容。
 
-R8 增加 GET `/v2/local/pairing` 和 POST `/v2/local/pairing/authorize`。前者只返回模块身份、服务绑定和连接状态；后者对网页生成的五分钟请求签名。两者仍只存在于 0600 Unix socket；调用方必须已经能访问该 socket。证明不替代手机确认，也不创建 App token。
+设备配对增加 GET `/v2/local/pairing` 和 POST `/v2/local/pairing/authorize`。前者只返回模块身份、服务绑定和连接状态；后者对网页生成的五分钟请求签名。两者仍只存在于 0600 Unix socket；调用方必须已经能访问该 socket。证明不替代手机确认，也不创建 App token。
 
 这不是冻结的云端 v2 协议。无 TCP 监听、自动启动、Relay/TLS、更新或固件修改。R3 音频仅在授权本地媒体会话及通话 lease 内运行。消息正文仅保留进程内存；命令记录最多1024条且不自动淘汰。
 

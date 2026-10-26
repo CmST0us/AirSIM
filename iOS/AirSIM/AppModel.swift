@@ -450,7 +450,7 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func refreshCloudStatusForDiagnostics() async -> CloudAgentStatus? {
-        if isV2 || R7UITestScenario.active { return nil }
+        if isV2 || UITestScenario.active { return nil }
         guard CloudModePreference.isEnabled() else {
             cloudAgentStatus = nil
             return nil
@@ -530,7 +530,7 @@ final class AppModel: ObservableObject {
             projectCloudState()
             return
         }
-        if R7UITestScenario.active { return }
+        if UITestScenario.active { return }
         if LocalModePreference.isEnabled() {
             UserDefaults.standard.set(false, forKey: CloudModePreference.key)
         }
@@ -599,7 +599,7 @@ final class AppModel: ObservableObject {
 
     /// 每次从锁屏或后台回来都舍弃旧连接，避免休眠前的超时结果覆盖新状态。
     func didBecomeActive() {
-        if R7UITestScenario.active && !isV2 { return }
+        if UITestScenario.active && !isV2 { return }
         if let cloudV2 { Task { await cloudV2.sceneChanged(.active) }; return }
         appIsActive = true
         let discoveryWasAlreadyStarted = initialPermissionCoordinator.didStartDiscovery
@@ -627,13 +627,13 @@ final class AppModel: ObservableObject {
     }
 
     func willResignActive() {
-        if R7UITestScenario.active && !isV2 { return }
+        if UITestScenario.active && !isV2 { return }
         if isV2 { return }
         backgroundStandby.prepareForBackground()
     }
 
     func didEnterBackground() {
-        if R7UITestScenario.active && !isV2 { return }
+        if UITestScenario.active && !isV2 { return }
         if let cloudV2 { Task { await cloudV2.sceneChanged(.background) }; return }
         appIsActive = false
         cloudStatusRefreshTask?.cancel()
@@ -758,7 +758,7 @@ final class AppModel: ObservableObject {
 
     var blocksRuntimeSwitch: Bool {
         if let cloudV2 { return cloudV2.blocksSwitch }
-        if R7UITestScenario.active { return false }
+        if UITestScenario.active { return false }
         return LegacyBusinessReservations.pending || LegacySwitchFence.shared.blocked || activeOperationCount > 0 || isBusy || pendingOutgoingCall != nil || callLifecycleSnapshot.state.representsCall
             || activeCall != nil || remoteCall != nil || callAudioIsActive || callKit.managesCurrentCall
             || IPhoneCloudCallSession.shared.hasActiveCall || WatchCallCoordinator.shared.hasPendingBusiness

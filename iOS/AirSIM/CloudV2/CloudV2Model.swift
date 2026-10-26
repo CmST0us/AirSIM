@@ -140,7 +140,7 @@ final class CloudV2Model: ObservableObject {
         refreshCommandStatus()
     }
     func activateSystemIntegration(calls: (any V2SystemCallReporting)? = nil, associationTimeout: Duration = .seconds(25), endAssociationTimeout: Duration = .seconds(10)) {
-        guard systemCalls == nil, !R7UITestScenario.active else { return }
+        guard systemCalls == nil, !UITestScenario.active else { return }
         media.useCallKitAudioSession()
         systemCalls = V2SystemCallController(model: self, calls: calls ?? CallKitController.shared, associationTimeout: associationTimeout, endAssociationTimeout: endAssociationTimeout)
         systemCalls?.start()
