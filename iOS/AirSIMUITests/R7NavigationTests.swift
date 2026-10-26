@@ -131,6 +131,38 @@ final class R7LargeTextTests: R7UITestCase {
     func testLargeTextNavigationRemainsReachable() { verifyOriginalTabs() }
 }
 
+final class R8LivePairingTests: R7UITestCase {
+    override var scenario: String { "v2-pairing-live" }
+
+    func testLivePairingThroughWebCode() throws {
+        guard let code = ProcessInfo.processInfo.environment["R8_PAIRING_CODE"], code.count == 8 else {
+            throw XCTSkip("R8_PAIRING_CODE is supplied by the physical web pairing run")
+        }
+        openTab("设置")
+        let add = app.buttons["v2-add-device"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10))
+        XCTAssertTrue(add.isEnabled)
+        add.tap()
+
+        let field = app.textFields["v2-pairing-code"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText(code)
+        let lookup = app.buttons["查找设备"]
+        XCTAssertTrue(lookup.exists)
+        lookup.tap()
+
+        XCTAssertTrue(app.staticTexts["v2-pairing-device-name"].waitForExistence(timeout: 10))
+        let confirm = app.buttons["v2-pairing-confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+
+        XCTAssertTrue(app.staticTexts["连接会在后台自动续期。"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "模块 · ")).firstMatch.exists)
+        capture("r8-live-pairing-complete")
+    }
+}
+
 final class R7IncomingCallViewTests: R7UITestCase {
     override var scenario: String { "v2-incoming-fixture" }
 

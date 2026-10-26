@@ -14,6 +14,8 @@ struct V2Configuration: Codable, Equatable {
     let identity: V2Identity
     let mediaOrigin: String
     let expiresAt: Date
+    var moduleID: String? = nil
+    var refreshExpiresAt: Date? = nil
 }
 struct V2ConfigurationImport: Decodable {
     let configuration: V2Configuration
@@ -66,14 +68,35 @@ struct V2KeychainTokenStore: V2TokenStore {
 struct V2ConfigurationStore {
     let tokens: V2TokenStore
     let defaults: UserDefaults
+    var pairings: V2PairingStore? = nil
     func importConfiguration(_ data: Data, now: Date) throws -> V2Configuration {
         let imported = try V2ConfigurationImport.parse(data, now: now)
         try tokens.save(imported.token, account: imported.configuration.identity.account)
         guard let metadata = try? JSONEncoder().encode(imported.configuration) else { throw V2Error.persistence }
+        if let pairings {
+            var state = try pairings.load(); state.session = nil
+            try pairings.save(state)
+        }
         defaults.set(metadata, forKey: "airsim.v2.configuration")
         return imported.configuration
     }
+    func commitPairedSession(_ session: V2PairedSession) throws {
+        guard let pairings else { throw V2Error.persistence }
+        try tokens.save(session.token, account: session.configuration.identity.account)
+        guard let metadata = try? JSONEncoder().encode(session.configuration) else { throw V2Error.persistence }
+        var state = try pairings.load()
+        state.session = session
+        state.pending = nil
+        try pairings.save(state)
+        defaults.set(metadata, forKey: "airsim.v2.configuration")
+    }
     func load() throws -> V2Configuration? {
+        if let session = try pairings?.load().session {
+            if (try? tokens.read(account: session.configuration.identity.account)) == nil {
+                try tokens.save(session.token, account: session.configuration.identity.account)
+            }
+            return session.configuration
+        }
         guard let data = defaults.data(forKey: "airsim.v2.configuration") else { return nil }
         guard let config = try? JSONDecoder().decode(V2Configuration.self, from: data),
               (try? V2Validation.origin(config.identity.apiOrigin)) == config.identity.apiOrigin,
@@ -90,6 +113,7 @@ struct V2SessionGate {
         generation &+= 1; self.configuration = configuration
         return V2SessionStamp(identity: configuration.identity, generation: generation)
     }
+    mutating func refresh(_ configuration: V2Configuration) { self.configuration = configuration }
     mutating func stop() { generation &+= 1; configuration = nil }
     func accepts(_ stamp: V2SessionStamp) -> Bool { configuration?.identity == stamp.identity && generation == stamp.generation }
 }

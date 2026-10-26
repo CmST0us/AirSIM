@@ -24,8 +24,17 @@ private final class V2TestTokens: V2TokenStore {
     var reads = 0
     var values: [String: String] = [:]
     func save(_ token: String, account: String) throws { if fails { throw V2Error.keychain }; values[account] = token }
-    func read(account: String) throws -> String { reads += 1; if fails { throw V2Error.keychain }; return String(repeating: "a", count: 64) }
+    func read(account: String) throws -> String {
+        reads += 1
+        if fails { throw V2Error.keychain }
+        return values[account] ?? String(repeating: "a", count: 64)
+    }
     func remove(account: String) throws { values.removeValue(forKey: account) }
+}
+private final class V2TestPairingStore: V2PairingStore {
+    var state = V2PairingState()
+    func load() throws -> V2PairingState { state }
+    func save(_ state: V2PairingState) throws { self.state = state }
 }
 private final class V2TestPending: V2PendingStore {
     var value: V2PendingCommand?
@@ -91,6 +100,103 @@ final class CloudV2Tests: XCTestCase {
         let persisted = String(data: defaults.data(forKey: "airsim.v2.configuration")!, encoding: .utf8)!
         XCTAssertFalse(persisted.contains(String(repeating: "a", count: 64)))
         XCTAssertNotEqual(config.identity.account, v2Config(client: v2OtherID).identity.account)
+    }
+    @MainActor func testPairedAccess401RefreshesOnceAndKeepsInstallationStable() async throws {
+        let tokens = V2TestTokens()
+        let current = V2Configuration(
+            identity: V2Identity(apiOrigin: "https://example.invalid", serverID: v2ID, clientInstallationID: v2ID),
+            mediaOrigin: "https://media.example.invalid",
+            expiresAt: v2Now.addingTimeInterval(3600),
+            moduleID: v2ID,
+            refreshExpiresAt: v2Now.addingTimeInterval(90 * 86400)
+        )
+        try tokens.save(String(repeating: "a", count: 64), account: current.identity.account)
+        var moduleReads = 0
+        let transport = V2TestTransport { request in
+            if request.url!.path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            moduleReads += 1
+            if moduleReads == 1 { return V2HTTPResponse(status: 401, body: Data()) }
+            return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "modules": []]))
+        }
+        let client = V2Client(transport: transport, tokens: tokens, now: { v2Now })
+        var refreshes = 0
+        client.onRefreshConfiguration = { previous in
+            refreshes += 1
+            let next = String(repeating: "b", count: 64)
+            try tokens.save(next, account: previous.identity.account)
+            return V2Configuration(
+                identity: previous.identity,
+                mediaOrigin: previous.mediaOrigin,
+                expiresAt: v2Now.addingTimeInterval(3600),
+                moduleID: previous.moduleID,
+                refreshExpiresAt: v2Now.addingTimeInterval(90 * 86400)
+            )
+        }
+        _ = try await client.connect(current)
+        let modules = try await client.modules()
+        XCTAssertTrue(modules.modules.isEmpty)
+        XCTAssertEqual(refreshes, 1)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v2/modules" }.last?.value(forHTTPHeaderField: "Authorization"), "Bearer " + String(repeating: "b", count: 64))
+    }
+    @MainActor func testLegacyNearExpiryCredentialDoesNotRequireRefresh() async throws {
+        let tokens = V2TestTokens()
+        let current = V2Configuration(
+            identity: V2Identity(apiOrigin: "https://example.invalid", serverID: v2ID, clientInstallationID: v2ID),
+            mediaOrigin: "https://media.example.invalid",
+            expiresAt: v2Now.addingTimeInterval(4 * 60)
+        )
+        try tokens.save(String(repeating: "a", count: 64), account: current.identity.account)
+        let transport = V2TestTransport { request in
+            if request.url!.path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "modules": []]))
+        }
+        let client = V2Client(transport: transport, tokens: tokens, now: { v2Now })
+        _ = try await client.connect(current)
+        let modules = try await client.modules()
+        XCTAssertTrue(modules.modules.isEmpty)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v2/modules" }.last?.value(forHTTPHeaderField: "Authorization"), "Bearer " + String(repeating: "a", count: 64))
+    }
+    @MainActor func testPairingClaimSurvivesLostResponseAndCommitsSameInstallation() async throws {
+        let suite = "airsim.v2.pairing.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let tokens = V2TestTokens(), pairings = V2TestPairingStore()
+        let lookupObject: [String: Any] = [
+            "request_id": v2ID, "server_id": v2ID, "module_id": v2ID,
+            "name": "RM500", "short_id": String(v2ID.suffix(8)), "online": true,
+            "expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(300)),
+        ]
+        var claims: [Data] = []
+        let transport = V2TestTransport { request in
+            if request.url!.path == "/v2/pairing/lookup" {
+                return V2HTTPResponse(status: 200, body: try v2Data(lookupObject))
+            }
+            let data = request.httpBody ?? Data()
+            claims.append(data)
+            if claims.count == 1 { throw V2Error.transport }
+            let body = try JSONSerialization.jsonObject(with: data) as! [String: String]
+            return V2HTTPResponse(status: 201, body: try v2Data([
+                "schema_version": 2, "api_origin": "https://example.invalid",
+                "media_origin": "https://media.example.invalid", "server_id": v2ID,
+                "module_id": v2ID, "client_installation_id": body["client_installation_id"]!,
+                "token": String(repeating: "b", count: 64),
+                "expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(3600)),
+                "refresh_expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(90 * 86400)),
+            ]))
+        }
+        let pairing = V2PairingClient(origin: "https://example.invalid", store: pairings, transport: transport, now: { v2Now })
+        let device = try await pairing.lookup(code: "00427193")
+        do { _ = try await pairing.claim(code: "00427193", device: device); XCTFail() }
+        catch { XCTAssertEqual(error as? V2Error, .transport) }
+        XCTAssertNotNil(pairings.state.pending)
+        let session = try await pairing.claim(code: "00427193", device: device)
+        XCTAssertEqual(claims.count, 2)
+        XCTAssertEqual(claims[0], claims[1])
+        let store = V2ConfigurationStore(tokens: tokens, defaults: defaults, pairings: pairings)
+        try store.commitPairedSession(session)
+        XCTAssertEqual(try store.load(), session.configuration)
+        XCTAssertNil(pairings.state.pending)
+        XCTAssertEqual(try tokens.read(account: session.configuration.identity.account), session.token)
     }
     func testStampRejectsPreviousLifetimeAndOtherClient() {
         var gate = V2SessionGate(); let first = gate.start(v2Config()); gate.stop()

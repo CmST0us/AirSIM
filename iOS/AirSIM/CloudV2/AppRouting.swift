@@ -194,7 +194,7 @@ enum R7UITestScenario {
 #if DEBUG && targetEnvironment(simulator)
         let args = ProcessInfo.processInfo.arguments
         guard let index = args.firstIndex(of: "--r7-ui-scenario"), args.indices.contains(index + 1),
-              ["fresh", "local-unpaired", "v1-unpaired", "v2-unconfigured", "v2-offline-fixture", "v2-ready-fixture", "v2-send-failure", "v2-command-unknown", "v2-incoming-fixture", "v2-active-fixture"].contains(args[index + 1]) else { return nil }
+              ["fresh", "local-unpaired", "v1-unpaired", "v2-unconfigured", "v2-pairing-live", "v2-offline-fixture", "v2-ready-fixture", "v2-send-failure", "v2-command-unknown", "v2-incoming-fixture", "v2-active-fixture"].contains(args[index + 1]) else { return nil }
         return args[index + 1]
 #else
         return nil
@@ -214,6 +214,11 @@ enum R7UITestScenario {
     static let root = FileManager.default.temporaryDirectory.appendingPathComponent("airsim-r7-ui-" + UUID().uuidString)
     @MainActor static func makeCloud() -> CloudV2Model {
 #if DEBUG && targetEnvironment(simulator)
+        if name == "v2-pairing-live" {
+            let tokens = R8LivePairingTokens()
+            let pairings = R8LivePairingStore()
+            return CloudV2Model(defaults: defaults, root: root, tokens: tokens, pairings: pairings)
+        }
         if active { return R7FixtureTransport.makeModel() }
 #endif
         return CloudV2Model()
@@ -221,6 +226,44 @@ enum R7UITestScenario {
 }
 
 #if DEBUG && targetEnvironment(simulator)
+private final class R8LivePairingTokens: V2TokenStore {
+    private let lock = NSLock()
+    private var values: [String: String] = [:]
+
+    func save(_ token: String, account: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        values[account] = token
+    }
+
+    func read(account: String) throws -> String {
+        lock.lock(); defer { lock.unlock() }
+        guard let token = values[account] else { throw V2Error.keychain }
+        return token
+    }
+
+    func remove(account: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        values[account] = nil
+    }
+}
+
+private final class R8LivePairingStore: V2PairingStore {
+    private let lock = NSLock()
+    private var data: Data?
+
+    func load() throws -> V2PairingState {
+        lock.lock(); defer { lock.unlock() }
+        guard let data else { return V2PairingState() }
+        return try JSONDecoder().decode(V2PairingState.self, from: data)
+    }
+
+    func save(_ state: V2PairingState) throws {
+        let encoded = try JSONEncoder().encode(state)
+        lock.lock(); defer { lock.unlock() }
+        data = encoded
+    }
+}
+
 private struct R7FixtureTokens: V2TokenStore {
     func save(_ token: String, account: String) throws {}
     func read(account: String) throws -> String { String(repeating: "a", count: 64) }

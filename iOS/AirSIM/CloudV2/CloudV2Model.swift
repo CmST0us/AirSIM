@@ -48,6 +48,8 @@ final class CloudV2Model: ObservableObject {
 
     @Published private(set) var foreground = false
     private let client: V2Client
+    private let tokens: V2TokenStore
+    private let pairingClient: V2PairingClient?
     private(set) var systemCalls: V2SystemCallController?
     var systemAudioActive = false
     private var systemBinding: V2ControlBinding? { systemCalls?.hasSystemCall == true ? systemCalls?.authorizedBinding : nil }
@@ -77,12 +79,29 @@ final class CloudV2Model: ObservableObject {
     private var generation: UInt64 = 0
     private var persistenceFailed = false
     private(set) var discovery: V2Discovery?
-    init(client: V2Client? = nil, media: V2MediaCoordinator? = nil, defaults: UserDefaults = .standard, root: URL = V2LocalPaths.root, tokens: V2TokenStore = V2KeychainTokenStore(), now: @escaping () -> Date = Date.init) {
+    init(
+        client: V2Client? = nil,
+        media: V2MediaCoordinator? = nil,
+        defaults: UserDefaults = .standard,
+        root: URL = V2LocalPaths.root,
+        tokens: V2TokenStore = V2KeychainTokenStore(),
+        pairings: V2PairingStore? = nil,
+        pairingClient: V2PairingClient? = nil,
+        now: @escaping () -> Date = Date.init
+    ) {
         self.defaults = defaults; self.now = now
+        // Injected token stores are test or embedded hosts; they must also inject
+        // the matching pairing store instead of sharing another app's Keychain.
+        let activePairings = pairings ?? (tokens is V2KeychainTokenStore ? V2KeychainPairingStore() : nil)
+        let activePairingClient = pairingClient ?? activePairings.map {
+            V2PairingClient(origin: V2PairingClient.deploymentOrigin, store: $0, now: now)
+        }
         let client = client ?? V2Client(transport: V2URLSessionTransport(), tokens: tokens, now: now)
+        self.tokens = tokens
+        self.pairingClient = activePairingClient
         self.client = client
         self.media = media ?? V2MediaCoordinator(create: { context, request in try await client.createMedia(context: context, requestID: request) }, delete: { context, session in try? await client.deleteMedia(context: context, sessionID: session) })
-        configurationStore = V2ConfigurationStore(tokens: tokens, defaults: defaults)
+        configurationStore = V2ConfigurationStore(tokens: tokens, defaults: defaults, pairings: activePairings)
         historyFile = V2ProtectedFile(url: root.appendingPathComponent("history.json"))
         do {
             configuration = try configurationStore.load()
@@ -91,10 +110,18 @@ final class CloudV2Model: ObservableObject {
             if let configuration { selectedModuleID = defaults.string(forKey: V2LocalPaths.selectionKey(configuration.identity)) }
         } catch { persistenceFailed = true; self.error = "本地状态读取失败，已禁止控制。" }
         experimentalAudio = defaults.object(forKey: "airsim.v2.experimental-audio") as? Bool ?? true
+        client.onRefreshConfiguration = { [weak self] configuration in
+            guard let self, let activePairingClient = self.pairingClient else { return nil }
+            let renewed = try await activePairingClient.refresh(configuration, store: self.configurationStore)
+            self.configuration = renewed
+            return renewed
+        }
         client.onAuthenticationInvalidated = { [weak self] in
             self?.connected = false
             self?.invalidatePolling()
-            self?.syncStatus = "凭据已过期或撤销，需要重新导入连接配置。"
+            self?.syncStatus = self?.configuration?.refreshExpiresAt == nil
+                ? "凭据已过期或撤销，需要重新导入连接配置。"
+                : "设备连接已失效，请重新添加设备。"
             self?.media.requestStop()
             self?.systemCalls?.endSystemCall()
         }
@@ -166,7 +193,9 @@ final class CloudV2Model: ObservableObject {
     }
     var messageListStatus: String? {
         guard let configuration else { return "尚未配置短信连接" }
-        if configuration.expiresAt <= now() { return "连接凭据已过期，请重新导入配置" }
+        if configuration.expiresAt <= now() {
+            return configuration.refreshExpiresAt == nil ? "连接凭据已过期，请重新导入配置" : "设备连接正在续期，请稍候"
+        }
         if !connected { return "连接未建立，显示本机短信副本" }
         if selectedModuleID == nil { return "请选择短信使用的模块" }
         if selectedModule?.online != true { return "模块离线，显示本机短信副本" }
@@ -200,6 +229,58 @@ final class CloudV2Model: ObservableObject {
             modules = []; snapshot = nil; messagesResponse = nil
                 if foreground { await connect() }
         } catch { self.error = "无法导入连接配置，请确认文件有效且未过期。" }
+    }
+    var pairingAvailable: Bool { pairingClient?.origin != nil }
+    func lookupPairing(code: String) async throws -> V2PairingLookup {
+        guard let pairingClient else { throw V2Error.invalidValue }
+        return try await pairingClient.lookup(code: code)
+    }
+    func pendingPairingClaim() -> (code: String, device: V2PairingLookup)? {
+        try? pairingClient?.pendingClaim()
+    }
+    func discardPairingPending() {
+        do { try pairingClient?.clearPendingClaim() }
+        catch { self.error = "无法清除未完成的添加。" }
+    }
+    func addPairedDevice(code: String, device: V2PairingLookup) async -> Bool {
+        guard let pairingClient, !blocksSwitch else { error = "请先结束通话并确认操作结果。"; return false }
+        busy = true
+        defer { busy = actionInFlight }
+        do {
+            let session = try await pairingClient.claim(code: code, device: device)
+            try configurationStore.commitPairedSession(session)
+            await stop()
+            configuration = session.configuration
+            selectedModuleID = device.module_id
+            modules = []; snapshot = nil; messagesResponse = nil
+            number = ""; smsNumber = ""; smsText = ""; tones = ""
+            error = nil
+            if foreground { await connect() }
+            return true
+        } catch {
+            self.error = pairingErrorMessage(error)
+            return false
+        }
+    }
+    func pairingErrorMessage(_ error: Error) -> String {
+        if let failure = error as? V2HTTPFailure {
+            switch failure.status {
+            case 404: return "连接码无效或已过期。"
+            case 409: return "这台设备已被另一台手机添加。"
+            case 410: return "连接码已过期，请在网页重新连接。"
+            case 429: return "尝试次数过多，请稍后再试。"
+            default: return "暂时无法添加设备，请稍后重试。"
+            }
+        }
+        if let value = error as? V2Error {
+            switch value {
+            case .expired: return "连接码已过期，请在网页重新连接。"
+            case .transport: return "网络连接失败，请检查网络后重试。"
+            case .keychain, .persistence: return "本机无法保存设备连接。"
+            default: break
+            }
+        }
+        return "暂时无法添加设备，请稍后重试。"
     }
     func connect() async {
         guard foreground, !busy, !persistenceFailed, let configuration else { return }
@@ -387,8 +468,8 @@ final class CloudV2Model: ObservableObject {
     @discardableResult
     func sendSMS() async -> Bool { await perform(action: "sms.send", args: ["number": smsNumber, "text": smsText]) }
     var userStatus: String {
-        if configuration == nil { return "尚未配置，请在设置中导入连接文件。" }
-        if let configuration, configuration.expiresAt <= now() { return "连接凭据已过期，请重新导入配置。" }
+        if configuration == nil { return "尚未连接设备，请在设置中添加设备。" }
+        if let configuration, configuration.expiresAt <= now() { return configuration.refreshExpiresAt == nil ? "连接凭据已过期，请重新导入配置。" : "设备连接正在续期，请稍候。" }
         if hasUnresolvedCommand { return "操作结果待核对，请查询原操作，勿重复发送。" }
         if !connected { return "连接未建立，请在设置中重连或重新导入配置。" }
         if selectedModuleID == nil { return "请选择要使用的模块。" }

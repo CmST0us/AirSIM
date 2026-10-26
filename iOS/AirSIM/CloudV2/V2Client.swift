@@ -43,23 +43,29 @@ final class V2Client {
     private var verified = false
     private var inFlight = Set<String>()
     private var ownedCalls: [V2CallContext] = []
+    private var refreshTask: Task<V2Configuration, Error>?
     // M2/M3 attach lifecycle teardown here; no global work is started in M1.
     var onAuthenticationInvalidated: (() -> Void)?
     var onControlInvalidated: (() -> Void)?
+    var onRefreshConfiguration: ((V2Configuration) async throws -> V2Configuration?)?
     init(transport: V2HTTPTransport, tokens: V2TokenStore, now: @escaping () -> Date = Date.init) {
         self.transport = transport; self.tokens = tokens; self.now = now
     }
     var configuration: V2Configuration? { gate.configuration }
     var stamp: V2SessionStamp? { configuration.map { V2SessionStamp(identity: $0.identity, generation: gate.generation) } }
-    func stop() { gate.stop(); token = nil; verified = false; inFlight.removeAll(); ownedCalls.removeAll() }
+    func stop() {
+        refreshTask?.cancel(); refreshTask = nil
+        gate.stop(); token = nil; verified = false; inFlight.removeAll(); ownedCalls.removeAll()
+    }
     func connect(_ config: V2Configuration) async throws -> V2Discovery {
         stop()
         guard try V2Validation.origin(config.identity.apiOrigin) == config.identity.apiOrigin,
               try V2Validation.origin(config.mediaOrigin) == config.mediaOrigin else { throw V2Error.invalidValue }
         try V2Validation.uuid(config.identity.serverID); try V2Validation.uuid(config.identity.clientInstallationID)
-        guard config.expiresAt > now() else { throw V2Error.expired }
+        guard config.expiresAt > now() || (config.refreshExpiresAt ?? .distantPast) > now() else { throw V2Error.expired }
         let stamp = gate.start(config)
         do {
+            try await prepareAccess(stamp)
             let response = try await request(path: "/.well-known/airsim", method: "GET", body: nil, limit: 16 * 1024, authorized: false, stamp: stamp)
             guard response.status == 200 else { throw V2HTTPFailure(status: response.status) }
             let discovery = try V2JSON.decode(V2Discovery.self, from: response.body, limit: 16 * 1024)
@@ -77,31 +83,87 @@ final class V2Client {
         return stamp
     }
     private func request(path: String, method: String, body: Data?, limit: Int, authorized: Bool = true, stamp: V2SessionStamp) async throws -> V2HTTPResponse {
-        guard gate.accepts(stamp), let config = configuration else { throw V2Error.stale }
-        guard config.expiresAt > now() else { invalidateAuthentication(); throw V2Error.expired }
+        guard gate.accepts(stamp), configuration != nil else { throw V2Error.stale }
+        if authorized { try await prepareAccess(stamp) }
+        guard let config = configuration, config.expiresAt > now() else { throw V2Error.expired }
         guard let url = URL(string: config.identity.apiOrigin + path) else { throw V2Error.invalidValue }
         let flight = "\(stamp.generation):\(method):\(path)"
         guard inFlight.insert(flight).inserted else { throw V2Error.busy }
         defer { inFlight.remove(flight) }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
-        request.httpMethod = method; request.httpBody = body
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        if authorized {
-            guard verified, let token else { throw V2Error.unauthorized }
-            request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        for attempt in 0..<2 {
+            guard gate.accepts(stamp), let current = configuration else { throw V2Error.stale }
+            guard current.expiresAt > now() else { throw V2Error.expired }
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
+            request.httpMethod = method; request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+            if authorized {
+                guard verified, let token else { throw V2Error.unauthorized }
+                request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+            }
+            let response: V2HTTPResponse
+            do { response = try await transport.send(request, limit: limit) }
+            catch { guard gate.accepts(stamp) else { throw V2Error.stale }; throw (error as? V2Error ?? .transport) }
+            if method == "GET" { try Task.checkCancellation() }
+            guard gate.accepts(stamp) else { throw V2Error.stale }
+            guard response.body.count <= limit else { throw V2Error.oversized }
+            if authorized, response.status == 401, attempt == 0 {
+                do {
+                    try await refreshAccess(stamp)
+                    continue
+                } catch {
+                    invalidateAuthentication()
+                    throw error
+                }
+            }
+            if response.status == 401 { invalidateAuthentication(); throw V2HTTPFailure(status: 401) }
+            if response.status == 409 || response.status == 503 { ownedCalls.removeAll(); onControlInvalidated?() }
+            guard (200..<300).contains(response.status) else { throw V2HTTPFailure(status: response.status) }
+            return response
         }
-        let response: V2HTTPResponse
-        do { response = try await transport.send(request, limit: limit) }
-        catch { guard gate.accepts(stamp) else { throw V2Error.stale }; throw (error as? V2Error ?? .transport) }
-        if method == "GET" { try Task.checkCancellation() }
-        guard gate.accepts(stamp) else { throw V2Error.stale }
-        guard config.expiresAt > now() else { invalidateAuthentication(); throw V2Error.expired }
-        guard response.body.count <= limit else { throw V2Error.oversized }
-        if response.status == 401 { invalidateAuthentication(); throw V2HTTPFailure(status: 401) }
-        if response.status == 409 || response.status == 503 { ownedCalls.removeAll(); onControlInvalidated?() }
-        guard (200..<300).contains(response.status) else { throw V2HTTPFailure(status: response.status) }
-        return response
+        throw V2Error.unauthorized
+    }
+    private func prepareAccess(_ stamp: V2SessionStamp) async throws {
+        guard gate.accepts(stamp), let config = configuration else { throw V2Error.stale }
+        let remaining = config.expiresAt.timeIntervalSince(now())
+        guard remaining <= 5 * 60 else { return }
+        guard config.refreshExpiresAt != nil else {
+            if remaining > 0 { return }
+            throw V2Error.expired
+        }
+        do { try await refreshAccess(stamp) }
+        catch let error as V2Error where error == .transport && remaining > 0 { return }
+    }
+    private func refreshAccess(_ stamp: V2SessionStamp) async throws {
+        guard gate.accepts(stamp), let current = configuration,
+              let refreshExpiry = current.refreshExpiresAt, refreshExpiry > now(),
+              let refresh = onRefreshConfiguration else { throw V2Error.expired }
+        let task: Task<V2Configuration, Error>
+        if let refreshTask { task = refreshTask }
+        else {
+            task = Task {
+                guard let renewed = try await refresh(current) else { throw V2Error.expired }
+                return renewed
+            }
+            refreshTask = task
+        }
+        do {
+            let renewed = try await task.value
+            guard gate.accepts(stamp), renewed.identity == current.identity,
+                  renewed.moduleID == current.moduleID, renewed.expiresAt > now(),
+                  let renewedRefresh = renewed.refreshExpiresAt,
+                  renewedRefresh > now(),
+                  renewedRefresh.timeIntervalSince(now()) <= 90 * 86400 + 300 else {
+                throw V2Error.invalidIdentity
+            }
+            gate.refresh(renewed)
+            token = try tokens.read(account: renewed.identity.account)
+            verified = true
+            refreshTask = nil
+        } catch {
+            refreshTask = nil
+            throw error
+        }
     }
     private func invalidateAuthentication() { stop(); onAuthenticationInvalidated?() }
     private func read<T: Decodable>(_ type: T.Type, path: String, limit: Int = 256 * 1024) async throws -> T {

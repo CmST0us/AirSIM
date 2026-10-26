@@ -293,14 +293,21 @@ struct V2Capabilities: Decodable {
     let experimental_audio: Bool
     let apns: Bool
     let interactive_login: Bool
+    let device_pairing: Bool
+    let client_session_refresh: Bool
     init(from decoder: Decoder) throws {
-        let c = try decoder.v2Fields("controlled_test_client telephony messaging experimental_audio apns interactive_login", optional: "")
+        let c = try decoder.v2Fields(
+            "controlled_test_client telephony messaging experimental_audio apns interactive_login",
+            optional: "device_pairing client_session_refresh"
+        )
         controlled_test_client = try c.get("controlled_test_client")
         telephony = try c.get("telephony")
         messaging = try c.get("messaging")
         experimental_audio = try c.get("experimental_audio")
         apns = try c.get("apns")
         interactive_login = try c.get("interactive_login")
+        device_pairing = try c.optional("device_pairing") ?? false
+        client_session_refresh = try c.optional("client_session_refresh") ?? false
     }
 }
 

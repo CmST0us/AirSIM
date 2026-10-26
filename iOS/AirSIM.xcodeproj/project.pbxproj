@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A90000000000000000000001 /* V2Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90000000000000000000001; };
 		A10000000000000000000001 /* AirSIMIPadApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* AirSIMIPadApp.swift */; };
 		A10000000000000000000002 /* APIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* APIModels.swift */; };
 		A10000000000000000000003 /* AirSIMAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* AirSIMAPI.swift */; };
@@ -127,6 +128,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		B90000000000000000000001 /* V2Pairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Pairing.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* AirSIMIPadApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirSIMIPadApp.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
 		B10000000000000000000003 /* AirSIMAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirSIMAPI.swift; sourceTree = "<group>"; };
@@ -251,6 +253,7 @@
 				B50000000000000000000001 /* V2Client.swift */,
 				B50000000000000000000002 /* V2Commands.swift */,
 				B50000000000000000000003 /* V2Configuration.swift */,
+				B90000000000000000000001 /* V2Pairing.swift */,
 				B50000000000000000000004 /* V2JSON.swift */,
 				B50000000000000000000005 /* V2Media.swift */,
 				B50000000000000000000006 /* V2Models.swift */,
@@ -544,6 +547,7 @@
 				A50000000000000000000001 /* V2Client.swift in Sources */,
 				A50000000000000000000002 /* V2Commands.swift in Sources */,
 				A50000000000000000000003 /* V2Configuration.swift in Sources */,
+				A90000000000000000000001 /* V2Pairing.swift in Sources */,
 				A50000000000000000000004 /* V2JSON.swift in Sources */,
 				A50000000000000000000005 /* V2Media.swift in Sources */,
 				A50000000000000000000006 /* V2Models.swift in Sources */,
@@ -695,6 +699,7 @@
 				AIRSIM_APNS_ENVIRONMENT = sandbox;
 				AIRSIM_PUSH_ENTITLEMENTS = "AirSIM/AirSIM.entitlements";
 				AIRSIM_PUSH_RELAY_URL = "";
+				AIRSIM_V2_PAIRING_ORIGIN = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "AirSIM/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.3;
@@ -721,6 +726,7 @@
 				AIRSIM_APNS_ENVIRONMENT = production;
 				AIRSIM_PUSH_ENTITLEMENTS = "AirSIM/AirSIM.entitlements";
 				AIRSIM_PUSH_RELAY_URL = "";
+				AIRSIM_V2_PAIRING_ORIGIN = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "AirSIM/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.3;

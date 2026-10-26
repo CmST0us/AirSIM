@@ -4,18 +4,38 @@ import UniformTypeIdentifiers
 struct V2ConnectionSections: View {
     @ObservedObject var model: CloudV2Model
     @State private var importing = false
+    @State private var showingPairing = false
     var body: some View {
         Group {
+            Section("设备") {
+                Button("添加设备") { showingPairing = true }
+                    .disabled(model.blocksSwitch || !model.pairingAvailable)
+                    .accessibilityIdentifier("v2-add-device")
+                    .sheet(isPresented: $showingPairing) {
+                        V2PairingSheet(model: model)
+                    }
+                if !model.pairingAvailable {
+                    Text("此安装未配置设备配对服务。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
             Section("云端 v2 连接") {
                 Text(model.userStatus)
                 if let config = model.configuration {
-                    LabeledContent("服务器", value: config.identity.apiOrigin)
-                    Text("有效期至：\(config.expiresAt.formatted())")
+                    if config.refreshExpiresAt != nil {
+                        Text("连接会在后台自动续期。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    } else {
+                        Text("有效期至：\(config.expiresAt.formatted())")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                 }
-                Button("导入连接配置 JSON") { importing = true }.disabled(model.blocksSwitch)
                 Button("重新连接") { Task { await model.connect() } }
                     .disabled(model.busy || model.configuration == nil)
                 Button("断开连接") { Task { await model.disconnect() } }.disabled(model.blocksSwitch || !model.connected)
+                DisclosureGroup("其他方式") {
+                    Button("导入旧版连接文件") { importing = true }.disabled(model.blocksSwitch)
+                }
             }
             Section("选择模块") {
                 if model.modules.isEmpty { Text("连接后加载模块列表，首次需要手动选择。") }
@@ -55,6 +75,97 @@ struct V2ConnectionSections: View {
             case .failure: model.error = "无法读取配置文件。"
             }
         }
+    }
+}
+
+private struct V2PairingSheet: View {
+    @ObservedObject var model: CloudV2Model
+    @Environment(\.dismiss) private var dismiss
+    @State private var code = ""
+    @State private var found: V2PairingLookup?
+    @State private var busy = false
+    @State private var message: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("输入电脑网页上显示的 8 位连接码。")
+                    TextField("8 位连接码", text: $code)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .font(.system(.title2, design: .monospaced, weight: .semibold))
+                        .accessibilityIdentifier("v2-pairing-code")
+                        .onChange(of: code) { value in
+                            code = String(value.filter(\.isNumber).prefix(8))
+                            found = nil; message = nil
+                        }
+                }
+                if let found {
+                    Section("确认设备") {
+                        LabeledContent("设备") {
+                            Text(found.name).accessibilityIdentifier("v2-pairing-device-name")
+                        }
+                        LabeledContent("标识", value: found.short_id)
+                        LabeledContent("状态", value: found.online ? "在线" : "等待联网")
+                    }
+                }
+                if model.pendingPairingClaim() != nil {
+                    Section {
+                        Button("取消未完成的添加", role: .destructive) {
+                            model.discardPairingPending()
+                            code = ""; found = nil; message = nil
+                        }
+                    }
+                }
+                if let message {
+                    Section {
+                        Text(message).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("添加设备")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }.disabled(busy)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if found == nil {
+                        Button("查找设备") { Task { await lookup() } }
+                            .disabled(code.count != 8 || busy)
+                    } else {
+                        Button("确认添加") { Task { await add() } }
+                            .disabled(busy)
+                            .accessibilityIdentifier("v2-pairing-confirm")
+                    }
+                }
+            }
+            .onAppear {
+                if let pending = model.pendingPairingClaim() {
+                    code = pending.code
+                    found = pending.device
+                    message = "上次添加尚未完成。确认设备后会只重试原添加。"
+                }
+            }
+            .overlay { if busy { ProgressView("正在添加设备…").padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) } }
+        }
+        .interactiveDismissDisabled(busy)
+    }
+
+    @MainActor private func lookup() async {
+        busy = true; message = nil
+        defer { busy = false }
+        do { found = try await model.lookupPairing(code: code) }
+        catch { message = model.pairingErrorMessage(error) }
+    }
+
+    @MainActor private func add() async {
+        guard let found else { return }
+        busy = true; message = nil
+        defer { busy = false }
+        if await model.addPairedDevice(code: code, device: found) { dismiss() }
+        else { message = model.error ?? "暂时无法添加设备，请稍后重试。" }
     }
 }
 
