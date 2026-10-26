@@ -1,0 +1,93 @@
+:root {
+  --bg: #f5f5f7;
+  --paper: #fff;
+  --ink: #1d1d1f;
+  --muted: #626269;
+  --line: #dedee3;
+  --accent: #0066cc;
+  --accent-hover: #0055ad;
+  --soft: #eef4fc;
+  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, a, input { font: inherit; }
+button { cursor: pointer; color: inherit; transition: background .16s, transform .16s; }
+button:disabled { cursor: wait; opacity: .6; }
+button:active:not(:disabled) { transform: scale(.98); }
+a { color: inherit; }
+button, a, summary { outline-offset: 4px; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #007aff; }
+.skip { position: fixed; top: -80px; left: 16px; background: var(--paper); padding: 14px; z-index: 100; }
+.skip:focus { top: 8px; }
+header {
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 max(28px, calc((100vw - 1080px)/2));
+  background: rgba(250,250,252,.85);
+  backdrop-filter: blur(22px) saturate(160%);
+  border-bottom: 1px solid #0000000d;
+}
+.brand { font-size: 22px; font-weight: 650; letter-spacing: -.8px; display: flex; gap: 22px; align-items: center; }
+.brand small { font-size: 13px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+.plain { border: 0; background: transparent; color: var(--accent); min-height: 44px; padding: 10px 14px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; border-radius: 24px; }
+.plain:hover { background: #007aff0a; }
+.header-help { background: #fff9; color: var(--ink); border: 1px solid #0000000a; min-height: 36px; padding: 7px 16px; font-size: 12px; }
+main { max-width: 1080px; margin: auto; padding: 0 28px; min-height: calc(100dvh - 68px); display: flex; flex-direction: column; }
+.user-document { width: 100%; margin: 110px auto 50px; max-width: 540px; }
+.content { display: flex; flex-direction: column; min-width: 0; }
+h1 { font-size: 46px; line-height: 1.16; letter-spacing: -1.8px; font-weight: 650; text-align: center; margin: 0 0 18px; }
+h1:focus { outline: 0; }
+.lead { font-size: 16px; line-height: 1.8; color: var(--muted); text-align: center; max-width: 490px; margin: 0 auto 36px; }
+.actions { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 28px; padding: 0 0 20px; }
+.primary { border: 0; min-height: 48px; padding: 13px 25px; border-radius: 25px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 550; background: var(--accent); color: #fff; min-width: 210px; }
+.primary:hover { background: var(--accent-hover); }
+.device-choice { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: 100%; border: 1px solid #00000005; background: var(--paper); border-radius: 22px; padding: 26px; text-align: left; min-height: 104px; box-shadow: 0 2px 8px #00000003; }
+.device-choice + .device-choice { margin-top: 12px; }
+.device-choice:hover { background: var(--soft); }
+.device-choice strong { font-size: 19px; font-weight: 600; display: block; overflow-wrap: anywhere; }
+.device-choice small { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
+.choice-label { font-size: 13px; color: var(--accent); flex-shrink: 0; }
+.device-summary { padding: 25px; margin: 0 0 16px; background: var(--paper); border-radius: 18px; display: flex; align-items: center; gap: 14px; }
+.device-summary strong { font-size: 18px; font-weight: 600; letter-spacing: .1px; overflow-wrap: anywhere; }
+.device-summary small { display: block; margin-top: 7px; font-size: 12px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+.flow-note { font-size: 12px; line-height: 1.8; text-align: center; color: var(--muted); margin: 22px 8px 8px; }
+.loading-line { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 25px 0 16px; }
+.loading-line::after { content: ''; display: block; width: 30%; height: 100%; border-radius: 4px; background: var(--accent); animation: loading 1.5s linear infinite; }
+@keyframes loading { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+dialog { padding: 0; border: 1px solid #ffffff80; border-radius: 28px; width: 520px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 40px); background: var(--bg); color: var(--ink); box-shadow: 0 24px 80px #00000026; }
+dialog::backdrop { background: #14141b45; backdrop-filter: blur(8px); }
+.dialog-inner { padding: 28px; }
+.dialog-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
+.dialog-head h2 { margin: 0; font-size: 24px; font-weight: 650; letter-spacing: -.6px; }
+.close { width: 36px; height: 36px; flex-shrink: 0; border: 0; border-radius: 50%; background: #e7e7ec; font-size: 23px; color: var(--muted); }
+.close:hover { background: #dcdce2; }
+.help-list details { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.help-list summary { cursor: pointer; font-size: 14px; font-weight: 550; line-height: 1.6; }
+.help-list p { font-size: 13px; line-height: 1.9; color: var(--muted); margin-bottom: 0; }
+@media (min-height: 850px) { .actions { margin-top: 32px; } }
+@media (max-width: 600px) {
+  header { height: 60px; padding: 0 20px; }
+  .brand { font-size: 21px; gap: 14px; }
+  .brand small { font-size: 11px; }
+  .header-help { font-size: 11px; padding: 7px 12px; }
+  main { padding: 0 20px; min-height: calc(100dvh - 60px); }
+  .user-document { margin-top: 70px; }
+  h1 { font-size: 34px; letter-spacing: -1px; margin-bottom: 16px; }
+  .lead { font-size: 14px; }
+  .device-choice { padding: 22px; }
+  .actions { margin-top: 24px; }
+  .actions > .primary { width: 100%; }
+  .dialog-inner { padding: 22px; }
+  .dialog-head h2 { font-size: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+@media (prefers-reduced-transparency: reduce) {
+  header { background: #fafafc; backdrop-filter: none; }
+  dialog::backdrop { backdrop-filter: none; background: #14141b99; }
+}

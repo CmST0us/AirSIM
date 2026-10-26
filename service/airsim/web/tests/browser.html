@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>AirSIM browser tests</title><style>body{margin:0;background:#d9d9df;font:13px sans-serif}#report{padding:8px}iframe{border:0;transform-origin:top left;background:#f5f5f7}</style></head><body><div id="report">Loading</div><script type="module">
+const params = new URLSearchParams(location.search);
+const width = Number(params.get('width') || 960);
+const frame = document.createElement('iframe');
+frame.title = 'Test fixture'; frame.width = String(width); frame.height = '1000';
+frame.src = './fixture.html?state=' + encodeURIComponent(params.get('state') || 'ready');
+document.body.append(frame);
+frame.style.transform = `scale(${Math.min(1, (innerWidth - 16) / width)})`;
+window.addEventListener('message', event => {
+  if (event.source !== frame.contentWindow || event.origin !== location.origin) return;
+  document.querySelector('#report').textContent = JSON.stringify(event.data);
+});
+</script></body></html>
