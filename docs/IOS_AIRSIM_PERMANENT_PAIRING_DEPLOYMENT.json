@@ -1,0 +1,70 @@
+{
+  "recorded_at": "2026-10-27T05:51:07Z",
+  "commit": "0e185851f779bee4e7a6a8928378112947224feb",
+  "ecs_instance_id": "i-wz93dhbsy21quebidepg",
+  "release_directory": "/opt/airsim-v2/releases/0e18585",
+  "business_image": {
+    "build_image_id": "sha256:2ac3c113cc5e6fd30a95a9bf5b6b5e9491954914fae63ce7712a5163eae2ad14",
+    "runtime_image_id": "sha256:048f0c11b4ab3724d9d43237f23d21a1d11df0e54108fc0ea4f94be0964606c5",
+    "archive": "/opt/airsim-v2/staging/0e18585/business-amd64.tar.gz"
+  },
+  "database": {
+    "schema_before": 4,
+    "schema_after": 5,
+    "pre_migration_backup": "/opt/airsim-v2/backups/0e18585-pre-schema5.dump",
+    "pre_migration_backup_bytes": 34428,
+    "active_paired_clients_before": 5,
+    "active_paired_clients_after": 1,
+    "revoked_duplicate_clients_after": 4,
+    "active_administrator_clients": 2
+  },
+  "module": {
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "retained_client_installation_id": "756b19fb-f71c-4eb5-9a02-a26c08a33fb1",
+    "revoked_client_installation_ids": [
+      "38296b2b-06a2-4a5a-bad4-b04b6fbd9426",
+      "a38c00e7-5d44-451e-9cc2-a42e52f8d3a3",
+      "e29c491e-5296-4308-bb1a-10c2115361a7",
+      "570560da-c4fd-40cd-8026-89e6a3e90a2a"
+    ],
+    "retained_access_expiry": null,
+    "retained_refresh_expiry": null
+  },
+  "verification": {
+    "control": "running healthy",
+    "media": "running healthy",
+    "edge": "running healthy",
+    "postgres": "running healthy",
+    "cloudflare_tunnel": "running",
+    "readyz": {
+      "ready": true
+    },
+    "second_phone_pairing": {
+      "status": 409,
+      "error": "module_already_paired"
+    },
+    "agent_cloud": {
+      "connected": true,
+      "last_error": "",
+      "certificate_expires_at": "2026-11-23T09:29:52Z"
+    },
+    "ios": {
+      "profile": "airsim-v2-callkit",
+      "client_installation_id": "756b19fb-f71c-4eb5-9a02-a26c08a33fb1",
+      "directory_active_clients": 1,
+      "snapshot_online": true,
+      "control_available": true,
+      "telephony_available": true,
+      "audio_available": true
+    }
+  },
+  "rollback": {
+    "release_directory": "/opt/airsim-v2/releases/be8400f",
+    "business_image": "sha256:3df84fdd9abcb661c3fdcb0c7f7208be17258ff1d75e09814f73a05a3711e03b",
+    "deployment_env_backup": "/opt/airsim-v2/backups/0e18585-pre-deployment.env"
+  },
+  "limitations": [
+    "A fresh schema 3 pairing was not consumed in production because the existing active client was retained; schema 3 claim decoding, permanent-session behavior and schema 2 compatibility are covered by iOS tests, and one-module-one-phone enforcement is covered by isolated PostgreSQL tests and the live 409 response.",
+    "The retained active installation is the currently connected simulator. The other four historical phone clients were revoked by the migration and must be explicitly re-paired only after the retained client is revoked."
+  ]
+}

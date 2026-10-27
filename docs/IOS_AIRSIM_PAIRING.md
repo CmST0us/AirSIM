@@ -19,7 +19,7 @@
 - The complete UI flow passes on a clean iPhone 18 Pro simulator: existing Settings → 添加设备 → eight-digit code → RM500 confirmation → claim → automatic-renewal status → module row. The simulator uses an in-process pairing store because its Keychain is unavailable.
 - Real Chrome WebUSB selected the attached RM500, verified its module identity and Ed25519 proof, and displayed the five-minute code. The web page reached “设备已连接”.
 - The production ECS records the paired client as `connected`, non-revoked, and scoped to the same module as the pairing request.
-- The schema-5 service keeps the newest active phone for each module during migration, revokes older duplicate phone records and removes paired-session expiry. Deployment must record the retained and revoked client IDs before traffic resumes.
+- On 2026-10-27 the schema-5 service kept the current simulator installation, revoked four historical duplicate phone clients and removed paired-session expiry. The iOS client reconnected through the existing permanent credential, the module returned online with control, telephony and audio capabilities, and a second pairing request correctly returned `409 module_already_paired`. Deployment and rollback details are in [permanent-pairing deployment evidence](IOS_AIRSIM_PERMANENT_PAIRING_DEPLOYMENT.json).
 
 ## Boundary
 
