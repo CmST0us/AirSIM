@@ -71,6 +71,11 @@ type connection struct {
 	wg          sync.WaitGroup
 }
 
+const (
+	discoveryTimeout        = 30 * time.Second
+	controlHandshakeTimeout = 15 * time.Second
+)
+
 func (a *Agent) status(connected bool, epoch, code string) {
 	a.P.mu.Lock()
 	defer a.P.mu.Unlock()
@@ -193,9 +198,10 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 		}
 		a.status(false, "", reason)
 	}()
-	handshake, hcancel := context.WithTimeout(ctx, 5*time.Second)
-	defer hcancel()
-	if a.discover(handshake, s) != nil {
+	discovery, discoveryCancel := context.WithTimeout(ctx, discoveryTimeout)
+	err = a.discover(discovery, s)
+	discoveryCancel()
+	if err != nil {
 		return "discovery_failed"
 	}
 	client, e := a.P.client(s, true)
@@ -203,6 +209,8 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 		return "certificate_invalid"
 	}
 	defer client.CloseIdleConnections()
+	handshake, hcancel := context.WithTimeout(ctx, controlHandshakeTimeout)
+	defer hcancel()
 	ws, resp, e := websocket.Dial(handshake, "wss"+strings.TrimPrefix(s.Request.Device, "https")+"/v2/device/control", &websocket.DialOptions{HTTPClient: client, Subprotocols: []string{"airsim.control.v2"}, CompressionMode: websocket.CompressionDisabled})
 	if e != nil {
 		if resp != nil && resp.Body != nil {

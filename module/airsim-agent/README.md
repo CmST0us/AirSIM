@@ -2,6 +2,8 @@
 
 本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.pairing`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent、RM500 CLI 或云端服务。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false、无开机自启；详细边界见 [R2 记录](R2_TESTING.md)。
 
+云端连接将 discovery 与设备 mTLS 控制握手分别限制为 30 秒和 15 秒。跨网 Cloudflare 路径可能明显慢于局域网测试，不能沿用原 5 秒总预算；外层仍按有界退避重连。
+
 R3 已实现原生音频 helper、本机媒体会话与通话 lease；本机验证和构建见 [R3 交接记录](R3_TESTING.md)及[构建证据](R3_BUILD_EVIDENCE.json)。R3 裁决04构建已部署，当前固件、厂商16kHz语音时钟下75.004秒双向内容验收通过；用户确认听清提示语及自己的回声。运行时 voice_ready=false、verification=unverified 仍保留为实验发布门槛。权威事实见[验收证据](R3_ACCEPTANCE_EVIDENCE.json)与[历史诊断证据](R3_DIAGNOSTIC_EVIDENCE.json)。下文 R2 证据保留为历史基线。
 
 设备配对在现有身份上增加网页配对所需的新鲜 Ed25519 证明，不导出私钥，也不新增网络监听。实现和验证边界见 [配对记录](PAIRING_TESTING.md)。
