@@ -8,6 +8,7 @@ export interface Device {
 export interface Operation {
   id: string;
   device: Device;
+  replaceExisting?: boolean;
 }
 
 export type ConnectionResult =
@@ -17,7 +18,7 @@ export type ConnectionResult =
   | { state: 'connected'; online: boolean }
   | { state: 'failed' };
 
-export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'unsupported' | 'not_ready' | 'failed' | 'unknown';
+export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'unsupported' | 'not_ready' | 'paired' | 'failed' | 'unknown';
 
 export class TransportFailure extends Error {
   constructor(readonly code: FailureCode) { super(code); }

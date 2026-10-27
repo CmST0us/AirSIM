@@ -16,3 +16,6 @@ var PersistentClientSessions string
 
 //go:embed 005_permanent_module_sessions.sql
 var PermanentModuleSessions string
+
+//go:embed 006_pairing_reset.sql
+var PairingReset string

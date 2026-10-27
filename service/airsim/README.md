@@ -28,7 +28,7 @@ GO=/absolute/path/to/go \
 AIRSIM_INTEGRATION_DIR=/absolute/new/external/test-directory go test -race -count=1 -v ./integration
 ```
 
-The stack script only uses project `airsim-r4-test` and a loopback high port. It does not install its CA into system trust. It fails rather than overwriting an existing fixture directory. Runtime files, tokens and private keys are never printed. Database migration schema 5 keeps the newest active phone per module, revokes older duplicate phone records and clears paired-session expiry fields.
+The stack script only uses project `airsim-r4-test` and a loopback high port. It does not install its CA into system trust. It fails rather than overwriting an existing fixture directory. Runtime files, tokens and private keys are never printed. Database migration schema 5 keeps the newest active phone per module, revokes older duplicate phone records and clears paired-session expiry fields. Schema 6 records a module-holder reset intent and atomically replaces the old phone when the new phone claims its code.
 
 Deployment prerequisites, administrator operations and rollback are in [Compose operations](deploy/compose/README.md). Current executed checks and remaining production boundaries are in [R4 evidence](R4_TESTING.md).
 

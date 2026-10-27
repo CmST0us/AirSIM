@@ -17,3 +17,9 @@ it('rejects an incomplete recovery record instead of returning a new operation',
   sessionStorage.setItem('airsim.pending-device-operation', '{"id":"unfinished"}');
   expect(() => store.load()).toThrow();
 });
+it('preserves an explicit reset operation across reload', () => {
+  const store = sessionOperationStore(sessionStorage);
+  const operation = { id: 'replace-operation', device, replaceExisting: true };
+  store.save(operation);
+  expect(sessionOperationStore(sessionStorage).load()).toEqual(operation);
+});

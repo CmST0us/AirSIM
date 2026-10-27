@@ -31,6 +31,7 @@ interface Challenge {
   server_id: string;
   nonce: string;
   expires_at: string;
+  replace_existing?: boolean;
 }
 
 interface AgentProof {
@@ -48,6 +49,7 @@ interface PairingSession {
   serverId: string;
   nonce: string;
   expiresAt: string;
+  replaceExisting?: boolean;
 }
 
 interface PairingStatus {
@@ -57,6 +59,7 @@ interface PairingStatus {
   expires_at: string;
   code: string;
   online: boolean;
+  replace_existing?: boolean;
 }
 
 interface WebUsbOptions {
@@ -225,7 +228,10 @@ function validChallenge(value: unknown, operation: Operation): value is Challeng
     && typeof challenge.nonce === 'string'
     && /^[0-9a-f]{64}$/.test(challenge.nonce)
     && typeof challenge.expires_at === 'string'
-    && remaining > 0 && remaining <= 305_000;
+    && remaining > 0 && remaining <= 305_000
+    && (operation.replaceExisting === true
+      ? challenge.replace_existing === true
+      : challenge.replace_existing === false || challenge.replace_existing === undefined);
 }
 
 function resultFromStatus(value: PairingStatus): ConnectionResult {
@@ -245,10 +251,13 @@ function resultFromStatus(value: PairingStatus): ConnectionResult {
   }
 }
 
-function failureForStatus(status: number, code?: string): FailureCode {
+export function failureForStatus(status: number, code?: string): FailureCode {
   if (status === 401) return 'unknown';
   if (status === 404) return 'not_ready';
-  if (status === 409) return code === 'pairing_conflict' ? 'busy' : 'failed';
+  if (status === 409) {
+    if (code === 'module_already_paired') return 'paired';
+    return code === 'pairing_conflict' ? 'busy' : 'failed';
+  }
   if (status === 410) return 'not_ready';
   if (status === 429) return 'busy';
   return 'failed';
@@ -279,7 +288,8 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
       return typeof value.requestId === 'string' && typeof value.pollToken === 'string'
         && typeof value.deviceId === 'string' && typeof value.moduleId === 'string'
         && typeof value.serverId === 'string' && typeof value.nonce === 'string'
-        && typeof value.expiresAt === 'string' ? value : undefined;
+        && typeof value.expiresAt === 'string'
+        && (value.replaceExisting === undefined || typeof value.replaceExisting === 'boolean') ? value : undefined;
     } catch {
       return;
     }
@@ -379,10 +389,11 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
       (value, byte) => value + byte.toString(16).padStart(2, '0'), '');
     let session = existing;
     if (!session) {
+      const replaceExisting = operation.replaceExisting === true;
       const challengeBody = await serviceJSON('/v2/pairing/challenges', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: operation.id, module_id: attachment.status.module_id, poll_token: pollToken }),
+        body: JSON.stringify(challengeRequest(operation, attachment.status.module_id, pollToken)),
       }, [200, 201], signal);
       if (!validChallenge(challengeBody, operation)) throw new TransportFailure('failed');
       if (challengeBody.server_id !== attachment.status.server_id || !(await validOrigin(attachment.status.api_origin))) {
@@ -392,6 +403,7 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
         requestId: operation.id, pollToken, deviceId: operation.device.id,
         moduleId: attachment.status.module_id, serverId: challengeBody.server_id,
         nonce: challengeBody.nonce, expiresAt: challengeBody.expires_at,
+        replaceExisting,
       };
       save(session);
     }
@@ -454,13 +466,15 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
       const attachment = await attach(usb, signal);
       const stored = load();
       const existing = stored?.requestId === operation.id && stored.deviceId === operation.device.id
+        && (stored.replaceExisting === true) === (operation.replaceExisting === true)
         ? stored : undefined;
       return approve(attachment, operation, existing, signal);
     },
 
     async status(operation, signal) {
       const session = load();
-      if (!session || session.requestId !== operation.id || session.deviceId !== operation.device.id) {
+      if (!session || session.requestId !== operation.id || session.deviceId !== operation.device.id
+        || (session.replaceExisting === true) !== (operation.replaceExisting === true)) {
         throw new TransportFailure('unknown');
       }
       const body = await serviceJSON(`/v2/pairing/${session.requestId}`, {
@@ -474,7 +488,8 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
 
     async cancel(operation, signal) {
       const session = load();
-      if (!session || session.requestId !== operation.id || session.deviceId !== operation.device.id) {
+      if (!session || session.requestId !== operation.id || session.deviceId !== operation.device.id
+        || (session.replaceExisting === true) !== (operation.replaceExisting === true)) {
         throw new TransportFailure('unknown');
       }
       const body = await serviceJSON(`/v2/pairing/${session.requestId}`, {
@@ -491,6 +506,15 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
       attachments.delete(device.id);
       if (attachment) await attachment.adb.close().catch(() => {});
     },
+  };
+}
+
+export function challengeRequest(operation: Operation, module: string, pollToken: string) {
+  return {
+    request_id: operation.id,
+    module_id: module,
+    poll_token: pollToken,
+    ...(operation.replaceExisting === true ? { replace_existing: true } : {}),
   };
 }
 

@@ -92,6 +92,10 @@ func TestPairingDatabaseScopeClaimRefreshAndRevoke(t *testing.T) {
 	if err = db.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	var schema int
+	if err = db.QueryRow(ctx, "SELECT max(version) FROM schema_version").Scan(&schema); err != nil || schema != 6 {
+		t.Fatalf("schema: %d %v", schema, err)
+	}
 	server, user := wire.ID(), wire.ID()
 	if _, err = db.Exec(ctx, "INSERT INTO identity(server_id,user_id) VALUES($1,$2)", server, user); err != nil {
 		t.Fatal(err)
@@ -232,6 +236,67 @@ func TestPairingDatabaseScopeClaimRefreshAndRevoke(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatal("new access token rejected")
 	}
+	replaceRequest, replacePoll, replaceRefresh := wire.ID(), wire.Token(), wire.Token()
+	status, response = pairingRequest(t, s.Handler(), "POST", "/v2/pairing/challenges", map[string]any{
+		"request_id": replaceRequest, "module_id": module, "poll_token": replacePoll, "replace_existing": true,
+	}, "")
+	if status != http.StatusCreated {
+		t.Fatalf("replacement challenge: %d %s", status, response)
+	}
+	var replaceChallenge struct {
+		Nonce   string `json:"nonce"`
+		Expires string `json:"expires_at"`
+		Replace bool   `json:"replace_existing"`
+	}
+	if json.Unmarshal(response, &replaceChallenge) != nil || !replaceChallenge.Replace {
+		t.Fatal("replacement challenge response")
+	}
+	replaceProof := base64.StdEncoding.EncodeToString(ed25519.Sign(private, pairingProofBytes(
+		replaceRequest, server, module, replaceChallenge.Nonce, replaceChallenge.Expires, wire.Hash(replacePoll))))
+	status, response = pairingRequest(t, s.Handler(), "POST", "/v2/pairing/"+replaceRequest+"/approve", map[string]string{
+		"public_key_base64": base64.StdEncoding.EncodeToString(public), "proof_base64": replaceProof,
+	}, replacePoll)
+	if status != http.StatusOK {
+		t.Fatalf("replacement approve: %d %s", status, response)
+	}
+	var replaceApproved struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(response, &replaceApproved) != nil || !codePattern.MatchString(replaceApproved.Code) {
+		t.Fatal("replacement code")
+	}
+	status, response = pairingRequest(t, s.Handler(), "POST", "/v2/pairing/lookup", map[string]string{"code": replaceApproved.Code}, "")
+	if status != http.StatusOK {
+		t.Fatalf("replacement lookup with active phone: %d %s", status, response)
+	}
+	replacementClient, replacementClaim := wire.ID(), wire.ID()
+	status, response = pairingRequest(t, s.Handler(), "POST", "/v2/pairing/claim", map[string]string{
+		"code": replaceApproved.Code, "claim_id": replacementClaim,
+		"client_installation_id": replacementClient, "refresh_token": replaceRefresh,
+	}, "")
+	if status != http.StatusCreated {
+		t.Fatalf("replacement claim: %d %s", status, response)
+	}
+	var replacementSession sessionResponse
+	if json.Unmarshal(response, &replacementSession) != nil || replacementSession.Client != replacementClient || replacementSession.Schema != 3 {
+		t.Fatal("replacement session")
+	}
+	var activeClients, revokedOld bool
+	if err = db.QueryRow(ctx, `SELECT
+ count(*) FILTER (WHERE NOT revoked)=(1)::bigint,
+ bool_or(id=$2 AND revoked)
+ FROM clients WHERE module_id=$1`, module, client).Scan(&activeClients, &revokedOld); err != nil || !activeClients || !revokedOld {
+		t.Fatalf("replacement did not revoke the old phone exclusively: active=%v old=%v err=%v", activeClients, revokedOld, err)
+	}
+	status, _ = pairingRequest(t, s.Handler(), "GET", "/v2/modules", nil, refreshed.Token)
+	if status != http.StatusUnauthorized {
+		t.Fatal("old phone survived replacement")
+	}
+	status, _ = pairingRequest(t, s.Handler(), "GET", "/v2/modules", nil, replacementSession.Token)
+	if status != http.StatusOK {
+		t.Fatal("replacement phone rejected")
+	}
+	client, refreshToken, refreshed = replacementClient, replaceRefresh, replacementSession
 	if _, err = db.Exec(ctx, "UPDATE clients SET revoked=true WHERE id=$1", client); err != nil {
 		t.Fatal(err)
 	}

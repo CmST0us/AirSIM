@@ -188,9 +188,10 @@ func (s *Server) pairing(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) pairingChallenge(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		RequestID string `json:"request_id"`
-		Module    string `json:"module_id"`
-		PollToken string `json:"poll_token"`
+		RequestID       string `json:"request_id"`
+		Module          string `json:"module_id"`
+		PollToken       string `json:"poll_token"`
+		ReplaceExisting bool   `json:"replace_existing,omitempty"`
 	}
 	if wire.Body(w, r, &body, 16*1024, "request_id", "module_id", "poll_token") != nil ||
 		!wire.UUID.MatchString(body.RequestID) || !wire.UUID.MatchString(body.Module) || !wire.Hex.MatchString(body.PollToken) {
@@ -230,17 +231,18 @@ func (s *Server) pairingChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	var existingModule, existingPoll, existingNonce, existingState string
 	var existingExpiry time.Time
-	err = tx.QueryRow(ctx, `SELECT module_id,poll_hash,nonce,state,expires_at
+	var existingReplace bool
+	err = tx.QueryRow(ctx, `SELECT module_id,poll_hash,nonce,state,expires_at,replace_existing
  FROM pairing_requests WHERE id=$1 FOR UPDATE`, body.RequestID).Scan(
-		&existingModule, &existingPoll, &existingNonce, &existingState, &existingExpiry)
+		&existingModule, &existingPoll, &existingNonce, &existingState, &existingExpiry, &existingReplace)
 	if err == nil {
-		if existingModule != body.Module || existingPoll != pollHash {
+		if existingModule != body.Module || existingPoll != pollHash || existingReplace != body.ReplaceExisting {
 			wire.Error(w, http.StatusConflict, "pairing_conflict")
 			return
 		}
 		wire.JSON(w, http.StatusOK, map[string]any{
 			"request_id": body.RequestID, "module_id": body.Module, "server_id": server,
-			"nonce": existingNonce, "expires_at": existingExpiry,
+			"nonce": existingNonce, "expires_at": existingExpiry, "replace_existing": existingReplace,
 		})
 		return
 	}
@@ -255,7 +257,7 @@ func (s *Server) pairingChallenge(w http.ResponseWriter, r *http.Request) {
 		wire.Error(w, http.StatusServiceUnavailable, "database_unavailable")
 		return
 	}
-	if alreadyPaired {
+	if alreadyPaired && !body.ReplaceExisting {
 		wire.Error(w, http.StatusConflict, "module_already_paired")
 		return
 	}
@@ -273,9 +275,9 @@ func (s *Server) pairingChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO pairing_requests
- (id,module_id,server_id,poll_hash,nonce,expires_at,state)
- VALUES($1,$2,$3,$4,$5,$6,'awaiting_device')`,
-		body.RequestID, body.Module, server, pollHash, nonce, expires); err != nil {
+ (id,module_id,server_id,poll_hash,nonce,expires_at,state,replace_existing)
+ VALUES($1,$2,$3,$4,$5,$6,'awaiting_device',$7)`,
+		body.RequestID, body.Module, server, pollHash, nonce, expires, body.ReplaceExisting); err != nil {
 		wire.Error(w, http.StatusServiceUnavailable, "database_unavailable")
 		return
 	}
@@ -285,7 +287,7 @@ func (s *Server) pairingChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	wire.JSON(w, http.StatusCreated, map[string]any{
 		"request_id": body.RequestID, "module_id": body.Module, "server_id": server,
-		"nonce": nonce, "expires_at": expires,
+		"nonce": nonce, "expires_at": expires, "replace_existing": body.ReplaceExisting,
 	})
 }
 
@@ -341,12 +343,13 @@ func pairingBearer(r *http.Request) (string, bool) {
 }
 
 type pairingSnapshot struct {
-	RequestID string    `json:"request_id"`
-	Module    string    `json:"module_id"`
-	State     string    `json:"state"`
-	Expires   time.Time `json:"expires_at"`
-	Code      string    `json:"code"`
-	Online    bool      `json:"online"`
+	RequestID       string    `json:"request_id"`
+	Module          string    `json:"module_id"`
+	State           string    `json:"state"`
+	Expires         time.Time `json:"expires_at"`
+	Code            string    `json:"code"`
+	Online          bool      `json:"online"`
+	ReplaceExisting bool      `json:"replace_existing"`
 }
 
 func (s *Server) pairingApprove(w http.ResponseWriter, r *http.Request, requestID, pollToken string) {
@@ -378,9 +381,10 @@ func (s *Server) pairingApprove(w http.ResponseWriter, r *http.Request, requestI
 	defer tx.Rollback(ctx)
 	var server, module, storedPollHash, nonce, state string
 	var expires time.Time
-	err = tx.QueryRow(ctx, `SELECT server_id,module_id,poll_hash,nonce,expires_at,state
+	var replaceExisting bool
+	err = tx.QueryRow(ctx, `SELECT server_id,module_id,poll_hash,nonce,expires_at,state,replace_existing
  FROM pairing_requests WHERE id=$1 FOR UPDATE`, requestID).Scan(
-		&server, &module, &storedPollHash, &nonce, &expires, &state)
+		&server, &module, &storedPollHash, &nonce, &expires, &state, &replaceExisting)
 	if err != nil || storedPollHash != wire.Hash(pollToken) || !time.Now().Before(expires) || state != "awaiting_device" {
 		wire.Error(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -418,6 +422,7 @@ func (s *Server) pairingApprove(w http.ResponseWriter, r *http.Request, requestI
 	wire.JSON(w, http.StatusOK, pairingSnapshot{
 		RequestID: requestID, Module: module, State: "awaiting_phone",
 		Expires: expires, Code: code, Online: s.moduleOnline(module),
+		ReplaceExisting: replaceExisting,
 	})
 }
 
@@ -457,9 +462,10 @@ func (s *Server) pairingStatus(w http.ResponseWriter, r *http.Request, requestID
 	var module, state string
 	var expires time.Time
 	var sealed []byte
-	err := s.db.QueryRow(ctx, `SELECT module_id,state,expires_at,code_cipher
+	var replaceExisting bool
+	err := s.db.QueryRow(ctx, `SELECT module_id,state,expires_at,code_cipher,replace_existing
  FROM pairing_requests WHERE id=$1 AND poll_hash=$2`, requestID, wire.Hash(pollToken)).Scan(
-		&module, &state, &expires, &sealed)
+		&module, &state, &expires, &sealed, &replaceExisting)
 	if err != nil {
 		wire.Error(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -479,6 +485,7 @@ func (s *Server) pairingStatus(w http.ResponseWriter, r *http.Request, requestID
 	wire.JSON(w, status, pairingSnapshot{
 		RequestID: requestID, Module: module, State: state,
 		Expires: expires, Code: code, Online: s.moduleOnline(module),
+		ReplaceExisting: replaceExisting,
 	})
 }
 
@@ -493,9 +500,10 @@ func (s *Server) pairingCancel(w http.ResponseWriter, r *http.Request, requestID
 	defer tx.Rollback(ctx)
 	var module, state string
 	var expires time.Time
-	err = tx.QueryRow(ctx, `SELECT module_id,state,expires_at FROM pairing_requests
+	var replaceExisting bool
+	err = tx.QueryRow(ctx, `SELECT module_id,state,expires_at,replace_existing FROM pairing_requests
  WHERE id=$1 AND poll_hash=$2 FOR UPDATE`, requestID, wire.Hash(pollToken)).Scan(
-		&module, &state, &expires)
+		&module, &state, &expires, &replaceExisting)
 	if err != nil {
 		wire.Error(w, http.StatusUnauthorized, "unauthorized")
 		return
@@ -517,6 +525,7 @@ func (s *Server) pairingCancel(w http.ResponseWriter, r *http.Request, requestID
 	wire.JSON(w, status, pairingSnapshot{
 		RequestID: requestID, Module: module, State: state,
 		Expires: expires, Code: "", Online: s.moduleOnline(module),
+		ReplaceExisting: replaceExisting,
 	})
 }
 
@@ -541,7 +550,9 @@ func (s *Server) pairingLookup(w http.ResponseWriter, r *http.Request) {
  FROM pairing_requests p JOIN modules m ON m.id=p.module_id
  WHERE p.code_hash=$1 AND p.server_id=$2 AND p.state='awaiting_phone'
  AND p.expires_at>now() AND NOT m.revoked
- AND NOT EXISTS(SELECT 1 FROM clients c WHERE c.module_id=p.module_id AND NOT c.revoked)`,
+ AND (p.replace_existing OR NOT EXISTS(
+   SELECT 1 FROM clients c WHERE c.module_id=p.module_id AND NOT c.revoked
+ ))`,
 		s.pairingCodeHash(body.Code), s.cfg.Server).Scan(
 		&requestID, &module, &expires, &sealed)
 	if err != nil {
@@ -589,13 +600,14 @@ func (s *Server) pairingClaim(w http.ResponseWriter, r *http.Request) {
 	var expires time.Time
 	var sealed []byte
 	var claimID, clientID, refreshHash *string
-	err = tx.QueryRow(ctx, `SELECT p.id,p.module_id,p.state,p.expires_at,p.code_cipher,p.claim_id,c.id,c.refresh_hash
+	var replaceExisting bool
+	err = tx.QueryRow(ctx, `SELECT p.id,p.module_id,p.state,p.expires_at,p.code_cipher,p.claim_id,c.id,c.refresh_hash,p.replace_existing
  FROM pairing_requests p
  JOIN modules m ON m.id=p.module_id
  LEFT JOIN clients c ON c.id=p.client_id
  WHERE p.code_hash=$1 AND p.server_id=$2 AND NOT m.revoked
  FOR UPDATE OF p`, s.pairingCodeHash(body.Code), s.cfg.Server).Scan(
-		&requestID, &module, &state, &expires, &sealed, &claimID, &clientID, &refreshHash)
+		&requestID, &module, &state, &expires, &sealed, &claimID, &clientID, &refreshHash, &replaceExisting)
 	if err != nil {
 		wire.Error(w, http.StatusNotFound, "pairing_code_unavailable")
 		return
@@ -634,9 +646,15 @@ func (s *Server) pairingClaim(w http.ResponseWriter, r *http.Request) {
 		wire.Error(w, http.StatusServiceUnavailable, "database_unavailable")
 		return
 	}
-	if alreadyPaired {
+	if alreadyPaired && !replaceExisting {
 		wire.Error(w, http.StatusConflict, "module_already_paired")
 		return
+	}
+	if alreadyPaired {
+		if _, err = tx.Exec(ctx, "UPDATE clients SET revoked=true WHERE module_id=$1 AND NOT revoked", module); err != nil {
+			wire.Error(w, http.StatusServiceUnavailable, "database_unavailable")
+			return
+		}
 	}
 	user := ""
 	if err = tx.QueryRow(ctx, "SELECT user_id FROM modules WHERE id=$1 AND server_id=$2", module, s.cfg.Server).Scan(&user); err != nil {

@@ -57,6 +57,9 @@ h1:focus { outline: 0; }
 .device-summary strong { font-size: 18px; font-weight: 600; letter-spacing: .1px; overflow-wrap: anywhere; }
 .device-summary small { display: block; margin-top: 7px; font-size: 12px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
 .flow-note { font-size: 12px; line-height: 1.8; text-align: center; color: var(--muted); margin: 22px 8px 8px; }
+.reset-note { border-left: 3px solid #b25d00; background: #fff5e8; padding: 16px 18px; text-align: left; }
+.reset-note strong { display: block; color: #743d00; font-size: 14px; line-height: 1.5; }
+.reset-note p { margin: 5px 0 0; color: #75553a; font-size: 13px; line-height: 1.7; }
 .loading-line { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 25px 0 16px; }
 .loading-line::after { content: ''; display: block; width: 30%; height: 100%; border-radius: 4px; background: var(--accent); animation: loading 1.5s linear infinite; }
 @keyframes loading { from { transform: translateX(-100%); } to { transform: translateX(340%); } }

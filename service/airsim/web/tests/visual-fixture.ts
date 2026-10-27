@@ -12,6 +12,7 @@ const transport: DeviceTransport = {
   requestDevice: async () => device,
   inspect: async () => device,
   connect: async () => {
+    if (scenario === 'paired') throw new TransportFailure('paired');
     if (['awaiting_phone','elapsed'].includes(scenario)) return { state: 'awaiting_phone', code: '01234567', expiresAt };
     if (scenario === 'expired' || scenario === 'cancelled') return { state: scenario };
     if (scenario === 'unknown') throw new TransportFailure('disconnected');
@@ -29,7 +30,7 @@ const controller = new PairingController({
 });
 mountPairing(document.querySelector<HTMLElement>('#app')!, controller);
 await controller.start();
-if (['ready', 'waiting', 'unknown', 'failed', 'connected', 'offline', 'awaiting_phone', 'elapsed', 'expired', 'cancelled'].includes(scenario)) {
+if (['ready', 'waiting', 'unknown', 'failed', 'paired', 'connected', 'offline', 'awaiting_phone', 'elapsed', 'expired', 'cancelled'].includes(scenario)) {
   await controller.chooseDevice(device.id);
   if (scenario !== 'ready') void controller.connect();
 }

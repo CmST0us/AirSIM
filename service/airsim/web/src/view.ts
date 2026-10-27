@@ -15,6 +15,7 @@ const failures: Record<FailureCode, [string, string]> = {
   disconnected: ['设备连接已断开', '检查电源和数据线。连接原设备。'],
   unsupported: ['设备不受支持', '选择受支持的设备。'],
   not_ready: ['设备未准备', '完成设备准备后重试。'],
+  paired: ['设备已连接', '重置当前连接，或选择其他设备。'],
   failed: ['连接失败', '检查设备电源和连接。选择设备，重试连接。'],
   unknown: ['无法读取设备', '检查设备连接。选择设备重试。'],
 };
@@ -138,6 +139,21 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
         content.append(deviceCard(state.device));
         actions.append(button('连接设备', () => { void controller.connect(); }), button('选择其他设备', choose, true));
         break;
+      case 'paired': {
+        copy('此设备已连接', '如果你现在持有模块，可以重置当前连接。');
+        content.append(deviceCard(state.device));
+        const warning = element('div', 'reset-note');
+        warning.append(
+          element('strong', '', '重置会撤销旧手机'),
+          element('p', '', '拿到模块并连接电脑的人可以执行此操作。完成后，请用新手机输入新的连接码。'),
+        );
+        content.append(warning);
+        actions.append(
+          button('重置并继续', () => { void controller.replaceExisting(); }),
+          button('选择其他设备', choose, true),
+        );
+        break;
+      }
       case 'awaiting_phone': {
         copy('输入连接码', '在 AirSIM 中添加设备，输入连接码。');
         content.append(deviceCard(state.operation.device));

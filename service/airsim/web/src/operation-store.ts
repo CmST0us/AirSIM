@@ -17,7 +17,8 @@ export function sessionOperationStore(storage: Storage): OperationStore {
       const operation = value as Operation;
       if (typeof operation.id !== 'string' || !operation.id
         || !operation.device || ['id', 'name', 'shortId'].some(field =>
-          typeof operation.device[field as keyof typeof operation.device] !== 'string')) {
+          typeof operation.device[field as keyof typeof operation.device] !== 'string')
+        || (operation.replaceExisting !== undefined && typeof operation.replaceExisting !== 'boolean')) {
         throw new Error('Invalid operation');
       }
       return operation;

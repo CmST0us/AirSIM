@@ -62,6 +62,24 @@ describe('device flow', () => {
     expect(controller.state.kind).toBe('pending');
   });
 
+  it('detects an existing phone and writes a reset only after explicit confirmation', async () => {
+    const { controller, transport, store } = await setup();
+    await controller.requestDevice();
+    transport.connect.mockRejectedValueOnce(new TransportFailure('paired'));
+    await controller.connect();
+    expect(controller.state).toEqual({ kind: 'paired', device });
+    expect(store.load()).toBeUndefined();
+
+    const replacement = deferred<ConnectionResult>();
+    transport.connect.mockReturnValueOnce(replacement.promise);
+    const replacing = controller.replaceExisting();
+    expect(transport.connect).toHaveBeenCalledTimes(2);
+    expect(transport.connect.mock.calls[1][0]).toMatchObject({ device, replaceExisting: true });
+    expect(store.load()).toMatchObject({ device, replaceExisting: true });
+    replacement.resolve({ state: 'awaiting_phone', code: '01234567', expiresAt: new Date(Date.now() + 300000).toISOString() });
+    await replacing;
+  });
+
   it('a disconnect during write becomes unknown and recovery only queries the same operation', async () => {
     const { controller, transport } = await setup();
     await controller.requestDevice();

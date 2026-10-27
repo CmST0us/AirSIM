@@ -38,7 +38,7 @@ scripts/production-compose.sh run -T --interactive=false --rm admin --operation 
 
 `init` creates `identity/identity.json`, the five-year device CA, independent edge/media bearers and command-HMAC key. It refuses an existing identity directory. Read only the public `server_id` from `identity.json` into `AIRSIM_SERVER_ID`; never dump the directory. Initialization failure must be inspected rather than deleting existing identity material.
 
-Existing installations are backed up before migration. Schema 3 adds module-scoped pairing; schema 4 upgrades non-revoked paired clients to persistent device sessions; schema 5 removes their expiry and keeps only the newest active phone for each module. The migration revokes older duplicate phone clients during upgrade and clears access/refresh expiry for the retained phone. Do not start the new control binary against an unmigrated database; Compose gates control on the one-shot migrate service.
+Existing installations are backed up before migration. Schema 3 adds module-scoped pairing; schema 4 upgrades non-revoked paired clients to persistent device sessions; schema 5 removes their expiry and keeps only the newest active phone for each module; schema 6 stores module-holder reset intent so the new phone can replace the old one atomically at claim. The migration revokes older duplicate phone clients during upgrade and clears access/refresh expiry for the retained phone. Do not start the new control binary against an unmigrated database; Compose gates control on the one-shot migrate service.
 
 ```sh
 python3 scripts/render-production-edge.py

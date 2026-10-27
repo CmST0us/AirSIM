@@ -53,3 +53,22 @@ it('renders adapter text as text rather than markup', async () => {
   expect(root.querySelector('img')).toBeNull();
   expect(root.textContent).toContain('<img src=x onerror=alert(1)>');
 });
+
+it('explains that a connected device can be reset only with the module in hand', async () => {
+  const { root, controller, transport } = await setup();
+  await controller.requestDevice();
+  transport.connect.mockRejectedValueOnce(new TransportFailure('paired'));
+  await controller.connect();
+  expect(root.querySelector('h1')?.textContent).toBe('此设备已连接');
+  expect(root.textContent).toContain('重置会撤销旧手机');
+  expect(root.textContent).toContain('拿到模块并连接电脑的人');
+
+  const replacement = deferred<ConnectionResult>();
+  transport.connect.mockReturnValueOnce(replacement.promise);
+  const reset = [...root.querySelectorAll('button')].find(button => button.textContent === '重置并继续')!;
+  reset.click();
+  expect(transport.connect).toHaveBeenCalledTimes(2);
+  expect(transport.connect.mock.calls[1][0]).toMatchObject({ replaceExisting: true });
+  replacement.resolve({ state: 'pending' });
+  await replacement.promise;
+});

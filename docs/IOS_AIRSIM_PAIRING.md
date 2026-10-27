@@ -9,6 +9,7 @@
 - A pending claim, installation ID and refresh token are stored in the Keychain with `AfterFirstUnlockThisDeviceOnly`. A lost claim response retries the same operation instead of creating another device session.
 - A successful paired session keeps the installation ID and module scope stable. The revocable device credential and its access token have no service-side expiry, so a phone that opens AirSIM after a long absence connects without refreshing.
 - Each module accepts one active paired phone. A second phone receives `module_already_paired`; revoke the current client before pairing a replacement.
+- The person who physically holds the module has reset authority. The pairing page can create a replacement challenge after an explicit warning; the old phone remains active until the new phone claims the generated code, then both records are replaced atomically.
 - Legacy schema-1 temporary credentials retain their original expiry and manual-import behavior.
 
 ## Verification

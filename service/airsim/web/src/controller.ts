@@ -7,6 +7,7 @@ export type State =
   | { kind: 'mobile' | 'unsupported' | 'unavailable' | 'loading' }
   | { kind: 'devices' | 'selecting'; devices: readonly Device[] }
   | { kind: 'inspecting' | 'ready'; device: Device }
+  | { kind: 'paired'; device: Device }
   | { kind: 'connecting' | 'pending' | 'checking' | 'unknown' | 'cancelling' | 'expired' | 'cancelled'; operation: Operation }
   | { kind: 'awaiting_phone'; operation: Operation; code: string; expiresAt: string }
   | { kind: 'connected'; operation: Operation; online: boolean }
@@ -76,7 +77,7 @@ export class PairingController {
 
   /** Runs synchronously through the adapter picker call to preserve user activation. */
   async requestDevice() {
-    if (this.disposed || !['devices', 'failed', 'ready'].includes(this.state.kind)) return;
+    if (this.disposed || !['devices', 'failed', 'paired', 'ready'].includes(this.state.kind)) return;
     const transport = this.options.transport;
     if (!transport) return;
     const generation = ++this.generation;
@@ -125,9 +126,38 @@ export class PairingController {
     try {
       const result = await this.options.transport!.connect(operation, this.lifetime.signal);
       if (this.current(generation)) this.result(operation, result);
-    } catch {
+    } catch (error) {
       // The write may have reached the device. Only status can resolve it.
-      if (this.current(generation)) this.set({ kind: 'unknown', operation });
+      if (!this.current(generation)) return;
+      if (this.code(error) === 'paired') {
+        try { this.options.store?.clear(); } catch { /* Recovery is not needed before a device write. */ }
+        this.set({ kind: 'paired', device: operation.device });
+      } else {
+        this.set({ kind: 'unknown', operation });
+      }
+    }
+  }
+
+  async replaceExisting() {
+    if (this.disposed || this.state.kind !== 'paired') return;
+    const operation: Operation = {
+      id: this.operationId(), device: this.state.device, replaceExisting: true,
+    };
+    try { this.options.store?.save(operation); }
+    catch { this.set({ kind: 'unavailable' }); return; }
+    const generation = ++this.generation;
+    this.set({ kind: 'connecting', operation });
+    try {
+      const result = await this.options.transport!.connect(operation, this.lifetime.signal);
+      if (this.current(generation)) this.result(operation, result);
+    } catch (error) {
+      if (!this.current(generation)) return;
+      if (this.code(error) === 'paired') {
+        try { this.options.store?.clear(); } catch { /* Recovery is not needed before a device write. */ }
+        this.set({ kind: 'paired', device: operation.device });
+      } else {
+        this.set({ kind: 'unknown', operation });
+      }
     }
   }
 
