@@ -7,7 +7,8 @@
 - The normal user flow is “添加设备”, eight-digit code lookup, explicit device confirmation, then claim. The UI does not request a server address, JSON file or protocol version.
 - The old administrator import remains available under “其他方式” for existing temporary R4 deployments; a newly paired session does not depend on it.
 - A pending claim, installation ID and refresh token are stored in the Keychain with `AfterFirstUnlockThisDeviceOnly`. A lost claim response retries the same operation instead of creating another device session.
-- A successful paired session keeps the installation ID and module scope stable. The revocable device credential has no inactivity expiry; one-hour access tokens refresh when connecting, when less than five minutes remain, or after one failed 401.
+- A successful paired session keeps the installation ID and module scope stable. The revocable device credential and its access token have no service-side expiry, so a phone that opens AirSIM after a long absence connects without refreshing.
+- Each module accepts one active paired phone. A second phone receives `module_already_paired`; revoke the current client before pairing a replacement.
 - Legacy schema-1 temporary credentials retain their original expiry and manual-import behavior.
 
 ## Verification
@@ -18,7 +19,7 @@
 - The complete UI flow passes on a clean iPhone 18 Pro simulator: existing Settings → 添加设备 → eight-digit code → RM500 confirmation → claim → automatic-renewal status → module row. The simulator uses an in-process pairing store because its Keychain is unavailable.
 - Real Chrome WebUSB selected the attached RM500, verified its module identity and Ed25519 proof, and displayed the five-minute code. The web page reached “设备已连接”.
 - The production ECS records the paired client as `connected`, non-revoked, and scoped to the same module as the pairing request.
-- On 2026-10-27 the schema-4 persistent-session service was deployed to ECS; both non-revoked paired clients were migrated without an inactivity expiry, and the public Cloudflare Tunnel route returned healthy responses from both edge addresses. Deployment and rollback details are in [persistent-session deployment evidence](IOS_AIRSIM_PERSISTENT_SESSION_DEPLOYMENT.json).
+- The schema-5 service keeps the newest active phone for each module during migration, revokes older duplicate phone records and removes paired-session expiry. Deployment must record the retained and revoked client IDs before traffic resumes.
 
 ## Boundary
 

@@ -27,7 +27,7 @@ func (s *Server) client(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var user, client string
-	if s.db.QueryRow(ctx, "SELECT user_id,id FROM clients WHERE token_hash=$1 AND NOT revoked AND expires_at>now() AND (refresh_expires_at IS NULL OR refresh_expires_at>now())", wire.Hash(auth)).Scan(&user, &client) != nil {
+	if s.db.QueryRow(ctx, "SELECT c.user_id,c.id FROM clients c WHERE c.token_hash=$1 AND "+sessionAuthorization, wire.Hash(auth)).Scan(&user, &client) != nil {
 		wire.Error(w, 401, "unauthorized")
 		return
 	}

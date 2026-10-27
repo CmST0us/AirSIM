@@ -66,17 +66,38 @@ struct V2SessionResponse: Decodable {
     let module_id: String
     let client_installation_id: String
     let token: String
-    let expires_at: String
-    let refresh_expires_at: String
+    let expires_at: String?
+    let refresh_expires_at: String?
     let persistent_session: Bool?
+    init(from decoder: Decoder) throws {
+        let c = try decoder.v2Fields(
+            "schema_version api_origin media_origin server_id module_id client_installation_id token",
+            optional: "expires_at refresh_expires_at persistent_session"
+        )
+        schema_version = try c.get("schema_version")
+        api_origin = try c.get("api_origin")
+        media_origin = try c.get("media_origin")
+        server_id = try c.get("server_id")
+        module_id = try c.get("module_id")
+        client_installation_id = try c.get("client_installation_id")
+        token = try c.get("token")
+        expires_at = try c.nullable("expires_at")
+        refresh_expires_at = try c.nullable("refresh_expires_at")
+        persistent_session = try c.optional("persistent_session")
+    }
     func session(origin: String, server: String, module: String, installation: String, refreshToken: String, name: String, now: Date) throws -> V2PairedSession {
-        guard schema_version == 2, api_origin == origin, server_id == server, module_id == module,
+        guard [2, 3].contains(schema_version), api_origin == origin, server_id == server, module_id == module,
               client_installation_id == installation, V2Validation.matches(token, "^[0-9a-f]{64}$") else { throw V2Error.invalidIdentity }
         try V2Validation.uuid(server_id); try V2Validation.uuid(module_id); try V2Validation.uuid(client_installation_id)
-        let expiry = try V2Validation.date(expires_at), refreshExpiry = try V2Validation.date(refresh_expires_at)
-        guard (0...3900).contains(expiry.timeIntervalSince(now)), expiry > now else { throw V2Error.expired }
-        if persistent_session != true {
-            guard refreshExpiry > now, refreshExpiry.timeIntervalSince(now) <= 90 * 86400 + 300 else { throw V2Error.expired }
+        let expiry = try expires_at.map(V2Validation.date)
+        let refreshExpiry = try refresh_expires_at.map(V2Validation.date)
+        if schema_version == 3 {
+            guard persistent_session == true, expiry == nil, refreshExpiry == nil else { throw V2Error.invalidIdentity }
+        } else {
+            guard let expiry, let refreshExpiry, (0...3900).contains(expiry.timeIntervalSince(now)), expiry > now else { throw V2Error.expired }
+            if persistent_session != true {
+                guard refreshExpiry > now, refreshExpiry.timeIntervalSince(now) <= 90 * 86400 + 300 else { throw V2Error.expired }
+            }
         }
         let config = try V2Configuration(identity: V2Identity(apiOrigin: V2Validation.origin(api_origin), serverID: server_id, clientInstallationID: client_installation_id), mediaOrigin: V2Validation.origin(media_origin), expiresAt: expiry, moduleID: module_id, refreshExpiresAt: refreshExpiry, persistentSession: persistent_session ?? false)
         return V2PairedSession(configuration: config, token: token, refreshToken: refreshToken, name: name)

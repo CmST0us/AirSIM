@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -158,12 +160,18 @@ func TestPairingDatabaseScopeClaimRefreshAndRevoke(t *testing.T) {
 		t.Fatalf("claim: %d %s", status, response)
 	}
 	var session sessionResponse
-	if json.Unmarshal(response, &session) != nil || session.Client != client || session.Module != module || !session.PersistentSession {
+	if json.Unmarshal(response, &session) != nil || session.Client != client || session.Module != module || !session.PersistentSession || session.Schema != 3 || session.Expires != nil || session.RefreshExpires != nil {
 		t.Fatal("session response")
 	}
-	var refreshExpiresNull bool
-	if err = db.QueryRow(ctx, "SELECT refresh_expires_at IS NULL FROM clients WHERE id=$1", client).Scan(&refreshExpiresNull); err != nil || !refreshExpiresNull {
-		t.Fatal("paired session retained an inactivity expiry")
+	var noExpiry bool
+	if err = db.QueryRow(ctx, "SELECT expires_at IS NULL AND refresh_expires_at IS NULL FROM clients WHERE id=$1", client).Scan(&noExpiry); err != nil || !noExpiry {
+		t.Fatal("paired session retained an expiry")
+	}
+	_, err = db.Exec(ctx, `INSERT INTO clients(id,user_id,token_hash,expires_at,module_id,refresh_hash,refresh_expires_at,paired_at)
+ VALUES($1,$2,$3,NULL,$4,$5,NULL,now())`, wire.ID(), user, wire.Hash(wire.Token()), module, wire.Hash(wire.Token()))
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" || pgErr.ConstraintName != "clients_one_active_per_module" {
+		t.Fatalf("second active phone violation: %v", err)
 	}
 	status, response = pairingRequest(t, s.Handler(), "GET", "/v2/modules", nil, session.Token)
 	if status != http.StatusOK {
@@ -177,8 +185,9 @@ func TestPairingDatabaseScopeClaimRefreshAndRevoke(t *testing.T) {
 	if json.Unmarshal(response, &modules) != nil || len(modules.Modules) != 1 || modules.Modules[0].Module != module {
 		t.Fatal("module scope")
 	}
-	status, _ = pairingRequest(t, s.Handler(), "POST", "/v2/pairing/claim", claimBody, "")
-	if status != http.StatusOK {
+	status, response = pairingRequest(t, s.Handler(), "POST", "/v2/pairing/claim", claimBody, "")
+	var retrySession sessionResponse
+	if status != http.StatusOK || json.Unmarshal(response, &retrySession) != nil || retrySession.Schema != 3 || retrySession.Expires != nil {
 		t.Fatal("idempotent claim")
 	}
 	otherClaim := map[string]string{
@@ -188,12 +197,19 @@ func TestPairingDatabaseScopeClaimRefreshAndRevoke(t *testing.T) {
 	if status != http.StatusConflict {
 		t.Fatal("second claimant")
 	}
+	secondChallenge := map[string]string{
+		"request_id": wire.ID(), "module_id": module, "poll_token": wire.Token(),
+	}
+	status, _ = pairingRequest(t, s.Handler(), "POST", "/v2/pairing/challenges", secondChallenge, "")
+	if status != http.StatusConflict {
+		t.Fatal("paired module accepted another phone")
+	}
 	if _, err = db.Exec(ctx, "UPDATE clients SET expires_at=now()-interval '1 hour' WHERE id=$1", client); err != nil {
 		t.Fatal(err)
 	}
-	status, _ = pairingRequest(t, s.Handler(), "GET", "/v2/modules", nil, session.Token)
-	if status != http.StatusUnauthorized {
-		t.Fatal("expired access token remained valid")
+	status, _ = pairingRequest(t, s.Handler(), "GET", "/v2/modules", nil, retrySession.Token)
+	if status != http.StatusOK {
+		t.Fatal("paired access token depended on expiry")
 	}
 	status, response = pairingRequest(t, s.Handler(), "POST", "/v2/client-sessions/refresh", map[string]string{
 		"client_installation_id": client, "refresh_token": refreshToken,
@@ -202,10 +218,13 @@ func TestPairingDatabaseScopeClaimRefreshAndRevoke(t *testing.T) {
 		t.Fatalf("refresh: %d %s", status, response)
 	}
 	var refreshed sessionResponse
-	if json.Unmarshal(response, &refreshed) != nil || refreshed.Token == session.Token || !refreshed.PersistentSession {
+	if json.Unmarshal(response, &refreshed) != nil || refreshed.Schema != 2 || refreshed.Token == session.Token || !refreshed.PersistentSession || refreshed.Expires == nil || refreshed.RefreshExpires == nil {
 		t.Fatal("refresh token rotation")
 	}
-	status, _ = pairingRequest(t, s.Handler(), "GET", "/v2/modules", nil, session.Token)
+	if err = db.QueryRow(ctx, "SELECT expires_at IS NULL AND refresh_expires_at IS NULL FROM clients WHERE id=$1", client).Scan(&noExpiry); err != nil || !noExpiry {
+		t.Fatal("refresh introduced a server-side expiry")
+	}
+	status, _ = pairingRequest(t, s.Handler(), "GET", "/v2/modules", nil, retrySession.Token)
 	if status != http.StatusUnauthorized {
 		t.Fatal("old access token remained valid")
 	}

@@ -248,6 +248,17 @@ func (s *Server) pairingChallenge(w http.ResponseWriter, r *http.Request) {
 		wire.Error(w, http.StatusServiceUnavailable, "database_unavailable")
 		return
 	}
+	var alreadyPaired bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(
+ SELECT 1 FROM clients WHERE module_id=$1 AND NOT revoked
+)`, body.Module).Scan(&alreadyPaired); err != nil {
+		wire.Error(w, http.StatusServiceUnavailable, "database_unavailable")
+		return
+	}
+	if alreadyPaired {
+		wire.Error(w, http.StatusConflict, "module_already_paired")
+		return
+	}
 	var modulePending, globalPending int
 	if err = tx.QueryRow(ctx, `SELECT
  count(*) FILTER (WHERE module_id=$1),
@@ -529,7 +540,9 @@ func (s *Server) pairingLookup(w http.ResponseWriter, r *http.Request) {
 	err := s.db.QueryRow(ctx, `SELECT p.id,p.module_id,p.expires_at,p.code_cipher
  FROM pairing_requests p JOIN modules m ON m.id=p.module_id
  WHERE p.code_hash=$1 AND p.server_id=$2 AND p.state='awaiting_phone'
- AND p.expires_at>now() AND NOT m.revoked`, s.pairingCodeHash(body.Code), s.cfg.Server).Scan(
+ AND p.expires_at>now() AND NOT m.revoked
+ AND NOT EXISTS(SELECT 1 FROM clients c WHERE c.module_id=p.module_id AND NOT c.revoked)`,
+		s.pairingCodeHash(body.Code), s.cfg.Server).Scan(
 		&requestID, &module, &expires, &sealed)
 	if err != nil {
 		wire.Error(w, http.StatusNotFound, "pairing_code_unavailable")
@@ -610,14 +623,29 @@ func (s *Server) pairingClaim(w http.ResponseWriter, r *http.Request) {
 		wire.Error(w, http.StatusGone, "pairing_code_expired")
 		return
 	}
+	if _, err = tx.Exec(ctx, "SELECT id FROM modules WHERE id=$1 FOR UPDATE", module); err != nil {
+		wire.Error(w, http.StatusServiceUnavailable, "database_unavailable")
+		return
+	}
+	var alreadyPaired bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(
+ SELECT 1 FROM clients WHERE module_id=$1 AND NOT revoked
+)`, module).Scan(&alreadyPaired); err != nil {
+		wire.Error(w, http.StatusServiceUnavailable, "database_unavailable")
+		return
+	}
+	if alreadyPaired {
+		wire.Error(w, http.StatusConflict, "module_already_paired")
+		return
+	}
 	user := ""
 	if err = tx.QueryRow(ctx, "SELECT user_id FROM modules WHERE id=$1 AND server_id=$2", module, s.cfg.Server).Scan(&user); err != nil {
 		wire.Error(w, http.StatusNotFound, "module_unavailable")
 		return
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO clients
- (id,user_id,token_hash,expires_at,module_id,refresh_hash,refresh_expires_at)
- VALUES($1,$2,$3,now(),$4,$5,NULL)`,
+ (id,user_id,token_hash,expires_at,module_id,refresh_hash,refresh_expires_at,paired_at)
+ VALUES($1,$2,$3,NULL,$4,$5,NULL,now())`,
 		body.Client, user, wire.Token(), module, wire.Hash(body.RefreshToken)); err != nil {
 		wire.Error(w, http.StatusConflict, "pairing_claimed")
 		return

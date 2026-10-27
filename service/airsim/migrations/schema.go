@@ -13,3 +13,6 @@ var Pairing string
 
 //go:embed 004_persistent_client_sessions.sql
 var PersistentClientSessions string
+
+//go:embed 005_permanent_module_sessions.sql
+var PermanentModuleSessions string

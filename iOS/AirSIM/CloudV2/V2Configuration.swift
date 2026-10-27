@@ -13,7 +13,7 @@ struct V2Identity: Codable, Equatable, Hashable {
 struct V2Configuration: Codable, Equatable {
     let identity: V2Identity
     let mediaOrigin: String
-    let expiresAt: Date
+    let expiresAt: Date?
     var moduleID: String? = nil
     var refreshExpiresAt: Date? = nil
     var persistentSession: Bool? = nil
@@ -21,7 +21,10 @@ struct V2Configuration: Codable, Equatable {
         persistentSession == true || moduleID != nil || (refreshExpiresAt ?? .distantPast) > date
     }
     func canConnect(at date: Date) -> Bool {
-        expiresAt > date || canRenew(at: date)
+        accessIsValid(at: date) || canRenew(at: date)
+    }
+    func accessIsValid(at date: Date) -> Bool {
+        persistentSession == true || (expiresAt.map { $0 > date } ?? false)
     }
 }
 struct V2ConfigurationImport: Decodable {
@@ -39,7 +42,8 @@ struct V2ConfigurationImport: Decodable {
     }
     static func parse(_ data: Data, now: Date) throws -> Self {
         let value = try V2JSON.decode(Self.self, from: data, limit: 16 * 1024)
-        let remaining = value.configuration.expiresAt.timeIntervalSince(now)
+        guard let expiry = value.configuration.expiresAt else { throw V2Error.expired }
+        let remaining = expiry.timeIntervalSince(now)
         guard remaining > 0, remaining <= 65 * 60 else { throw V2Error.expired }
         return value
     }

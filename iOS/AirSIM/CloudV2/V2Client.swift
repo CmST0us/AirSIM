@@ -85,14 +85,17 @@ final class V2Client {
     private func request(path: String, method: String, body: Data?, limit: Int, authorized: Bool = true, stamp: V2SessionStamp) async throws -> V2HTTPResponse {
         guard gate.accepts(stamp), configuration != nil else { throw V2Error.stale }
         if authorized { try await prepareAccess(stamp) }
-        guard let config = configuration, config.expiresAt > now() else { throw V2Error.expired }
+        guard let config = configuration, config.accessIsValid(at: now()) else { throw V2Error.expired }
         guard let url = URL(string: config.identity.apiOrigin + path) else { throw V2Error.invalidValue }
         let flight = "\(stamp.generation):\(method):\(path)"
         guard inFlight.insert(flight).inserted else { throw V2Error.busy }
         defer { inFlight.remove(flight) }
         for attempt in 0..<2 {
             guard gate.accepts(stamp), let current = configuration else { throw V2Error.stale }
-            guard current.expiresAt > now() else { throw V2Error.expired }
+            if !current.accessIsValid(at: now()), attempt == 0, authorized {
+                try await refreshAccess(stamp)
+                continue
+            }
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
             request.httpMethod = method; request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -125,7 +128,12 @@ final class V2Client {
     }
     private func prepareAccess(_ stamp: V2SessionStamp) async throws {
         guard gate.accepts(stamp), let config = configuration else { throw V2Error.stale }
-        let remaining = config.expiresAt.timeIntervalSince(now())
+        if config.persistentSession == true { return }
+        guard let expiry = config.expiresAt else {
+            try await refreshAccess(stamp)
+            return
+        }
+        let remaining = expiry.timeIntervalSince(now())
         guard remaining <= 5 * 60 else { return }
         guard config.canRenew(at: now()) else {
             if remaining > 0 { return }
@@ -150,7 +158,7 @@ final class V2Client {
         do {
             let renewed = try await task.value
             guard gate.accepts(stamp), renewed.identity == current.identity,
-                  renewed.moduleID == current.moduleID, renewed.expiresAt > now(),
+                  renewed.moduleID == current.moduleID, renewed.canConnect(at: now()),
                   renewed.canRenew(at: now()) else {
                 throw V2Error.invalidIdentity
             }

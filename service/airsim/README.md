@@ -1,8 +1,8 @@
 # AirSIM v2 Go Relay
 
-Push notifications add installation-scoped APNs registration and incoming-call/SMS notifications to the R4 control and media relay. Public contracts are [`R4`](../../protocol/v2/R4.md) and the [`CallKit contract`](../../protocol/v2/CALLKIT.md). Discovery advertises `airsim-v2-callkit`; `apns` is enabled only with a complete provider configuration. Interactive login, Watch v2, OTA and v1 compatibility are not implemented; administrator clients remain temporary, while paired clients have renewable sessions. Only the main controller deploys to ECS and performs physical-module tests.
+Push notifications add installation-scoped APNs registration and incoming-call/SMS notifications to the R4 control and media relay. Public contracts are [`R4`](../../protocol/v2/R4.md) and the [`CallKit contract`](../../protocol/v2/CALLKIT.md). Discovery advertises `airsim-v2-callkit`; `apns` is enabled only with a complete provider configuration. Interactive login, Watch v2, OTA and v1 compatibility are not implemented; administrator clients remain temporary, while paired clients are revocable permanent device sessions. Only the main controller deploys to ECS and performs physical-module tests.
 
-Device pairing adds the web flow and renewable client session contract in [`PAIRING.md`](../../protocol/v2/PAIRING.md). New paired clients are scoped to one module; administrator-issued clients retain the existing owner-wide R4 behavior. The browser build is served from the same HTTPS API origin through the Compose edge.
+Device pairing adds the web flow and permanent client session contract in [`PAIRING.md`](../../protocol/v2/PAIRING.md). New paired clients are scoped to one module, and a module accepts only one active paired phone until that client is revoked. Administrator-issued clients retain the existing owner-wide R4 behavior. The browser build is served from the same HTTPS API origin through the Compose edge.
 
 - `cmd/airsim-server`: PostgreSQL-backed control, device authentication, directed commands, ownership and media orchestration.
 - `cmd/airsim-media`: independent ephemeral PCM relay; no database or CA private key.
@@ -28,7 +28,7 @@ GO=/absolute/path/to/go \
 AIRSIM_INTEGRATION_DIR=/absolute/new/external/test-directory go test -race -count=1 -v ./integration
 ```
 
-The stack script only uses project `airsim-r4-test` and a loopback high port. It does not install its CA into system trust. It fails rather than overwriting an existing fixture directory. Runtime files, tokens and private keys are never printed.
+The stack script only uses project `airsim-r4-test` and a loopback high port. It does not install its CA into system trust. It fails rather than overwriting an existing fixture directory. Runtime files, tokens and private keys are never printed. Database migration schema 5 keeps the newest active phone per module, revokes older duplicate phone records and clears paired-session expiry fields.
 
 Deployment prerequisites, administrator operations and rollback are in [Compose operations](deploy/compose/README.md). Current executed checks and remaining production boundaries are in [R4 evidence](R4_TESTING.md).
 

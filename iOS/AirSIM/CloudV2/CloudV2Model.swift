@@ -191,7 +191,7 @@ final class CloudV2Model: ObservableObject {
     }
     var messageListStatus: String? {
         guard let configuration else { return "尚未配置短信连接" }
-        if configuration.expiresAt <= now() {
+        if !configuration.accessIsValid(at: now()) {
             return configuration.canRenew(at: now()) ? "设备连接正在续期，请稍候" : "连接凭据已过期，请重新添加设备"
         }
         if !connected { return "连接未建立，显示本机短信副本" }
@@ -472,7 +472,7 @@ final class CloudV2Model: ObservableObject {
     func sendSMS() async -> Bool { await perform(action: "sms.send", args: ["number": smsNumber, "text": smsText]) }
     var userStatus: String {
         if configuration == nil { return "尚未连接设备，请在设置中添加设备。" }
-        if let configuration, configuration.expiresAt <= now() { return configuration.canRenew(at: now()) ? "设备连接正在续期，请稍候。" : "连接凭据已过期，请重新添加设备。" }
+        if let configuration, !configuration.accessIsValid(at: now()) { return configuration.canRenew(at: now()) ? "设备连接正在续期，请稍候。" : "连接凭据已过期，请重新添加设备。" }
         if hasUnresolvedCommand { return "操作结果待核对，请查询原操作，勿重复发送。" }
         if !connected { return "连接未建立，请在设置中重连或重新导入配置。" }
         if selectedModuleID == nil { return "请选择要使用的模块。" }

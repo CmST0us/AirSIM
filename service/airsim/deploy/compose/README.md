@@ -38,7 +38,7 @@ scripts/production-compose.sh run -T --interactive=false --rm admin --operation 
 
 `init` creates `identity/identity.json`, the five-year device CA, independent edge/media bearers and command-HMAC key. It refuses an existing identity directory. Read only the public `server_id` from `identity.json` into `AIRSIM_SERVER_ID`; never dump the directory. Initialization failure must be inspected rather than deleting existing identity material.
 
-Existing installations are backed up before migration. Schema 3 adds module-scoped pairing; schema 4 upgrades non-revoked paired clients to persistent device sessions and retains the one-hour access-token boundary. Do not start the new control binary against an unmigrated database; Compose gates control on the one-shot migrate service.
+Existing installations are backed up before migration. Schema 3 adds module-scoped pairing; schema 4 upgrades non-revoked paired clients to persistent device sessions; schema 5 removes their expiry and keeps only the newest active phone for each module. The migration revokes older duplicate phone clients during upgrade and clears access/refresh expiry for the retained phone. Do not start the new control binary against an unmigrated database; Compose gates control on the one-shot migrate service.
 
 ```sh
 python3 scripts/render-production-edge.py
@@ -60,7 +60,7 @@ scripts/production-compose.sh run -T --interactive=false --rm admin --operation 
 scripts/production-compose.sh run -T --interactive=false --rm admin --operation revoke-client --client-id '<installation UUID>' </dev/null
 ```
 
-The output file is 0600 and must not already exist. Administrator clients remain temporary compatibility clients: validity defaults to 60 minutes and `--client-ttl` accepts 1h through 720h (30 days). They have no refresh. User devices added through the web pairing flow receive one-hour access tokens backed by a revocable persistent device credential. The App renews the access token when reconnecting, shortly before expiry, or after an authentication failure; refresh does not change the installation or module scope.
+The output file is 0600 and must not already exist. Administrator clients remain temporary compatibility clients: validity defaults to 60 minutes and `--client-ttl` accepts 1h through 720h (30 days). They have no refresh. User devices added through the web pairing flow receive a revocable permanent access credential with no service-side expiry. Only an explicit client or module revocation ends that authorization. The refresh route remains available for schema 2 App builds, but new persistent sessions do not depend on its compatibility timestamps.
 
 The controller calls the Agent's local Unix `cloud/prepare` endpoint using the frozen request. Preserve the exact request and response as 0600 files under the protected directory. Do not copy the device private key; the response contains public key/CSR/proof only.
 
