@@ -204,3 +204,78 @@ final class ActiveCallViewTests: UITestCase {
         XCTAssertTrue(hangup.isHittable)
     }
 }
+
+final class RealRuntimeDiagnosticTests: XCTestCase {
+    func testReconnectRealRuntimeAndDumpUI() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+
+        let settings = app.tabBars.buttons["设置"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.tap()
+
+        let reconnect = app.buttons["重新连接"]
+        XCTAssertTrue(reconnect.waitForExistence(timeout: 5))
+        reconnect.tap()
+        sleep(8)
+
+        let dial = app.tabBars.buttons["拨号"]
+        XCTAssertTrue(dial.waitForExistence(timeout: 10))
+        dial.tap()
+        sleep(1)
+        print("AIRSIM_REAL_UI_BEGIN\n\(app.debugDescription)\nAIRSIM_REAL_UI_END")
+    }
+
+    func testRealV2Dial() throws {
+        guard let number = ProcessInfo.processInfo.environment["AIRSIM_DIAGNOSTIC_NUMBER"], !number.isEmpty else {
+            throw XCTSkip("AIRSIM_DIAGNOSTIC_NUMBER is required")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+
+        app.tabBars.buttons["设置"].tap()
+        let reconnect = app.buttons["重新连接"]
+        if reconnect.exists { reconnect.tap(); sleep(6) }
+        let module = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "module-")).firstMatch
+        for _ in 0..<5 where !module.exists { app.swipeUp() }
+        XCTAssertTrue(module.waitForExistence(timeout: 10))
+        if !app.buttons.matching(NSPredicate(format: "identifier == %@", module.identifier)).firstMatch.isSelected {
+            module.tap()
+            sleep(2)
+        }
+
+        for _ in 0..<5 { app.swipeDown() }
+        app.tabBars.buttons["拨号"].tap()
+        let labels = [
+            "0": "0 +", "1": "1", "2": "2 ABC", "3": "3 DEF", "4": "4 GHI",
+            "5": "5 JKL", "6": "6 MNO", "7": "7 PQRS", "8": "8 TUV", "9": "9 WXYZ"
+        ]
+        for digit in number {
+            let key = app.buttons[labels[String(digit)]!]
+            XCTAssertTrue(key.waitForExistence(timeout: 3))
+            key.tap()
+        }
+        var call: XCUIElement?
+        for _ in 0..<30 {
+            let candidate = app.buttons.matching(identifier: "phone.fill").firstMatch
+            if candidate.exists, candidate.isEnabled {
+                call = candidate
+                break
+            }
+            sleep(1)
+        }
+        guard let call else {
+            XCTFail("real v2 call did not become enabled")
+            return
+        }
+        call.tap()
+        print("AIRSIM_REAL_CALL_STARTED")
+        let hangup = app.buttons["挂断"]
+        XCTAssertTrue(hangup.waitForExistence(timeout: 12))
+        sleep(5)
+        hangup.tap()
+        XCTAssertTrue(app.buttons.matching(identifier: "phone.fill").firstMatch.waitForExistence(timeout: 12))
+    }
+}

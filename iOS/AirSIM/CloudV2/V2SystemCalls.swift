@@ -83,8 +83,17 @@ final class V2SystemCallController: CallKitActionHandling {
     private func clearContext() { audioGeneration &+= 1; verifiedBinding = nil; controlledCall = nil; incomingID = nil; association = nil; endingUUID = nil }
     func callKitPrepareAudioSession() throws {
         let audio = AVAudioSession.sharedInstance()
+#if DEBUG
+        NSLog("[AirSIM V2] preparing AVAudioSession category")
+#endif
         try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [])
+#if DEBUG
+        NSLog("[AirSIM V2] AVAudioSession category prepared")
+#endif
         try audio.setPreferredIOBufferDuration(0.02)
+#if DEBUG
+        NSLog("[AirSIM V2] AVAudioSession buffer prepared")
+#endif
     }
     private func isCurrent(_ uuid: UUID, binding: V2ControlBinding) -> Bool {
         calls.handler === self && calls.currentSystemCallUUID == uuid && authorizedBinding == binding

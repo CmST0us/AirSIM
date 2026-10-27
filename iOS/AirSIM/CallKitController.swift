@@ -287,6 +287,7 @@ final class CallKitController: NSObject {
         guard let uuid = currentUUID, systemCallReported || currentDirection == "outgoing" else {
             throw CallKitBridgeError.noSystemCall
         }
+        debugLog("requesting end action from app")
         try await requestSystemAction(CXEndCallAction(call: uuid))
     }
 
@@ -501,7 +502,7 @@ final class CallKitController: NSObject {
     /// 真机联调只记录状态与系统错误码，避免把电话号码写入设备日志。
     private func debugLog(_ message: String) {
 #if DEBUG
-        print("[AirSIM CallKit] \(message)")
+        NSLog("[AirSIM CallKit] %@", message)
 #endif
     }
 
@@ -570,6 +571,7 @@ final class CallKitController: NSObject {
         outgoingStartInFlight = true
         defer { outgoingStartInFlight = false }
         do {
+            debugLog("starting outgoing transaction")
             guard let handler else { throw CallKitBridgeError.handlerUnavailable }
             // 除了 App 内提交的事务，系统也可能通过 Siri/联系人把呼出动作
             // 直接交给 provider；此时以系统 UUID 建立同一套状态。
@@ -585,15 +587,25 @@ final class CallKitController: NSObject {
             dialedOutgoingUUIDs.insert(action.callUUID)
             trimOutgoingDeduplicationState(keeping: action)
             let backendError = try await CallKitActionCoordinator.perform(
-                prepare: { try handler.callKitPrepareAudioSession() },
+                prepare: {
+                    self.debugLog("preparing outgoing audio session")
+                    try handler.callKitPrepareAudioSession()
+                    self.debugLog("outgoing audio session prepared")
+                },
                 fulfill: {
+                    self.debugLog("fulfilling outgoing start action")
                     self.provider.reportOutgoingCall(with: action.callUUID, startedConnectingAt: Date())
                     self.systemCallReported = true
                     // 先让 CallKit 建立系统通话和音频会话；云端拨号轮询最长 25 秒，
                     // 不能占住 CXStartCallAction，否则系统 UI 和 didActivate 都会滞后。
                     action.fulfill()
+                    self.debugLog("outgoing start action fulfilled")
                 },
-                backend: { try await handler.callKitStart(number: action.handle.value) }
+                backend: {
+                    self.debugLog("starting backend dial")
+                    try await handler.callKitStart(number: action.handle.value)
+                    self.debugLog("backend dial accepted")
+                }
             )
             if let backendError, currentUUID == action.callUUID, self.handler === handler {
                 finishCurrentCall(previous: nil, reason: .failed)
@@ -604,6 +616,8 @@ final class CallKitController: NSObject {
                 provider.reportOutgoingCall(with: action.callUUID, connectedAt: Date())
             }
         } catch {
+            let nsError = error as NSError
+            debugLog("outgoing start failed domain=\(nsError.domain) code=\(nsError.code)")
             if currentUUID == action.callUUID { resetCurrentCall() }
             fail(action, error: error)
         }
@@ -616,6 +630,7 @@ final class CallKitController: NSObject {
     }
 
     private func performEnd(_ action: CXEndCallAction) async {
+        debugLog("performing outgoing/system end action")
         let currentHandler = handler
         // reportCall(ended:) may be followed by a delayed CXEndCallAction after
         // the authoritative Agent state already cleared this UUID. That action

@@ -1239,9 +1239,14 @@ final class AppModel: ObservableObject {
 
     func dial() async {
         if let cloudV2 {
+#if targetEnvironment(simulator)
+            cloudV2.number = numberInput
+            await cloudV2.dial()
+#else
             if cloudV2.systemCalls != nil {
                 do { try await callKit.startOutgoingCall(number: numberInput) } catch { errorMessage = "无法发起系统通话，请检查权限与连接。" }
             } else { cloudV2.number = numberInput; await cloudV2.dial() }
+#endif
             projectCloudState(); return
         }
         let number = Self.validatedNumber(numberInput)

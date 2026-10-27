@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"github.com/coder/websocket"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -90,7 +91,7 @@ func (a *Agent) status(connected bool, epoch, code string) {
 func (a *Agent) Run(ctx context.Context) {
 	a.owners = map[string]owner{}
 	a.bindings = map[string]string{}
-	delays := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 30 * time.Second}
+	delays := []time.Duration{250 * time.Millisecond, 500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second, 5 * time.Second}
 	attempt := 0
 	for ctx.Err() == nil {
 		a.P.mu.Lock()
@@ -106,12 +107,14 @@ func (a *Agent) Run(ctx context.Context) {
 		}
 		code := a.connect(ctx, cfg)
 		a.status(false, "", code)
+		log.Printf("cloud connection ended: %s", code)
 		var j [1]byte
 		_, _ = rand.Read(j[:])
 		wait := delays[attempt] + time.Duration(j[0])*delays[attempt]/1275
 		if attempt < len(delays)-1 {
 			attempt++
 		}
+		log.Printf("cloud reconnect scheduled in %s", wait)
 		t := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -259,6 +262,7 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 	c.epoch = frame.Epoch
 	c.seq = 1
 	a.status(true, c.epoch, "")
+	log.Printf("cloud connected")
 	c.wg.Add(1)
 	go c.writer()
 	frames := make(chan envelope, 1)

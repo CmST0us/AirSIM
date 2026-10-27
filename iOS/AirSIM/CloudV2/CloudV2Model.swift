@@ -295,10 +295,12 @@ final class CloudV2Model: ObservableObject {
                 let result = try await self.client.connect(configuration)
                 guard self.connectionEpoch == stamp, self.foreground, !Task.isCancelled else { return }
                 self.discovery = result; self.connected = true; self.syncStatus = nil
+                self.debugLog("connected profile=\(result.profile)")
                 self.startPolling()
             } catch {
                 guard self.connectionEpoch == stamp, !Task.isCancelled else { return }
                 self.connected = false; self.syncStatus = "v2 连接未建立：\((error as? V2Error)?.rawValue ?? "request_failed")。不会回退 v1。"
+                self.debugLog("connect failed error=\(error)")
             }
         }
         connectionTask = task
@@ -372,12 +374,14 @@ final class CloudV2Model: ObservableObject {
                             let directory = try await self.client.modules()
                             guard self.acceptsPoll(stamp, module: module) else { return }
                             self.modules = directory.modules
+                            self.debugLog("directory count=\(directory.modules.count) online=\(directory.modules.filter(\.online).count) selected=\(directory.modules.contains { $0.module_id == module })")
                             self.updateMediaEligibility()
                         case .snapshot:
                             if let module {
                                 let snapshot = try await self.client.snapshot(moduleID: module)
                                 guard self.acceptsPoll(stamp, module: module) else { return }
                                 self.snapshot = snapshot
+                                self.debugLog("snapshot online=\(snapshot.online) body=\(snapshot.snapshot != nil) epoch=\(!snapshot.connection_epoch.isEmpty) control=\(snapshot.snapshot?.control.ready == true) telephony=\(snapshot.snapshot?.control.telephony_ready == true) audio=\(snapshot.snapshot?.audio.available == true)")
                                 try self.consumeSnapshot(snapshot)
                                 self.updateMediaEligibility()
                                 self.systemCalls?.observeSnapshot()
@@ -406,6 +410,7 @@ final class CloudV2Model: ObservableObject {
                         guard self.acceptsPoll(stamp, module: module) else { return }
                         self.pollFailures.insert(lane)
                         self.updateMediaEligibility()
+                        self.debugLog("poll \(lane.title) failed error=\(error)")
                         delay = backoff.failed()
                     }
                     if self.systemCalls?.hasSystemCall == true, let age = self.snapshot?.snapshot.map({ self.now().timeIntervalSince($0.observedAt) }), age > 8 { self.systemCalls?.endSystemCall() }
@@ -646,5 +651,11 @@ final class CloudV2Model: ObservableObject {
         case let .rejected(code): commandStatus = "请求被拒绝（HTTP \(code)）"
         case let .receipt(_, state): commandStatus = "设备收据：\(state)（不代表接通或送达）"
         }
+    }
+
+    private func debugLog(_ message: String) {
+#if DEBUG
+        NSLog("[AirSIM V2] %@", message)
+#endif
     }
 }
