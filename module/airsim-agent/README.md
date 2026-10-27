@@ -1,6 +1,6 @@
 # airsim-agent v2 — R3 当前16kHz语音时钟本地验收通过
 
-本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.pairing`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent、RM500 CLI 或云端服务。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false、无开机自启；详细边界见 [R2 记录](R2_TESTING.md)。
+本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.pairing`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent、RM500 CLI 或云端服务。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false；详细边界见 [R2 记录](R2_TESTING.md)。RM500U 的 headless 启动与恢复见[开机启动说明](RM500U_AUTOSTART.md)。
 
 云端连接将 discovery 与设备 mTLS 控制握手分别限制为 30 秒和 15 秒。跨网 Cloudflare 路径可能明显慢于局域网测试，不能沿用原 5 秒总预算；外层仍按有界退避重连。
 
@@ -53,7 +53,10 @@ R2 增加 GET `/v2/local/control`、`/v2/local/calls`、`/v2/local/messages`、`
 
 设备配对增加 GET `/v2/local/pairing` 和 POST `/v2/local/pairing/authorize`。前者只返回模块身份、服务绑定和连接状态；后者对网页生成的五分钟请求签名。两者仍只存在于 0600 Unix socket；调用方必须已经能访问该 socket。证明不替代手机确认，也不创建 App token。
 
-这不是冻结的云端 v2 协议。无 TCP 监听、自动启动、Relay/TLS、更新或固件修改。R3 音频仅在授权本地媒体会话及通话 lease 内运行。消息正文仅保留进程内存；命令记录最多1024条且不自动淘汰。
+这不是冻结的云端 v2 协议。无 TCP 监听、Relay/TLS、更新或固件修改。RM500U 通过
+BusyBox init 重启已退出进程，并由本机启动器等待串口和内核随机池就绪；网页通过
+WebUSB 访问 0600 的 Unix socket。R3 音频仅在授权本地媒体会话及通话 lease 内运行。
+消息正文仅保留进程内存；命令记录最多1024条且不自动淘汰。
 
 ## 停止与故障边界
 

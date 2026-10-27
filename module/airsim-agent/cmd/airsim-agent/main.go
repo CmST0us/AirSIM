@@ -12,6 +12,7 @@ import (
 	"airsim.local/airsim-agent/internal/state"
 	"airsim.local/airsim-agent/internal/transport/local"
 	"context"
+	"crypto/rand"
 	"errors"
 	"flag"
 	"fmt"
@@ -196,7 +197,16 @@ func main() {
 	runDir := flag.String("runtime-dir", "/run/airsim-v2", "runtime directory")
 	audioHelper := flag.String("audio-helper", "", "explicit native audio helper executable")
 	cloudConfig := flag.String("cloud-config", "", "explicit secure cloud configuration file")
+	waitRandom := flag.Bool("wait-random", false, "wait until the kernel random source is initialized")
 	flag.Parse()
+	if *waitRandom {
+		var probe [32]byte
+		if _, e := rand.Read(probe[:]); e != nil {
+			fmt.Fprintln(os.Stderr, "airsim-agent:", e)
+			os.Exit(1)
+		}
+		return
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	go func() {

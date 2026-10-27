@@ -4,6 +4,8 @@
 
 当前应用发布是 [`v0.9.6`](https://github.com/kai-wu-cortex/AirSIM/releases/tag/v0.9.6)，本指南安装的 AVF Agent 是独立版本 [`v0.4.6`](https://github.com/kai-wu-cortex/AirSIM/releases/tag/v0.4.6)（Debian 包 `0.4.6-1`）。两条版本线用途不同，不应相互替换。
 
+RM500U 嵌入式 v2 使用 `/etc/inittab` 和 `/mnt/data/airsim-v2/run-agent.sh`，不是本指南中的 AVF systemd 与 Debian 包。其安装、WebUSB 配对和回滚步骤见 [RM500U Agent 开机启动](../module/airsim-agent/RM500U_AUTOSTART.md)。
+
 若 AVF 内已有 DJOneHub，保留其服务和 `7575` 端口。AirSIM 使用独立的 `8575` / `8576`，健康响应还应包含 `"product":"airsim"`；`7575` 返回成功不能当成 AirSIM 已安装。首次安装固定到 v0.4.6。已有 `0.4.4-1` 的设备须先按下文执行一次性签名密钥迁移到 v0.4.5，再通过安装器升级，不能用首次安装命令或 App 的旧 installer 直接跳过迁移。
 
 ## 安全边界

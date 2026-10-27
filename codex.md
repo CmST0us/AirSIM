@@ -6,6 +6,8 @@
 
 下面有关当前发布、三星 Android、旧 AVF 包/端口和 Worker 的规则继续适用于 v1；不得用这些历史范围禁止用户已确认的 RM500/EG25/Android AVF v2 建设，也不得把旧安装脚本直接用于新 Agent。保留旧 `module/module-agent/`、`push-relay-worker/` 和现有改动。v2 独立建设、ECS 优先；四个执行会话使用 GPT-6-Astra / medium，仅执行主控决定，遇到技术决策交回主控，未明确调度则待命。
 
+RM500U 使用 BusyBox init 的 `respawn` 启动 `/mnt/data/airsim-v2/run-agent.sh`。启动器等待 `/dev/smd1`，并通过 `airsim-agent --wait-random` 阻塞到内核随机源初始化后再启动服务；不要用可能漏掉瞬时峰值的 `entropy_avail` 轮询。安装、验证和回滚见 [RM500U 开机启动](module/airsim-agent/RM500U_AUTOSTART.md)。配置完成后网页配对使用 Chrome WebUSB，不依赖主机 `adb server`。
+
 本文为 AI 编码代理提供 AirSIM 全仓库的事实来源、构建顺序、部署边界和安全约束。开始任务前先阅读根目录 `README.md`，再阅读所修改组件的 README 和实际源码。涉及 AVF 安装、配对或恢复时，还要阅读 `docs/AVF_INSTALL_GUIDE.md` 和 `LLM.txt`。源码与测试是协议事实来源；本文不能替代它们。
 
 当前发布基线（2026-10-12）：Android AVF/Standalone/iOS Apps `v0.9.6`（build `79`），兼容用 AVF Agent `v0.4.6`（Debian `0.4.6-1`），Relay 协议 `0.2.1`。维护者 AirSIM Relay 为 `https://airsim-push.remotepilot.site`；DJOneHub 的 `https://push.remotepilot.site` 不得用于 AirSIM。历史 Release 文档中的旧版本号属于归档事实，不能机械替换。

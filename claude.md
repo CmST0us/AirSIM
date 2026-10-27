@@ -4,6 +4,8 @@
 
 用户已确定新 Agent 在 `module/airsim-agent/` 独立建设，ECS 服务在 `service/airsim/`，首版 Docker Compose 在 `service/airsim/deploy/compose/`，Worker v2 在 `service/airsim-worker/`。先读 [系统架构](docs/SYSTEM_ARCHITECTURE.md)、[Agent/HAL 架构](module/ARCHITECTURE.md) 和对应新目录 README。App 云端明确选择 v1/v2，两个 v2 后端共用对外协议。RM500 新 Agent 的 R1–R3 已完成限定范围实机验收，见 [主控决策](docs/RM500_AGENT_EXECUTION.md) 和 [R3 记录](module/airsim-agent/R3_TESTING.md)。R4 Agent/ECS 接入按 [公共契约](protocol/v2/R4.md) 实施中，云端尚未通过；App 选择器待实施。
 
+RM500U 通过 BusyBox init 的 `respawn` 启动 `/mnt/data/airsim-v2/run-agent.sh`。启动器等待 `/dev/smd1`，并由 `airsim-agent --wait-random` 阻塞到内核随机源初始化后再启动服务；不要改为轮询 `entropy_avail`。安装、验证和回滚见 [RM500U 开机启动](module/airsim-agent/RM500U_AUTOSTART.md)。配置完成后网页配对使用 Chrome WebUSB，不依赖主机 `adb server`。
+
 下文已发布功能、三星 Android、旧 AVF 包/端口和 Worker 规则继续适用于 v1，不限制用户已确认的 RM500/EG25/Android AVF v2。保留旧 `module/module-agent/`、`push-relay-worker/` 与已有改动，不用旧脚本直接覆盖新旧安装。先实施 ECS；执行会话统一 GPT-6-Astra / medium，只执行主控已确定任务，需要技术决策则交回主控，未明确调度则待命。
 
 你正在处理 AirSIM：一个用三星 Android 手机承载蜂窝通话与短信，并让 iPhone / Apple Watch 通过 VoWLAN 或 Cloudflare Relay 使用这些能力的多端项目。
