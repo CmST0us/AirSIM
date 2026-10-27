@@ -473,7 +473,7 @@ final class CloudV2Model: ObservableObject {
     var userStatus: String {
         if configuration == nil { return "尚未连接设备，请在设置中添加设备。" }
         if let configuration, !configuration.accessIsValid(at: now()) { return configuration.canRenew(at: now()) ? "设备连接正在续期，请稍候。" : "连接凭据已过期，请重新添加设备。" }
-        if hasUnresolvedCommand { return "操作结果待核对，请查询原操作，勿重复发送。" }
+        if hasUnresolvedCommand { return "正在确认上一步操作，请稍候。" }
         if !connected { return "连接未建立，请在设置中重连或重新导入配置。" }
         if selectedModuleID == nil { return "请选择要使用的模块。" }
         if selectedModule?.online != true { return "模块离线，请检查模块网络后重试。" }
@@ -523,11 +523,16 @@ final class CloudV2Model: ObservableObject {
             if case let .receipt(server, state) = machine.phase { succeeded = server == "completed" && ["accepted", "observed"].contains(state) }
             else { succeeded = false }
             try finishResolvedCommand()
-            if !succeeded, submitted == nil { error = hasUnresolvedCommand ? "操作结果待核对，请查询原操作结果。" : "操作未成功，请核对连接与模块状态。" }
+            if !succeeded, submitted == nil, !hasUnresolvedCommand {
+                error = "操作未成功，请核对连接与模块状态。"
+            }
             return succeeded
         } catch {
             if submitted != nil, machine.pending == nil { systemSubmission?.outcome = .failed }
-            self.error = "操作未成功，请核对连接与模块能力后重试。"; return false
+            if machine.pending == nil {
+                self.error = "操作未成功，请核对连接与模块能力后重试。"
+            }
+            return false
         }
     }
     private func finishResolvedCommand() throws {

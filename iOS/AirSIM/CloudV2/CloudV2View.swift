@@ -55,9 +55,9 @@ struct V2ConnectionSections: View {
                 }
             }
             if model.hasUnresolvedCommand {
-                Section("待核对操作") {
-                    Text("结果尚未确认，保留草稿并只查询原操作。")
-                    Button("查询原操作结果") { Task { await model.recoverPending() } }
+                Section("正在同步") {
+                    Text("上一步操作仍在确认，通常会自动完成。")
+                    Button("立即同步") { Task { await model.recoverPending() } }
                         .disabled(model.busy || !model.connected)
                         .accessibilityIdentifier("command-recover")
                 }

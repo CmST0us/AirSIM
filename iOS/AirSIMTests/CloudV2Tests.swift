@@ -1917,6 +1917,7 @@ extension CloudV2Tests {
             let sent = await app.sendSMS(to: "00000000001", content: "QA 测试消息")
             XCTAssertEqual(sent, status == 200)
             XCTAssertEqual(fixture.model.hasUnresolvedCommand, status == 503)
+            if status == 503 { XCTAssertNil(fixture.model.error) }
             XCTAssertEqual(fixture.writes, 1)
             XCTAssertEqual(fixture.model.smsText, "QA 测试消息")
             await fixture.close()

@@ -185,7 +185,7 @@ struct DialPadView: View {
                             HStack {
                                 Button("连接设置") { UITestScenario.defaults.set(PhoneTab.settings.rawValue, forKey: "airsim.selected-tab") }
                                 if cloud.hasUnresolvedCommand {
-                                    Button("查询原操作结果") { Task { await cloud.recoverPending() } }
+                                    Button("立即同步") { Task { await cloud.recoverPending() } }
                                         .accessibilityIdentifier("command-recover")
                                         .disabled(cloud.busy || !cloud.connected)
                                 }

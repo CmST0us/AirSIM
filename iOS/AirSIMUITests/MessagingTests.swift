@@ -108,16 +108,18 @@ final class UnknownCommandTests: ConversationTestCase {
 
     func testUnknownCommandBlocksSendingAndVersionSwitchButAllowsRecoveryQuery() {
         openConversation("QA甲消息")
+        XCTAssertFalse(app.alerts["错误"].exists)
         enterReply("QA未知结果不重发")
         XCTAssertFalse(app.buttons["message-send"].isEnabled)
+        XCTAssertFalse(app.alerts["错误"].exists)
         app.navigationBars.buttons.firstMatch.tap()
         openTab("设置")
         let local = app.buttons["仅本地 VoWLAN"]
         XCTAssertTrue(local.waitForExistence(timeout: 5))
         local.tap()
-        XCTAssertTrue(app.alerts["无法切换"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["仍有通话、媒体或未确认操作，请先结束通话并确认操作结果。"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.alerts["无法切换"].exists)
         capture("unknown-blocks-switch")
-        app.alerts.buttons["好"].tap()
         let recover = app.buttons["command-recover"]
         for _ in 0..<6 where !recover.isHittable { app.swipeUp() }
         XCTAssertTrue(recover.isHittable)

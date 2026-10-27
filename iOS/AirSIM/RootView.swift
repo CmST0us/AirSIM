@@ -130,18 +130,17 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .airsimOpenIncomingCall)) { _ in
             model.presentCurrentCallInApp()
         }
-        .alert(L10n.t("错误"), isPresented: errorBinding) {
-            Button("OK") { model.errorMessage = nil }
-        } message: {
-            Text(model.errorMessage ?? "")
+        .overlay(alignment: .top) {
+            if let message = model.errorMessage, !message.isEmpty {
+                TransientNoticeBanner(message: message) {
+                    model.errorMessage = nil
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
-    }
-
-    private var errorBinding: Binding<Bool> {
-        Binding(
-            get: { model.errorMessage?.isEmpty == false },
-            set: { if !$0 { model.errorMessage = nil } }
-        )
+        .animation(.easeOut(duration: 0.2), value: model.errorMessage)
     }
 
     private var selectedTabBinding: Binding<PhoneTab> {
@@ -184,6 +183,44 @@ struct RootView: View {
             composeMessage(recipient)
         case nil:
             break
+        }
+    }
+}
+
+struct TransientNoticeBanner: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.primary)
+                .lineLimit(3)
+            Spacer(minLength: 2)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭提示")
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .stroke(Color.primary.opacity(0.08))
+        }
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+        .task(id: message) {
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            dismiss()
         }
     }
 }

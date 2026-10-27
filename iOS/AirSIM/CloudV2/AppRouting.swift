@@ -155,9 +155,15 @@ struct AirSIMRouteView: View {
                 }
             }
         }
-        .alert("无法切换", isPresented: Binding(get: { router.error != nil }, set: { if !$0 { router.error = nil } })) {
-            Button("好") { router.error = nil }
-        } message: { Text(router.error ?? "") }
+        .overlay(alignment: .top) {
+            if let message = router.error, !message.isEmpty {
+                TransientNoticeBanner(message: message) { router.error = nil }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: router.error)
     }
 }
 struct RuntimeChoiceButtons: View {
