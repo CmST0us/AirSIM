@@ -157,7 +157,10 @@ final class LivePairingTests: UITestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
 
-        XCTAssertTrue(app.staticTexts["连接会在后台自动续期。"].waitForExistence(timeout: 20))
+        let persistent = app.staticTexts.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "设备授权已安全保存在本机"
+        )).firstMatch
+        XCTAssertTrue(persistent.waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "模块 · ")).firstMatch.exists)
         capture("live-pairing-complete")
     }
