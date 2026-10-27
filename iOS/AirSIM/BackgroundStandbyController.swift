@@ -102,14 +102,19 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         Self.current = self
+        UNUserNotificationCenter.current().delegate = self
         if UITestScenario.active { LegacyRuntimeGate.configure(false); return true }
         let router = AppRouteCoordinator.shared
         if router.choice == .v2 { router.ensureRuntime() }
         let selection = router.choice
         if let selection { CloudVersionPreference.save(selection) }
         LegacyRuntimeGate.configure(selection == .v1 || selection == .local)
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
+        if selection == .v2, let cloud = router.cloud {
+            V2PushController.shared.attach(cloud)
+            V2PushController.shared.start(model: cloud)
+            application.registerForRemoteNotifications()
+            return true
+        }
         guard LegacyRuntimeGate.allowed else { return true }
         IncomingCallNotification.registerCategory()
         let localModeEnabled = LocalModePreference.isEnabled()
@@ -134,6 +139,11 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // 首次授权弹窗可能晚于 didFinishLaunching 返回；回到前台时重新登记是幂等的。
+        if AppRouteCoordinator.shared.choice == .v2, let cloud = AppRouteCoordinator.shared.cloud {
+            V2PushController.shared.start(model: cloud)
+            application.registerForRemoteNotifications()
+            return
+        }
         guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         VoIPPushController.shared.start()
         application.registerForRemoteNotifications()
@@ -144,6 +154,10 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
+        if AppRouteCoordinator.shared.choice == .v2 {
+            V2PushController.shared.storeAlertToken(deviceToken)
+            return
+        }
         guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         VoIPPushController.shared.storeAlertToken(deviceToken)
 #if DEBUG
@@ -155,6 +169,10 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
+        if AppRouteCoordinator.shared.choice == .v2 {
+            V2PushController.shared.registrationFailed("通知 token 注册失败，请检查网络后重试")
+            return
+        }
         guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
         VoIPPushController.shared.clearAlertToken()
 #if DEBUG
@@ -167,6 +185,14 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
+        if AppRouteCoordinator.shared.choice == .v2 {
+            if V2PushController.shared.acceptsAlert(userInfo) {
+                completionHandler(.newData)
+            } else {
+                completionHandler(.noData)
+            }
+            return
+        }
         guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else {
             completionHandler(.noData)
             return
@@ -207,6 +233,14 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        if AppRouteCoordinator.shared.choice == .v2 {
+            if V2PushController.shared.acceptsAlert(notification.request.content.userInfo) {
+                completionHandler([.banner, .list, .sound])
+            } else {
+                completionHandler([])
+            }
+            return
+        }
         guard LegacyRuntimeGate.allowed else { completionHandler([]); return }
         guard notification.request.content.userInfo["event"] as? String == "incoming_sms" else {
             completionHandler([])
@@ -220,6 +254,23 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        if AppRouteCoordinator.shared.choice == .v2 {
+            let userInfo = response.notification.request.content.userInfo
+            guard userInfo["event"] as? String == "incoming_sms",
+                  V2PushController.shared.acceptsAlert(userInfo) else {
+                completionHandler()
+                return
+            }
+            let sender = userInfo["sender"] as? String
+            if let sender { IncomingSMSPresentationRequest.markPending(sender: sender) }
+            NotificationCenter.default.post(
+                name: .airsimOpenSMSConversation,
+                object: nil,
+                userInfo: sender.map { ["sender": $0] }
+            )
+            completionHandler()
+            return
+        }
         guard LegacyRuntimeGate.allowed else {
             UserDefaults.standard.removeObject(forKey: IncomingCallPresentationRequest.key)
             UserDefaults.standard.removeObject(forKey: IncomingSMSPresentationRequest.key)

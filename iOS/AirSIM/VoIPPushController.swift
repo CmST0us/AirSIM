@@ -37,6 +37,7 @@ struct IncomingVoIPCall: Equatable, Sendable {
     /// 公网 PCM 仅作为本地 ECM 控制链路不可用时的回退。完整带签名地址只保存在内存中。
     let authenticatedMediaURL: URL?
     let requestedMediaTransport: CloudMediaTransport
+    let v2Push: V2PushEnvelope?
 
     init(userInfo: [AnyHashable: Any], now: Date = Date()) throws {
         guard userInfo["event"] as? String == "incoming_call" else {
@@ -53,6 +54,17 @@ struct IncomingVoIPCall: Equatable, Sendable {
 
         let expiresAt = Self.date(from: userInfo["expires_at"])
         if let expiresAt, expiresAt <= now { throw VoIPPushPayloadError.expired }
+        let pushEnvelope = V2PushEnvelope(userInfo: userInfo)
+        let protocolVersion = (userInfo["protocol_version"] as? NSNumber)?.intValue
+            ?? (userInfo["protocol_version"] as? String).flatMap(Int.init)
+        if protocolVersion == 2 {
+            guard let pushEnvelope, pushEnvelope.callID == rawCallID.lowercased(),
+                  pushEnvelope.callUUID == uuid, expiresAt != nil else {
+                throw VoIPPushPayloadError.invalidCallUUID
+            }
+        } else {
+            guard pushEnvelope == nil else { throw VoIPPushPayloadError.invalidCallUUID }
+        }
 
         callID = rawCallID
         self.uuid = uuid
@@ -76,6 +88,7 @@ struct IncomingVoIPCall: Equatable, Sendable {
         requestedMediaTransport = CloudMediaTransport(
             rawValue: Self.nonEmpty(userInfo["media_transport"] as? String) ?? ""
         ) ?? .legacyPCM
+        v2Push = pushEnvelope
     }
 
     init(
@@ -110,6 +123,7 @@ struct IncomingVoIPCall: Equatable, Sendable {
         ttsText = nil
         authenticatedMediaURL = authenticatedURL
         requestedMediaTransport = mediaTransport
+        v2Push = nil
     }
 
     func matches(backendID: String?, uuid: UUID?) -> Bool {

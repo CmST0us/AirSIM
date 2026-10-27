@@ -577,7 +577,14 @@ final class AppModel: ObservableObject {
     }
 
     func start(sceneIsActive: Bool) {
-        if let cloudV2 { Task { await contacts.loadIfAuthorized(); await cloudV2.sceneChanged(sceneIsActive ? .active : .inactive) }; return }
+        if let cloudV2 {
+            Task {
+                if sceneIsActive { await cloudV2.requestInitialPermissions() }
+                await contacts.loadIfAuthorized()
+                await cloudV2.sceneChanged(sceneIsActive ? .active : .inactive)
+            }
+            return
+        }
         guard LegacyRuntimeGate.allowed else { return }
         guard !hasStarted else { return }
         hasStarted = true
@@ -600,7 +607,14 @@ final class AppModel: ObservableObject {
     /// 每次从锁屏或后台回来都舍弃旧连接，避免休眠前的超时结果覆盖新状态。
     func didBecomeActive() {
         if UITestScenario.active && !isV2 { return }
-        if let cloudV2 { Task { await cloudV2.sceneChanged(.active) }; return }
+        if let cloudV2 {
+            Task {
+                await cloudV2.requestInitialPermissions()
+                await contacts.loadIfAuthorized()
+                await cloudV2.sceneChanged(.active)
+            }
+            return
+        }
         appIsActive = true
         let discoveryWasAlreadyStarted = initialPermissionCoordinator.didStartDiscovery
         requestMicrophoneOnForegroundIfNeeded()

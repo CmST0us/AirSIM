@@ -120,7 +120,11 @@ final class AppRouteCoordinator: ObservableObject {
             CallKitController.shared.setEnabled(false)
             await LegacyRuntimeGate.waitForRequests()
         }
-        if let cloud { await cloud.stop(); cloud.systemCalls?.stop() }
+        if let cloud {
+            await V2PushController.shared.stopRuntime(unregister: true)
+            await cloud.stop()
+            cloud.systemCalls?.stop()
+        }
         legacy = nil; cloud = nil; model = nil
         defaults.removeObject(forKey: IncomingCallPresentationRequest.key)
         defaults.removeObject(forKey: IncomingSMSPresentationRequest.key)

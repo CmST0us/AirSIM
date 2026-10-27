@@ -12,6 +12,33 @@ struct V2CallContext: Codable, Equatable {
     let callID: String
     let generation: String
 }
+
+struct V2PushRegistrationBody: Encodable, Equatable {
+    let registrationID: String
+    let moduleID: String
+    let bundleID: String
+    let environment: String
+    let voipToken: String
+    let alertToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case registrationID = "registration_id"
+        case moduleID = "module_id"
+        case bundleID = "bundle_id"
+        case environment
+        case voipToken = "voip_token"
+        case alertToken = "alert_token"
+    }
+}
+
+struct V2PushRegistrationReceipt: Decodable, Equatable {
+    let server_id: String
+    let client_installation_id: String
+    let registration_id: String
+    let module_id: String
+    let bundle_id: String
+    let environment: String
+}
 extension V2SnapshotResponse {
     func controlBinding(configuration: V2Configuration, module: V2Module, now: Date) throws -> V2ControlBinding {
         guard server_id == configuration.identity.serverID, module_id == module.module_id,
@@ -205,6 +232,32 @@ final class V2Client {
         let result = try await read(V2MessagesResponse.self, path: "/v2/modules/\(moduleID)/messages", limit: 2 * 1024 * 1024)
         guard result.server_id == stamp.identity.serverID, result.module_id == moduleID else { throw V2Error.invalidIdentity }
         return result
+    }
+    func registerPush(_ body: V2PushRegistrationBody) async throws -> V2PushRegistrationReceipt {
+        let stamp = try activeStamp()
+        guard stamp.identity.serverID == gate.configuration?.identity.serverID,
+              stamp.identity.clientInstallationID == gate.configuration?.identity.clientInstallationID else {
+            throw V2Error.invalidIdentity
+        }
+        let data = try JSONEncoder().encode(body)
+        let response = try await request(path: "/v2/push/registration", method: "PUT", body: data, limit: 16 * 1024, stamp: stamp)
+        let receipt = try V2JSON.decode(V2PushRegistrationReceipt.self, from: response.body, limit: 16 * 1024)
+        guard response.status == 200, receipt.server_id == stamp.identity.serverID,
+              receipt.client_installation_id == stamp.identity.clientInstallationID,
+              receipt.registration_id == body.registrationID,
+              receipt.module_id == body.moduleID,
+              receipt.bundle_id == body.bundleID,
+              receipt.environment == body.environment else {
+            throw V2Error.protocolViolation
+        }
+        return receipt
+    }
+    func unregisterPush(registrationID: String) async throws {
+        try V2Validation.uuid(registrationID)
+        let stamp = try activeStamp()
+        let body = try JSONSerialization.data(withJSONObject: ["registration_id": registrationID])
+        let response = try await request(path: "/v2/push/registration", method: "DELETE", body: body, limit: 16 * 1024, stamp: stamp)
+        guard response.status == 204, response.body.isEmpty else { throw V2Error.protocolViolation }
     }
     func submit(_ command: V2Command, binding: V2ControlBinding) async throws -> V2CommandRecord {
         let stamp = try activeStamp()

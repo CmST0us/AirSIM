@@ -2,6 +2,9 @@ import Foundation
 import SwiftUI
 import UIKit
 import Combine
+import AVFoundation
+import Contacts
+import UserNotifications
 
 enum V2EligibilityFailureReason: String {
     case configuration, foreground, directoryOffline, snapshotOffline, identityEpochMismatch
@@ -47,6 +50,11 @@ final class CloudV2Model: ObservableObject {
     private var attemptedAudioCall: V2CallContext?
 
     @Published private(set) var foreground = false
+    @Published private(set) var notificationPermission: UNAuthorizationStatus = .notDetermined
+    @Published private(set) var microphonePermission = "尚未请求"
+    @Published private(set) var contactPermission = "尚未请求"
+    @Published private(set) var pushRegistrationStatus = "尚未请求通知权限"
+    @Published private(set) var pushRegistrationReady = false
     private let client: V2Client
     private let tokens: V2TokenStore
     private let pairingClient: V2PairingClient?
@@ -78,6 +86,8 @@ final class CloudV2Model: ObservableObject {
     private var actionInFlight = false
     private var generation: UInt64 = 0
     private var persistenceFailed = false
+    private var initialPermissionsRequested = false
+    private var permissionTask: Task<Void, Never>?
     private(set) var discovery: V2Discovery?
     init(
         client: V2Client? = nil,
@@ -142,10 +152,129 @@ final class CloudV2Model: ObservableObject {
         media.useCallKitAudioSession()
         systemCalls = V2SystemCallController(model: self, calls: calls ?? CallKitController.shared, associationTimeout: associationTimeout, endAssociationTimeout: endAssociationTimeout)
         systemCalls?.start()
+        V2PushController.shared.attach(self)
+    }
+    var isV2Runtime: Bool { true }
+    var notificationPermissionText: String {
+        switch notificationPermission {
+        case .authorized, .provisional, .ephemeral: return "已允许"
+        case .denied: return "已关闭"
+        case .notDetermined: return "尚未请求"
+        @unknown default: return "未知"
+        }
+    }
+    func updatePushRegistration(status: String, ready: Bool) {
+        pushRegistrationStatus = status
+        pushRegistrationReady = ready
+    }
+    func receivePushKitIncomingCall(_ call: IncomingVoIPCall) {
+        V2PushController.shared.attach(self)
+        if systemCalls == nil { activateSystemIntegration() }
+        systemCalls?.callKitDidReceiveIncoming(call)
+    }
+    func registerPush(_ body: V2PushRegistrationBody) async throws -> V2PushRegistrationReceipt {
+        guard connected, configuration != nil else {
+            throw V2Error.stale
+        }
+        return try await client.registerPush(body)
+    }
+    func unregisterPush(registrationID: String) async throws {
+        guard connected else { throw V2Error.transport }
+        try await client.unregisterPush(registrationID: registrationID)
+    }
+
+    /// Requests the user-visible permissions needed by v2. CallKit and PushKit
+    /// have no separate prompts; their token registration follows authorization.
+    func requestInitialPermissions() async {
+        if UITestScenario.active {
+            initialPermissionsRequested = true
+            await refreshPermissionPresentation()
+            return
+        }
+        if let permissionTask {
+            await permissionTask.value
+            return
+        }
+        guard !initialPermissionsRequested else {
+            await refreshPermissionPresentation()
+            V2PushController.shared.start(model: self)
+            return
+        }
+        initialPermissionsRequested = true
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            V2PushController.shared.attach(self)
+            V2PushController.shared.start(model: self)
+            notificationPermission = await V2PushController.shared.requestNotificationPermission()
+            if Self.microphonePermissionIsUndetermined {
+                _ = await Self.requestMicrophonePermission()
+            }
+            await Self.requestContactsPermissionIfNeeded()
+            await refreshPermissionPresentation()
+            V2PushController.shared.requestRegistrationSync()
+        }
+        permissionTask = task
+        await task.value
+        permissionTask = nil
+    }
+
+    func refreshPermissionPresentation() async {
+        notificationPermission = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        microphonePermission = Self.microphonePermissionDescription
+        switch CNContactStore.authorizationStatus(for: .contacts) {
+        case .authorized: contactPermission = "已允许"
+        case .limited: contactPermission = "仅允许部分联系人"
+        case .denied: contactPermission = "已关闭"
+        case .restricted: contactPermission = "受系统限制"
+        case .notDetermined: contactPermission = "尚未请求"
+        @unknown default: contactPermission = "未知"
+        }
+    }
+
+    private static var microphonePermissionIsUndetermined: Bool {
+        if #available(iOS 17.0, *) {
+            return AVAudioApplication.shared.recordPermission == .undetermined
+        }
+        return AVAudioSession.sharedInstance().recordPermission == .undetermined
+    }
+
+    private static var microphonePermissionDescription: String {
+        if #available(iOS 17.0, *) {
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted: return "已允许"
+            case .denied: return "已关闭"
+            case .undetermined: return "尚未请求"
+            @unknown default: return "未知"
+            }
+        }
+        switch AVAudioSession.sharedInstance().recordPermission {
+        case .granted: return "已允许"
+        case .denied: return "已关闭"
+        case .undetermined: return "尚未请求"
+        @unknown default: return "未知"
+        }
+    }
+
+    private static func requestMicrophonePermission() async -> Bool {
+        if #available(iOS 17.0, *) {
+            return await AVAudioApplication.requestRecordPermission()
+        }
+        return await withCheckedContinuation { continuation in
+            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                continuation.resume(returning: granted)
+            }
+        }
+    }
+    private static func requestContactsPermissionIfNeeded() async {
+        let store = CNContactStore()
+        guard CNContactStore.authorizationStatus(for: .contacts) == .notDetermined else { return }
+        await withCheckedContinuation { continuation in
+            store.requestAccess(for: .contacts) { _, _ in continuation.resume() }
+        }
     }
     func systemCallScopeChanged() async {
         await cancelPolling()
-        if foreground || systemBinding != nil { startPolling() }
+        if foreground || systemBinding != nil || systemCalls?.hasSystemCall == true { startPolling() }
     }
     private var systemSubmission: V2SystemCommandSubmission?
     func systemCommand(_ action: String, args: [String: String], binding: V2ControlBinding? = nil,
@@ -158,6 +287,7 @@ final class CloudV2Model: ObservableObject {
     }
 
     var ownedCall: V2CallContext? { machine?.ownedCall }
+    var currentTime: Date { now() }
     var hasUnresolvedCommand: Bool { machine?.pending != nil }
     var activeCall: V2Call? {
         if let ownedCall { return snapshot?.snapshot?.calls.calls.first { $0.call_id == ownedCall.callID } }
@@ -168,8 +298,10 @@ final class CloudV2Model: ObservableObject {
     }
     var selectedModule: V2Module? { modules.first { $0.module_id == selectedModuleID } }
     var freshBinding: V2ControlBinding? {
-        guard connected, (foreground || systemBinding != nil), !persistenceFailed, let configuration, let selectedModule, let snapshot else { return nil }
-        guard let binding = try? snapshot.controlBinding(configuration: configuration, module: selectedModule, now: now()), foreground || binding == systemBinding else { return nil }; return binding
+        guard connected, (foreground || systemCalls?.hasSystemCall == true), !persistenceFailed,
+              let configuration, let selectedModule, let snapshot,
+              let binding = try? snapshot.controlBinding(configuration: configuration, module: selectedModule, now: now()) else { return nil }
+        return binding
     }
     var telephonyReady: Bool { freshBinding != nil && snapshot?.snapshot?.control.ready == true && snapshot?.snapshot?.control.telephony_ready == true }
     var messagingReady: Bool { freshBinding != nil && snapshot?.snapshot?.control.ready == true && snapshot?.snapshot?.control.messaging_ready == true }
@@ -212,6 +344,7 @@ final class CloudV2Model: ObservableObject {
         selectedModuleID = moduleID; snapshot = nil; messagesResponse = nil
         number = ""; smsNumber = ""; smsText = ""; tones = ""
         if let configuration { defaults.set(moduleID, forKey: V2LocalPaths.selectionKey(configuration.identity)) }
+        V2PushController.shared.requestRegistrationSync()
         if foreground && connected { startPolling() }
     }
     func importFile(_ url: URL) async {
@@ -221,11 +354,13 @@ final class CloudV2Model: ObservableObject {
             let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
             let data = try handle.read(upToCount: 16 * 1024 + 1) ?? Data()
             let imported = try V2ConfigurationImport.parse(data, now: now())
-                await stop()
+            await stop()
             configuration = try configurationStore.importConfiguration(data, now: now())
             selectedModuleID = defaults.string(forKey: V2LocalPaths.selectionKey(imported.configuration.identity))
             modules = []; snapshot = nil; messagesResponse = nil
-                if foreground { await connect() }
+            V2PushController.shared.attach(self)
+            V2PushController.shared.requestRegistrationSync()
+            if foreground { await connect() }
         } catch { self.error = "无法导入连接配置，请确认文件有效且未过期。" }
     }
     var pairingAvailable: Bool { pairingClient?.origin != nil }
@@ -253,6 +388,8 @@ final class CloudV2Model: ObservableObject {
             modules = []; snapshot = nil; messagesResponse = nil
             number = ""; smsNumber = ""; smsText = ""; tones = ""
             error = nil
+            V2PushController.shared.attach(self)
+            V2PushController.shared.requestRegistrationSync()
             if foreground { await connect() }
             return true
         } catch {
@@ -281,8 +418,21 @@ final class CloudV2Model: ObservableObject {
         return "暂时无法添加设备，请稍后重试。"
     }
     func connect() async {
-        guard foreground, !busy, !persistenceFailed, let configuration else { return }
+        await connect(allowBackground: false)
+    }
+
+    func prepareForIncomingPush() async {
+        if connected && !busy {
+            startPolling()
+            return
+        }
+        await connect(allowBackground: true)
+    }
+
+    private func connect(allowBackground: Bool) async {
+        guard (allowBackground || foreground), !busy, !persistenceFailed, let configuration else { return }
         connectionEpoch &+= 1; let stamp = connectionEpoch
+        snapshot = nil
         busy = true
         let task = Task { [weak self] in
             guard let self else { return }
@@ -291,11 +441,14 @@ final class CloudV2Model: ObservableObject {
             }
             do {
                 await self.cancelPolling()
-                guard self.connectionEpoch == stamp, self.foreground, !Task.isCancelled else { return }
+                guard self.connectionEpoch == stamp, allowBackground || self.foreground, !Task.isCancelled else { return }
                 let result = try await self.client.connect(configuration)
-                guard self.connectionEpoch == stamp, self.foreground, !Task.isCancelled else { return }
+                guard self.connectionEpoch == stamp, allowBackground || self.foreground, !Task.isCancelled else { return }
                 self.discovery = result; self.connected = true; self.syncStatus = nil
                 self.debugLog("connected profile=\(result.profile)")
+                V2PushController.shared.attach(self)
+                V2PushController.shared.start(model: self)
+                V2PushController.shared.requestRegistrationSync()
                 self.startPolling()
             } catch {
                 guard self.connectionEpoch == stamp, !Task.isCancelled else { return }
@@ -345,6 +498,8 @@ final class CloudV2Model: ObservableObject {
         switch phase {
         case .active:
             foreground = true
+            V2PushController.shared.start(model: self)
+            Task { await refreshPermissionPresentation() }
             if pollingInvalidated { await cancelPolling() }
             guard foreground else { return }
             if connected { startPolling() } else { await connect() }
@@ -358,7 +513,7 @@ final class CloudV2Model: ObservableObject {
         }
     }
     private func startPolling() {
-        guard (foreground || systemBinding != nil), connected, pollTasks.isEmpty, pollStopTask == nil else { return }
+        guard (foreground || systemBinding != nil || systemCalls?.hasSystemCall == true), connected, pollTasks.isEmpty, pollStopTask == nil else { return }
         let stamp = generation, module = selectedModuleID
         pollingInvalidated = false
         pollFailures.removeAll()
@@ -422,7 +577,7 @@ final class CloudV2Model: ObservableObject {
         }
     }
     private func acceptsPoll(_ stamp: UInt64, module: String?) -> Bool {
-        !Task.isCancelled && generation == stamp && (foreground || systemBinding != nil) && connected && selectedModuleID == module
+        !Task.isCancelled && generation == stamp && (foreground || systemBinding != nil || systemCalls?.hasSystemCall == true) && connected && selectedModuleID == module
     }
     private func consumeSnapshot(_ response: V2SnapshotResponse) throws {
         guard let config = configuration, let snapshot = response.snapshot else { return }
@@ -503,7 +658,7 @@ final class CloudV2Model: ObservableObject {
     @discardableResult
     private func perform(action: String, args: [String: String], expectedBinding: V2ControlBinding? = nil, submitted: ((V2SystemCommandSubmission) -> Void)? = nil) async -> Bool {
         guard canAct, let machine else { return false }
-        guard foreground || (systemBinding != nil && ["call.answer", "call.hangup", "call.dtmf"].contains(action) && args["call_id"] == (ownedCall?.callID ?? systemCalls?.currentCallID)) else { return false }
+        guard foreground || (systemCalls?.hasSystemCall == true && ["call.answer", "call.hangup", "call.dtmf"].contains(action) && args["call_id"] == (ownedCall?.callID ?? systemCalls?.currentCallID)) else { return false }
         let binding: V2ControlBinding
         if action == "call.dtmf" || (action == "call.hangup" && ownedCall != nil) {
             guard ownedControlReady, let context = ownedCall else { error = "原通话状态尚未核对，不能控制。"; return false }; binding = context.binding

@@ -33,6 +33,8 @@ final class V2SystemCallController: CallKitActionHandling {
     private(set) var verifiedBinding: V2ControlBinding?
     private var controlledCall: V2CallContext?
     private var incomingID: String?
+    private var incomingPush: V2PushEnvelope?
+    private var incomingAssociationDeadline: ContinuousClock.Instant?
     private var association: V2SystemCommandSubmission?
     private var endingUUID: UUID?
     private let associationTimeout: Duration
@@ -57,6 +59,39 @@ final class V2SystemCallController: CallKitActionHandling {
         clearContext()
     }
     func observeSnapshot() {
+        if let push = incomingPush {
+            guard model.currentTime < push.expiresAt,
+                  incomingAssociationDeadline.map({ ContinuousClock.now < $0 }) == true,
+                  calls.currentSystemCallUUID == push.callUUID,
+                  let configuration = model.configuration,
+                  configuration.identity.serverID == push.domain.serverID,
+                  model.selectedModuleID == push.domain.moduleID,
+                  let response = model.snapshot,
+                  response.server_id == push.domain.serverID,
+                  response.module_id == push.domain.moduleID,
+                  response.connection_epoch == push.domain.connectionEpoch,
+                  let snapshot = response.snapshot,
+                  snapshot.agent_boot_id == push.domain.agentBootID,
+                  snapshot.backend_epoch == push.domain.backendEpoch,
+                  let call = snapshot.calls.calls.first(where: {
+                      $0.call_id == push.callID && $0.direction == "incoming" && $0.state != "disconnected"
+                  }),
+                  let selected = model.selectedModule,
+                  let binding = try? response.controlBinding(configuration: configuration, module: selected, now: model.currentTime) else {
+                endSystemCall()
+                return
+            }
+            verifiedBinding = binding
+            incomingID = call.call_id
+            incomingPush = nil
+            incomingAssociationDeadline = nil
+            calls.synchronize(
+                call: CallRecord(id: call.call_id, index: 0, direction: "incoming", state: call.state,
+                                 number: call.number, startedAt: call.observedAt, updatedAt: call.observedAt,
+                                 endedAt: nil, missed: false),
+                previous: nil, callerName: nil
+            )
+        }
         if !hasSystemCall, model.foreground, let binding = model.freshBinding,
            let call = model.activeCall, call.direction == "incoming", ["incoming", "ringing", "waiting"].contains(call.state) {
             verifiedBinding = binding; incomingID = call.call_id
@@ -80,7 +115,16 @@ final class V2SystemCallController: CallKitActionHandling {
         model.systemAudioActive = false; model.media.requestStop()
         Task { await model.systemCallScopeChanged() }
     }
-    private func clearContext() { audioGeneration &+= 1; verifiedBinding = nil; controlledCall = nil; incomingID = nil; association = nil; endingUUID = nil }
+    private func clearContext() {
+        audioGeneration &+= 1
+        verifiedBinding = nil
+        controlledCall = nil
+        incomingID = nil
+        incomingPush = nil
+        incomingAssociationDeadline = nil
+        association = nil
+        endingUUID = nil
+    }
     func callKitPrepareAudioSession() throws {
         let audio = AVAudioSession.sharedInstance()
 #if DEBUG
@@ -109,6 +153,16 @@ final class V2SystemCallController: CallKitActionHandling {
         }
         return nil
     }
+    private func waitForIncomingVerification(uuid: UUID) async throws {
+        guard incomingPush != nil, verifiedBinding == nil else { return }
+        while verifiedBinding == nil {
+            guard incomingPush?.callUUID == uuid, calls.currentSystemCallUUID == uuid,
+                  let deadline = incomingAssociationDeadline, ContinuousClock.now < deadline else {
+                throw V2Error.stale
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
     func callKitStart(number: String) async throws {
         guard model.foreground, let binding = model.freshBinding, let uuid = calls.currentSystemCallUUID,
               calls.handler === self else { throw V2Error.stale }
@@ -125,8 +179,30 @@ final class V2SystemCallController: CallKitActionHandling {
             throw error
         }
     }
+    func callKitDidReceiveIncoming(_ call: IncomingVoIPCall) {
+        guard let push = call.v2Push, calls.currentSystemCallUUID == push.callUUID else {
+            calls.reportCurrentCallEnded(reason: .failed)
+            return
+        }
+        incomingPush = push
+        incomingAssociationDeadline = ContinuousClock.now.advanced(by: associationTimeout)
+        incomingID = call.callID
+        verifiedBinding = nil
+        let expectedUUID = push.callUUID
+        Task { [weak self] in
+            guard let self else { return }
+            await self.model.prepareForIncomingPush()
+            guard self.incomingPush?.callUUID == expectedUUID else { return }
+            await self.model.systemCallScopeChanged()
+            try? await Task.sleep(for: self.associationTimeout)
+            guard self.incomingPush?.callUUID == expectedUUID else { return }
+            self.endSystemCall()
+        }
+    }
     func callKitAnswer(origin: CallAnswerOrigin) async throws {
-        guard let binding = verifiedBinding, let id = currentCallID, let uuid = calls.currentSystemCallUUID else { throw V2Error.stale }
+        guard let uuid = calls.currentSystemCallUUID else { throw V2Error.stale }
+        try await waitForIncomingVerification(uuid: uuid)
+        guard let binding = verifiedBinding, let id = currentCallID else { throw V2Error.stale }
         let ticket = await model.systemCommand("call.answer", args: ["call_id": id], binding: binding) { self.association = $0 }
         do {
             let owned = try await waitForAssociation(ticket, uuid: uuid, binding: binding, timeout: associationTimeout)
@@ -138,7 +214,9 @@ final class V2SystemCallController: CallKitActionHandling {
         }
     }
     func callKitEnd() async throws {
-        guard let uuid = calls.currentSystemCallUUID, let binding = authorizedBinding else { return }
+        guard let uuid = calls.currentSystemCallUUID else { return }
+        try await waitForIncomingVerification(uuid: uuid)
+        guard let binding = authorizedBinding else { return }
         endingUUID = uuid
         let deadline = ContinuousClock.now.advanced(by: endAssociationTimeout)
         if let ticket = association, ticket.ownedCall == nil {

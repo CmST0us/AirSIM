@@ -62,9 +62,32 @@ struct V2ConnectionSections: View {
                         .accessibilityIdentifier("command-recover")
                 }
             }
+            Section("权限与后台通知") {
+                LabeledContent("通知", value: model.notificationPermissionText)
+                LabeledContent("麦克风", value: model.microphonePermission)
+                LabeledContent("通讯录", value: model.contactPermission)
+                Text(model.pushRegistrationStatus)
+                    .font(.footnote)
+                    .foregroundStyle(model.pushRegistrationReady ? .secondary : .primary)
+                if model.notificationPermission == .denied {
+                    Button("前往系统设置开启通知") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    }
+                } else if model.notificationPermission == .notDetermined {
+                    Button("申请通知权限") {
+                        Task { await model.requestInitialPermissions() }
+                    }
+                } else {
+                    Button("重新登记后台推送") {
+                        V2PushController.shared.requestRegistrationSync()
+                    }
+                }
+            }
             Section("系统通话") {
                 Toggle("通话音频", isOn: $model.experimentalAudio)
-                Text("已有系统通话可在后台继续；空闲时请保持 App 前台接收来电。Watch v2 尚不可用。")
+                Text("来电会显示在系统通话界面；接听后即使 App 进入后台也会继续。Watch v2 尚不可用。")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button("打开系统权限设置") {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
@@ -78,6 +101,7 @@ struct V2ConnectionSections: View {
             case .failure: model.error = "无法读取配置文件。"
             }
         }
+        .task { await model.refreshPermissionPresentation() }
     }
 }
 

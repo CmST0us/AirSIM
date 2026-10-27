@@ -329,7 +329,7 @@ struct V2Discovery: Decodable {
         media_origin = try c.get("media_origin")
         capabilities = try c.get("capabilities")
         try V2Validation.uuid(server_id, empty: false)
-        guard protocol_version == 2, ["airsim-v2-r4.1", "airsim-v2-callkit"].contains(profile), capabilities.controlled_test_client, capabilities.telephony, capabilities.messaging, capabilities.experimental_audio, !capabilities.apns, !capabilities.interactive_login else { throw V2Error.protocolViolation }
+        guard protocol_version == 2, ["airsim-v2-r4.1", "airsim-v2-callkit"].contains(profile), capabilities.controlled_test_client, capabilities.telephony, capabilities.messaging, capabilities.experimental_audio, !capabilities.interactive_login else { throw V2Error.protocolViolation }
         _ = try V2Validation.origin(api_origin); _ = try V2Validation.origin(media_origin); _ = try V2Validation.origin(device_origin)
     }
 }

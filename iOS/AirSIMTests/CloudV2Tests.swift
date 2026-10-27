@@ -1988,6 +1988,53 @@ extension CloudV2Tests {
         await fixture.close()
     }
 
+    @MainActor func testPushKitIncomingVerifiesFreshDomainBeforeBackgroundAnswerOrReject() async throws {
+        for action in ["call.answer", "call.hangup"] {
+            let fixture = try V2PollFixture()
+            addTeardownBlock { await fixture.close() }
+            fixture.commandHTTPStatus = 200
+            let system = TestSystemCalls()
+            fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(2))
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { fixture.model.freshBinding != nil }
+            await fixture.model.sceneChanged(.background)
+
+            let uuid = UUID()
+            system.currentSystemCallUUID = uuid
+            let now = fixture.currentNow
+            let call = try IncomingVoIPCall(userInfo: [
+                "protocol_version": 2,
+                "event": "incoming_call",
+                "server_id": v2ID,
+                "client_installation_id": v2ID,
+                "registration_id": v2OtherID,
+                "module_id": v2ID,
+                "connection_epoch": v2ID,
+                "agent_boot_id": v2ID,
+                "backend_epoch": v2ID,
+                "call_id": v2OtherID,
+                "call_uuid": uuid.uuidString,
+                "expires_at": V2Validation.timestamp(now.addingTimeInterval(20)),
+                "number": "00000000001",
+            ], now: now)
+            var incoming = v2CallObject(state: "incoming")
+            incoming["direction"] = "incoming"
+            incoming["ownership"] = "incoming"
+            fixture.snapshotCalls = [incoming]
+            fixture.model.systemCalls?.callKitDidReceiveIncoming(call)
+            if action == "call.answer" {
+                try await fixture.model.systemCalls?.callKitAnswer(origin: .system)
+            } else {
+                try await fixture.model.systemCalls?.callKitEnd()
+            }
+            XCTAssertEqual(system.state, "incoming", action)
+            XCTAssertEqual(fixture.writes, 1, action)
+            XCTAssertEqual(fixture.commands.last?["action"] as? String, action)
+            XCTAssertEqual((fixture.commands.last?["args"] as? [String: String])?["call_id"], v2OtherID)
+            await fixture.close()
+        }
+    }
+
     @MainActor func testSystemRejectTargetsTheVerifiedIncomingCall() async throws {
         let fixture = try V2PollFixture(); fixture.commandHTTPStatus = 200
         var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
@@ -2052,17 +2099,114 @@ extension CloudV2Tests {
 
 
 extension CloudV2Tests {
+    func testV2PushPayloadRetainsVerifiedDomainAndRejectsExpiredCall() throws {
+        let callUUID = UUID().uuidString.lowercased()
+        func payload(expiresAt: Date) -> [AnyHashable: Any] {
+            [
+                "protocol_version": 2,
+                "event": "incoming_call",
+                "server_id": v2ID,
+                "client_installation_id": v2ID,
+                "registration_id": v2OtherID,
+                "module_id": v2OtherID,
+                "connection_epoch": v2ID,
+                "agent_boot_id": v2ID,
+                "backend_epoch": v2ID,
+                "call_id": v2OtherID,
+                "call_uuid": callUUID,
+                "expires_at": V2Validation.timestamp(expiresAt),
+                "number": "10000000000",
+            ]
+        }
+        let valid = try IncomingVoIPCall(
+            userInfo: payload(expiresAt: v2Now.addingTimeInterval(20)),
+            now: v2Now
+        )
+        XCTAssertEqual(valid.v2Push?.domain.serverID, v2ID)
+        XCTAssertEqual(valid.v2Push?.domain.registrationID, v2OtherID)
+        XCTAssertEqual(valid.v2Push?.callID, v2OtherID)
+        XCTAssertEqual(valid.v2Push?.callUUID.uuidString.lowercased(), callUUID)
+        XCTAssertThrowsError(try IncomingVoIPCall(
+            userInfo: payload(expiresAt: v2Now.addingTimeInterval(-1)),
+            now: v2Now
+        )) { error in
+            XCTAssertEqual(error as? VoIPPushPayloadError, .expired)
+        }
+        let legacy = try IncomingVoIPCall(
+            userInfo: [
+                "event": "incoming_call",
+                "call_id": "legacy-call",
+                "call_uuid": callUUID,
+                "expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(20)),
+            ],
+            now: v2Now
+        )
+        XCTAssertNil(legacy.v2Push)
+    }
+
+    @MainActor func testPushRegistrationUsesAuthenticatedV2IdentityAndDeletesById() async throws {
+        let registrationID = "20112233-4455-4677-8899-aabbccddeeff"
+        let discovery = try JSONSerialization.jsonObject(with: v2Discovery()) as! [String: Any]
+        var pushBody: Data?
+        var deletedBody: Data?
+        let transport = V2TestTransport { request in
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/.well-known/airsim"):
+                return V2HTTPResponse(status: 200, body: try v2Data(discovery))
+            case ("PUT", "/v2/push/registration"):
+                let body = request.httpBody ?? Data()
+                pushBody = body
+                let object = try JSONSerialization.jsonObject(with: body) as! [String: Any]
+                return V2HTTPResponse(status: 200, body: try v2Data([
+                    "server_id": v2ID,
+                    "client_installation_id": v2OtherID,
+                    "registration_id": object["registration_id"]!,
+                    "module_id": object["module_id"]!,
+                    "bundle_id": object["bundle_id"]!,
+                    "environment": object["environment"]!,
+                ]))
+            case ("DELETE", "/v2/push/registration"):
+                deletedBody = request.httpBody
+                return V2HTTPResponse(status: 204, body: Data())
+            default:
+                return V2HTTPResponse(status: 404, body: Data())
+            }
+        }
+        let config = v2Config(client: v2OtherID)
+        let client = V2Client(transport: transport, tokens: V2TestTokens(), now: { v2Now })
+        _ = try await client.connect(config)
+        let body = V2PushRegistrationBody(
+            registrationID: registrationID,
+            moduleID: v2OtherID,
+            bundleID: "com.example.airsim",
+            environment: "sandbox",
+            voipToken: String(repeating: "a", count: 64),
+            alertToken: String(repeating: "b", count: 64)
+        )
+        let receipt = try await client.registerPush(body)
+        XCTAssertEqual(receipt.server_id, v2ID)
+        XCTAssertEqual(receipt.client_installation_id, v2OtherID)
+        XCTAssertEqual(receipt.registration_id, registrationID)
+        XCTAssertTrue(transport.requests
+            .filter { $0.url?.path == "/v2/push/registration" }
+            .allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer " + String(repeating: "a", count: 64) })
+        let encoded = try JSONSerialization.jsonObject(with: try XCTUnwrap(pushBody)) as! [String: String]
+        XCTAssertEqual(encoded["registration_id"], registrationID)
+        XCTAssertEqual(encoded["module_id"], v2OtherID)
+        XCTAssertEqual(encoded["voip_token"], String(repeating: "a", count: 64))
+        try await client.unregisterPush(registrationID: registrationID)
+        let deleted = try JSONSerialization.jsonObject(with: try XCTUnwrap(deletedBody)) as! [String: String]
+        XCTAssertEqual(deleted["registration_id"], registrationID)
+    }
+
     @MainActor func testKnownDiscoveryProfilesWithoutAPNsRetainIdentityAndOriginChecks() async throws {
         for profile in ["airsim-v2-r4.1", "airsim-v2-callkit"] {
-            for mismatch in ["none", "server_id", "api_origin", "media_origin", "apns", "profile"] {
+            for mismatch in ["none", "server_id", "api_origin", "media_origin", "profile"] {
                 var discovery = try JSONSerialization.jsonObject(with: v2Discovery()) as! [String: Any]
                 discovery["profile"] = profile
                 switch mismatch {
                 case "server_id": discovery["server_id"] = v2OtherID
                 case "api_origin", "media_origin": discovery[mismatch] = "https://other.example.invalid"
-                case "apns":
-                    var capabilities = discovery["capabilities"] as! [String: Any]
-                    capabilities["apns"] = true; discovery["capabilities"] = capabilities
                 case "profile": discovery["profile"] = "airsim-v2-unknown"
                 default: break
                 }
@@ -2083,6 +2227,21 @@ extension CloudV2Tests {
                 XCTAssertTrue(transport.requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == nil })
             }
         }
+    }
+
+    @MainActor func testCallKitDiscoveryAcceptsConfiguredAPNs() async throws {
+        var discovery = try JSONSerialization.jsonObject(with: v2Discovery()) as! [String: Any]
+        discovery["profile"] = "airsim-v2-callkit"
+        var capabilities = discovery["capabilities"] as! [String: Any]
+        capabilities["apns"] = true
+        discovery["capabilities"] = capabilities
+        let transport = V2TestTransport { _ in
+            V2HTTPResponse(status: 200, body: try v2Data(discovery))
+        }
+        let client = V2Client(transport: transport, tokens: V2TestTokens(), now: { v2Now })
+        let result = try await client.connect(v2Config())
+        XCTAssertEqual(result.profile, "airsim-v2-callkit")
+        XCTAssertTrue(result.capabilities.apns)
     }
 }
 
