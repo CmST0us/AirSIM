@@ -7,13 +7,13 @@
 - The normal user flow is “添加设备”, eight-digit code lookup, explicit device confirmation, then claim. The UI does not request a server address, JSON file or protocol version.
 - The old administrator import remains available under “其他方式” for existing temporary R4 deployments; a newly paired session does not depend on it.
 - A pending claim, installation ID and refresh token are stored in the Keychain with `AfterFirstUnlockThisDeviceOnly`. A lost claim response retries the same operation instead of creating another device session.
-- A successful paired session keeps the installation ID and module scope stable. One-hour access tokens refresh automatically through the 90-day sliding session; one failed 401 triggers at most one refresh and retry.
+- A successful paired session keeps the installation ID and module scope stable. The revocable device credential has no inactivity expiry; one-hour access tokens refresh when connecting, when less than five minutes remain, or after one failed 401.
 - Legacy schema-1 temporary credentials retain their original expiry and manual-import behavior.
 
 ## Verification
 
 - Xcode simulator `build-for-testing` succeeds with the deployment pairing origin injected through `AIRSIM_V2_PAIRING_ORIGIN`.
-- Unit coverage includes lost-claim retry identity, complete session commit, single refresh on 401, token replacement and stable installation identity.
+- Unit coverage includes lost-claim retry identity, complete session commit, long-dormant access-token recovery, single refresh on 401, token replacement and stable installation identity.
 - Focused CloudV2 tests pass, including lost-claim retry, 401 refresh, legacy near-expiry compatibility, identity/origin checks and background connection cancellation.
 - The complete UI flow passes on a clean iPhone 18 Pro simulator: existing Settings → 添加设备 → eight-digit code → RM500 confirmation → claim → automatic-renewal status → module row. The simulator uses an in-process pairing store because its Keychain is unavailable.
 - Real Chrome WebUSB selected the attached RM500, verified its module identity and Ed25519 proof, and displayed the five-minute code. The web page reached “设备已连接”.

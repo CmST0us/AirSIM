@@ -10,3 +10,6 @@ var Push string
 
 //go:embed 003_pairing.sql
 var Pairing string
+
+//go:embed 004_persistent_client_sessions.sql
+var PersistentClientSessions string

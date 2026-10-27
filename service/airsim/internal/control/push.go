@@ -252,7 +252,7 @@ func (s *Server) RunPush(ctx context.Context) {
 		case <-tick.C:
 			s.pushCycle(ctx)
 		case <-cleanup.C:
-			_, _ = s.db.Exec(ctx, `DELETE FROM push_registrations r USING clients c WHERE r.client_id=c.id AND (c.revoked OR (c.refresh_expires_at IS NULL AND c.expires_at<=now()) OR c.refresh_expires_at<=now())`)
+			_, _ = s.db.Exec(ctx, `DELETE FROM push_registrations r USING clients c WHERE r.client_id=c.id AND (c.revoked OR (c.refresh_hash IS NULL AND c.expires_at<=now()) OR (c.refresh_hash IS NOT NULL AND c.refresh_expires_at IS NOT NULL AND c.refresh_expires_at<=now()))`)
 			_, _ = s.db.Exec(ctx, `DELETE FROM push_calls WHERE last_seen<now()-interval '31 days'`)
 		}
 	}

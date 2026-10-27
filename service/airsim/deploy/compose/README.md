@@ -38,7 +38,7 @@ scripts/production-compose.sh run -T --interactive=false --rm admin --operation 
 
 `init` creates `identity/identity.json`, the five-year device CA, independent edge/media bearers and command-HMAC key. It refuses an existing identity directory. Read only the public `server_id` from `identity.json` into `AIRSIM_SERVER_ID`; never dump the directory. Initialization failure must be inspected rather than deleting existing identity material.
 
-Existing schema 1 or 2 installations are backed up before the pairing migration. The migration adds module-scoped renewable clients and pairing transactions. Do not start the new control binary against an unmigrated database; Compose gates control on the one-shot migrate service.
+Existing installations are backed up before migration. Schema 3 adds module-scoped pairing; schema 4 upgrades non-revoked paired clients to persistent device sessions and retains the one-hour access-token boundary. Do not start the new control binary against an unmigrated database; Compose gates control on the one-shot migrate service.
 
 ```sh
 python3 scripts/render-production-edge.py
@@ -60,7 +60,7 @@ scripts/production-compose.sh run -T --interactive=false --rm admin --operation 
 scripts/production-compose.sh run -T --interactive=false --rm admin --operation revoke-client --client-id '<installation UUID>' </dev/null
 ```
 
-The output file is 0600 and must not already exist. Administrator clients remain temporary compatibility clients: validity defaults to 60 minutes and `--client-ttl` accepts 1h through 720h (30 days). They have no refresh. User devices added through the web pairing flow receive one-hour access tokens with a 90-day sliding refresh session; that refresh does not change the installation or module scope.
+The output file is 0600 and must not already exist. Administrator clients remain temporary compatibility clients: validity defaults to 60 minutes and `--client-ttl` accepts 1h through 720h (30 days). They have no refresh. User devices added through the web pairing flow receive one-hour access tokens backed by a revocable persistent device credential. The App renews the access token when reconnecting, shortly before expiry, or after an authentication failure; refresh does not change the installation or module scope.
 
 The controller calls the Agent's local Unix `cloud/prepare` endpoint using the frozen request. Preserve the exact request and response as 0600 files under the protected directory. Do not copy the device private key; the response contains public key/CSR/proof only.
 
@@ -95,7 +95,7 @@ Set `APNS_KEY_ID`, `APNS_TEAM_ID` and `APNS_BUNDLE_ID` for the signed iPhone App
 
 Registration accepts `sandbox` or `production` per installation; it must match the signed App entitlement. Topic is the configured main Bundle ID (`.voip` for incoming calls). APNs transport requires outbound DNS and TLS to Apple's sandbox/production provider. A configured provider and successful mock tests do not establish real APNs delivery or lock-screen wakeup.
 
-`PUT /v2/push/registration` authenticates the existing client Bearer and subscribes that installation to one owned module. Token updates reuse its registration ID; changing subscription domain requires DELETE followed by a new ID. DELETE matches both installation and registration ID, so delayed cleanup cannot delete a newer registration. Responses never contain tokens. Client expiry/revocation immediately excludes delivery and hourly cleanup removes obsolete subscriptions and their delivery metadata. CallKit identities remain for 31 days, longer than the maximum client lifetime.
+`PUT /v2/push/registration` authenticates the existing client Bearer and subscribes that installation to one owned module. Token updates reuse its registration ID; changing subscription domain requires DELETE followed by a new ID. DELETE matches both installation and registration ID, so delayed cleanup cannot delete a newer registration. Responses never contain tokens. Client revocation immediately excludes delivery and hourly cleanup removes obsolete subscriptions and their delivery metadata. CallKit identities remain for 31 days after their last observed call, independently of the long-lived device authorization.
 
 Call notifications require an online device and a snapshot no older than 8 seconds or more than 3 seconds in the future. Each attempt rechecks subscription, client, module and current call. Payload validity is 30 seconds; APNs expiration is zero. Success is persisted per registration/call domain; transient failures get at most two short retries. Network requests run outside the control lock. SMS uses the alert token and a fixed notification without sender/body, only for incoming messages observed after registration. Token refresh preserves the registration start time. No private APNs credentials are needed for the local mock test suite.
 

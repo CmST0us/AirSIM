@@ -610,15 +610,15 @@ func (s *Server) pairingClaim(w http.ResponseWriter, r *http.Request) {
 		wire.Error(w, http.StatusGone, "pairing_code_expired")
 		return
 	}
-	user, refreshExpiry := "", time.Now().UTC().Add(90*24*time.Hour)
+	user := ""
 	if err = tx.QueryRow(ctx, "SELECT user_id FROM modules WHERE id=$1 AND server_id=$2", module, s.cfg.Server).Scan(&user); err != nil {
 		wire.Error(w, http.StatusNotFound, "module_unavailable")
 		return
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO clients
  (id,user_id,token_hash,expires_at,module_id,refresh_hash,refresh_expires_at)
- VALUES($1,$2,$3,now(),$4,$5,$6)`,
-		body.Client, user, wire.Token(), module, wire.Hash(body.RefreshToken), refreshExpiry); err != nil {
+ VALUES($1,$2,$3,now(),$4,$5,NULL)`,
+		body.Client, user, wire.Token(), module, wire.Hash(body.RefreshToken)); err != nil {
 		wire.Error(w, http.StatusConflict, "pairing_claimed")
 		return
 	}

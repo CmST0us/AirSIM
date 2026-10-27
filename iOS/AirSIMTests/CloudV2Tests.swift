@@ -138,6 +138,41 @@ final class CloudV2Tests: XCTestCase {
         XCTAssertEqual(refreshes, 1)
         XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v2/modules" }.last?.value(forHTTPHeaderField: "Authorization"), "Bearer " + String(repeating: "b", count: 64))
     }
+    @MainActor func testPersistentSessionRefreshesAfterLongDormancy() async throws {
+        let tokens = V2TestTokens()
+        let current = V2Configuration(
+            identity: V2Identity(apiOrigin: "https://example.invalid", serverID: v2ID, clientInstallationID: v2ID),
+            mediaOrigin: "https://media.example.invalid",
+            expiresAt: v2Now.addingTimeInterval(-86400),
+            moduleID: v2ID,
+            refreshExpiresAt: v2Now.addingTimeInterval(-86400),
+            persistentSession: nil
+        )
+        try tokens.save(String(repeating: "a", count: 64), account: current.identity.account)
+        let transport = V2TestTransport { request in
+            if request.url!.path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "modules": []]))
+        }
+        let client = V2Client(transport: transport, tokens: tokens, now: { v2Now })
+        var refreshes = 0
+        client.onRefreshConfiguration = { previous in
+            refreshes += 1
+            let next = String(repeating: "b", count: 64)
+            try tokens.save(next, account: previous.identity.account)
+            return V2Configuration(
+                identity: previous.identity,
+                mediaOrigin: previous.mediaOrigin,
+                expiresAt: v2Now.addingTimeInterval(3600),
+                moduleID: previous.moduleID,
+                refreshExpiresAt: v2Now.addingTimeInterval(90 * 86400),
+                persistentSession: true
+            )
+        }
+        _ = try await client.connect(current)
+        _ = try await client.modules()
+        XCTAssertEqual(refreshes, 1)
+        XCTAssertEqual(transport.requests.filter { $0.url?.path == "/v2/modules" }.last?.value(forHTTPHeaderField: "Authorization"), "Bearer " + String(repeating: "b", count: 64))
+    }
     @MainActor func testLegacyNearExpiryCredentialDoesNotRequireRefresh() async throws {
         let tokens = V2TestTokens()
         let current = V2Configuration(
@@ -182,6 +217,7 @@ final class CloudV2Tests: XCTestCase {
                 "token": String(repeating: "b", count: 64),
                 "expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(3600)),
                 "refresh_expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(90 * 86400)),
+                "persistent_session": true,
             ]))
         }
         let pairing = V2PairingClient(origin: "https://example.invalid", store: pairings, transport: transport, now: { v2Now })
@@ -192,6 +228,7 @@ final class CloudV2Tests: XCTestCase {
         let session = try await pairing.claim(code: "00427193", device: device)
         XCTAssertEqual(claims.count, 2)
         XCTAssertEqual(claims[0], claims[1])
+        XCTAssertEqual(session.configuration.persistentSession, true)
         let store = V2ConfigurationStore(tokens: tokens, defaults: defaults, pairings: pairings)
         try store.commitPairedSession(session)
         XCTAssertEqual(try store.load(), session.configuration)

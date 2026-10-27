@@ -68,14 +68,17 @@ struct V2SessionResponse: Decodable {
     let token: String
     let expires_at: String
     let refresh_expires_at: String
+    let persistent_session: Bool?
     func session(origin: String, server: String, module: String, installation: String, refreshToken: String, name: String, now: Date) throws -> V2PairedSession {
         guard schema_version == 2, api_origin == origin, server_id == server, module_id == module,
               client_installation_id == installation, V2Validation.matches(token, "^[0-9a-f]{64}$") else { throw V2Error.invalidIdentity }
         try V2Validation.uuid(server_id); try V2Validation.uuid(module_id); try V2Validation.uuid(client_installation_id)
         let expiry = try V2Validation.date(expires_at), refreshExpiry = try V2Validation.date(refresh_expires_at)
-        guard (0...3900).contains(expiry.timeIntervalSince(now)), expiry > now,
-              refreshExpiry > now, refreshExpiry.timeIntervalSince(now) <= 90 * 86400 + 300 else { throw V2Error.expired }
-        let config = try V2Configuration(identity: V2Identity(apiOrigin: V2Validation.origin(api_origin), serverID: server_id, clientInstallationID: client_installation_id), mediaOrigin: V2Validation.origin(media_origin), expiresAt: expiry, moduleID: module_id, refreshExpiresAt: refreshExpiry)
+        guard (0...3900).contains(expiry.timeIntervalSince(now)), expiry > now else { throw V2Error.expired }
+        if persistent_session != true {
+            guard refreshExpiry > now, refreshExpiry.timeIntervalSince(now) <= 90 * 86400 + 300 else { throw V2Error.expired }
+        }
+        let config = try V2Configuration(identity: V2Identity(apiOrigin: V2Validation.origin(api_origin), serverID: server_id, clientInstallationID: client_installation_id), mediaOrigin: V2Validation.origin(media_origin), expiresAt: expiry, moduleID: module_id, refreshExpiresAt: refreshExpiry, persistentSession: persistent_session ?? false)
         return V2PairedSession(configuration: config, token: token, refreshToken: refreshToken, name: name)
     }
 }
@@ -136,8 +139,7 @@ final class V2PairingClient {
     }
     func refresh(_ current: V2Configuration, store configurationStore: V2ConfigurationStore) async throws -> V2Configuration {
         guard let origin, current.identity.apiOrigin == origin,
-              current.moduleID != nil, let refreshExpiry = current.refreshExpiresAt,
-              refreshExpiry > now() else { throw V2Error.expired }
+              current.moduleID != nil, current.canRenew(at: now()) else { throw V2Error.expired }
         let state = try self.store.load()
         guard let session = state.session, session.configuration.identity == current.identity,
               session.configuration.moduleID == current.moduleID else { throw V2Error.invalidIdentity }

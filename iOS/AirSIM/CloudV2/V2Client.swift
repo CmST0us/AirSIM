@@ -62,7 +62,7 @@ final class V2Client {
         guard try V2Validation.origin(config.identity.apiOrigin) == config.identity.apiOrigin,
               try V2Validation.origin(config.mediaOrigin) == config.mediaOrigin else { throw V2Error.invalidValue }
         try V2Validation.uuid(config.identity.serverID); try V2Validation.uuid(config.identity.clientInstallationID)
-        guard config.expiresAt > now() || (config.refreshExpiresAt ?? .distantPast) > now() else { throw V2Error.expired }
+        guard config.canConnect(at: now()) else { throw V2Error.expired }
         let stamp = gate.start(config)
         do {
             try await prepareAccess(stamp)
@@ -127,7 +127,7 @@ final class V2Client {
         guard gate.accepts(stamp), let config = configuration else { throw V2Error.stale }
         let remaining = config.expiresAt.timeIntervalSince(now())
         guard remaining <= 5 * 60 else { return }
-        guard config.refreshExpiresAt != nil else {
+        guard config.canRenew(at: now()) else {
             if remaining > 0 { return }
             throw V2Error.expired
         }
@@ -136,7 +136,7 @@ final class V2Client {
     }
     private func refreshAccess(_ stamp: V2SessionStamp) async throws {
         guard gate.accepts(stamp), let current = configuration,
-              let refreshExpiry = current.refreshExpiresAt, refreshExpiry > now(),
+              current.canRenew(at: now()),
               let refresh = onRefreshConfiguration else { throw V2Error.expired }
         let task: Task<V2Configuration, Error>
         if let refreshTask { task = refreshTask }
@@ -151,10 +151,14 @@ final class V2Client {
             let renewed = try await task.value
             guard gate.accepts(stamp), renewed.identity == current.identity,
                   renewed.moduleID == current.moduleID, renewed.expiresAt > now(),
-                  let renewedRefresh = renewed.refreshExpiresAt,
-                  renewedRefresh > now(),
-                  renewedRefresh.timeIntervalSince(now()) <= 90 * 86400 + 300 else {
+                  renewed.canRenew(at: now()) else {
                 throw V2Error.invalidIdentity
+            }
+            if renewed.persistentSession != true {
+                guard let renewedRefresh = renewed.refreshExpiresAt,
+                      renewedRefresh.timeIntervalSince(now()) <= 90 * 86400 + 300 else {
+                    throw V2Error.invalidIdentity
+                }
             }
             gate.refresh(renewed)
             token = try tokens.read(account: renewed.identity.account)

@@ -22,11 +22,11 @@ struct V2ConnectionSections: View {
             Section("云端 v2 连接") {
                 Text(model.userStatus)
                 if let config = model.configuration {
-                    if config.refreshExpiresAt != nil {
-                        Text("连接会在后台自动续期。")
+                    if config.canRenew(at: Date()) {
+                        Text("设备授权已安全保存在本机，联网时会自动续期。")
                             .font(.footnote).foregroundStyle(.secondary)
                     } else {
-                        Text("有效期至：\(config.expiresAt.formatted())")
+                        Text("临时连接有效期至：\(config.expiresAt.formatted())")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }

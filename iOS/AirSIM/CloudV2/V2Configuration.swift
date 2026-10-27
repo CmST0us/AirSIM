@@ -16,6 +16,13 @@ struct V2Configuration: Codable, Equatable {
     let expiresAt: Date
     var moduleID: String? = nil
     var refreshExpiresAt: Date? = nil
+    var persistentSession: Bool? = nil
+    func canRenew(at date: Date) -> Bool {
+        persistentSession == true || moduleID != nil || (refreshExpiresAt ?? .distantPast) > date
+    }
+    func canConnect(at date: Date) -> Bool {
+        expiresAt > date || canRenew(at: date)
+    }
 }
 struct V2ConfigurationImport: Decodable {
     let configuration: V2Configuration
