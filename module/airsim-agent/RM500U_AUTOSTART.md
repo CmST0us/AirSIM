@@ -14,7 +14,20 @@ Agent 的阻塞式随机源探测完成。该固件会提前暴露 AT 设备节�
 却不会创建控制 socket。不能轮询 `entropy_avail`：该值可能到达阈值后在两次采样之间
 立刻回落，导致启动器永久等待。
 
-首次安装可在仓库的 `module/airsim-agent` 目录执行：
+## 网页安装
+
+`https://airsim.eric3u.cc/` 的配对页会在模块未安装、版本不一致或缺少开机启动项时
+提供“安装并启用”或“更新并启用”。`service/airsim/web` 的构建会从
+`module/airsim-agent` 和 `module/rm500/audio` 生成 arm64 Agent、启动器、原生音频
+Helper 和带 SHA-256 的 manifest。网页通过 Chrome WebUSB 直接传送一个安装包，
+校验设备上的副本后写入 `/mnt/data/airsim-v2`，保留 `config/`、`state/`、
+`audio-current` 和现有配对，再更新 `current` 与唯一的 `asm:` 条目并重启 Agent。
+
+模块重启后，如果 Engine 已安装但控制 socket 尚未出现，网页显示
+“Engine 正在启动”，不把随机源初始化窗口误报为未安装或设备断开。用户可以保持供电并
+点击“重新检查”。
+
+手工安装仍可作为仓库内救援路径。在 `module/airsim-agent` 目录执行：
 
 ```sh
 GO=/path/to/go ./scripts/build.sh
@@ -65,3 +78,9 @@ curl --noproxy '*' -fsS http://127.0.0.1:18765/v2/local/cloud
   和 ready 接口恢复。
 - 停止主机 `adb server` 后，Chrome WebUSB 仍能在系统选择器中显示
   `RM500U-CN - 已配对`，读取 Agent 后进入“确认设备”页面。
+- 通过生产配对页完成一次从旧版到 `2.0.0-dev.pairing` 的更新；网页返回
+  “确认设备”，`current`、启动器与 `airsim-audiod` 哈希均匹配发布 manifest。
+  重启后 `config/identity.json` 与 `config/cloud.json` 内容哈希不变，
+  `current`、`audio-current` 和 `asm:` 条目保持不变；等待内核随机源完成后，
+  `control.sock`、`media.sock` 和 Agent 进程自动恢复。网页再次识别为“确认设备”，
+  并显示 Engine 已启用开机自启。

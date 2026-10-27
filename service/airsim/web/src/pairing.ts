@@ -3,6 +3,14 @@ export interface Device {
   id: string;
   name: string;
   shortId: string;
+  engine?: EngineStatus;
+}
+
+export interface EngineStatus {
+  state: 'ready' | 'starting' | 'missing' | 'incomplete' | 'outdated' | 'unavailable';
+  installedVersion?: string;
+  targetVersion?: string;
+  compatible: boolean;
 }
 
 export interface Operation {
@@ -18,10 +26,10 @@ export type ConnectionResult =
   | { state: 'connected'; online: boolean }
   | { state: 'failed' };
 
-export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'unsupported' | 'not_ready' | 'paired' | 'failed' | 'unknown';
+export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'unsupported' | 'not_ready' | 'paired' | 'install_failed' | 'failed' | 'unknown';
 
 export class TransportFailure extends Error {
-  constructor(readonly code: FailureCode) { super(code); }
+  constructor(readonly code: FailureCode, readonly detail?: string) { super(code); }
 }
 
 /** requestDevice must invoke the system picker before its first await. */
@@ -29,6 +37,8 @@ export interface DeviceTransport {
   listGrantedDevices(signal: AbortSignal): Promise<readonly Device[]>;
   requestDevice(signal: AbortSignal): Promise<Device>;
   inspect(device: Device, signal: AbortSignal): Promise<Device>;
+  /** Installs the served Engine release and enables persistent boot startup. */
+  install(device: Device, signal: AbortSignal, progress: (message: string) => void): Promise<Device>;
   /** Repeated delivery of the same Operation must not start another write. */
   connect(operation: Operation, signal: AbortSignal): Promise<ConnectionResult>;
   status(operation: Operation, signal: AbortSignal): Promise<ConnectionResult>;

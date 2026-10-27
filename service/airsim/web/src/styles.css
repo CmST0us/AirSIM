@@ -60,6 +60,10 @@ h1:focus { outline: 0; }
 .reset-note { border-left: 3px solid #b25d00; background: #fff5e8; padding: 16px 18px; text-align: left; }
 .reset-note strong { display: block; color: #743d00; font-size: 14px; line-height: 1.5; }
 .reset-note p { margin: 5px 0 0; color: #75553a; font-size: 13px; line-height: 1.7; }
+.install-note { border-left: 3px solid var(--accent); background: var(--soft); padding: 16px 18px; text-align: left; }
+.install-note strong { display: block; color: var(--accent); font-size: 14px; line-height: 1.5; }
+.install-note p { margin: 5px 0 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.failure-detail { margin: 12px 0 0; padding: 12px 14px; background: #fff4ef; color: #7b3424; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
 .loading-line { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 25px 0 16px; }
 .loading-line::after { content: ''; display: block; width: 30%; height: 100%; border-radius: 4px; background: var(--accent); animation: loading 1.5s linear infinite; }
 @keyframes loading { from { transform: translateX(-100%); } to { transform: translateX(340%); } }

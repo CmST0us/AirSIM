@@ -7,11 +7,12 @@ export type State =
   | { kind: 'mobile' | 'unsupported' | 'unavailable' | 'loading' }
   | { kind: 'devices' | 'selecting'; devices: readonly Device[] }
   | { kind: 'inspecting' | 'ready'; device: Device }
+  | { kind: 'installing'; device: Device; progress: string }
   | { kind: 'paired'; device: Device }
   | { kind: 'connecting' | 'pending' | 'checking' | 'unknown' | 'cancelling' | 'expired' | 'cancelled'; operation: Operation }
   | { kind: 'awaiting_phone'; operation: Operation; code: string; expiresAt: string }
   | { kind: 'connected'; operation: Operation; online: boolean }
-  | { kind: 'failed'; code: FailureCode; device?: Device };
+  | { kind: 'failed'; code: FailureCode; device?: Device; detail?: string };
 
 export interface ControllerOptions {
   environment: Environment;
@@ -114,6 +115,36 @@ export class PairingController {
     } catch (error) {
       if (this.current(generation)) this.set({ kind: 'failed', code: this.code(error), device });
     }
+  }
+
+  async installEngine() {
+    if (this.disposed || this.state.kind !== 'ready' || this.state.device.engine?.state === 'ready') return;
+    const transport = this.options.transport;
+    if (!transport) return;
+    const generation = ++this.generation;
+    const device = this.state.device;
+    this.set({ kind: 'installing', device, progress: '正在准备 AirSIM Engine…' });
+    try {
+      const installed = await transport.install(device, this.lifetime.signal, message => {
+        if (this.current(generation)) this.set({ kind: 'installing', device, progress: message });
+      });
+      if (!this.current(generation)) return;
+      this.heldDevice = installed;
+      this.set({ kind: 'ready', device: installed });
+    } catch (error) {
+      if (this.current(generation)) {
+        const code = this.code(error);
+        const detail = error instanceof TransportFailure
+          ? error.detail
+          : error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        this.set({ kind: 'failed', code: code === 'unknown' ? 'install_failed' : code, device, detail });
+      }
+    }
+  }
+
+  async refreshDevice() {
+    if (this.disposed || this.state.kind !== 'ready') return;
+    await this.inspect(this.state.device, ++this.generation);
   }
 
   async connect() {

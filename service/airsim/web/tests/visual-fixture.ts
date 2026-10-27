@@ -11,6 +11,7 @@ const transport: DeviceTransport = {
   listGrantedDevices: async () => scenario === 'empty' ? [] : [device],
   requestDevice: async () => device,
   inspect: async () => device,
+  install: async () => ({ ...device, engine: { state: 'ready', compatible: true } }),
   connect: async () => {
     if (scenario === 'paired') throw new TransportFailure('paired');
     if (['awaiting_phone','elapsed'].includes(scenario)) return { state: 'awaiting_phone', code: '01234567', expiresAt };

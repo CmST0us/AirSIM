@@ -15,6 +15,7 @@ export function adapter() {
     listGrantedDevices: vi.fn<DeviceTransport['listGrantedDevices']>().mockResolvedValue([]),
     requestDevice: vi.fn<DeviceTransport['requestDevice']>().mockResolvedValue(device),
     inspect: vi.fn<DeviceTransport['inspect']>().mockResolvedValue(device),
+    install: vi.fn<DeviceTransport['install']>().mockResolvedValue(device),
     connect: vi.fn<DeviceTransport['connect']>().mockResolvedValue({ state: 'pending' }),
     status: vi.fn<DeviceTransport['status']>().mockResolvedValue({ state: 'pending' }),
     cancel: vi.fn<DeviceTransport['cancel']>().mockResolvedValue({ state: 'cancelled' }),

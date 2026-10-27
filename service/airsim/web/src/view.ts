@@ -16,6 +16,7 @@ const failures: Record<FailureCode, [string, string]> = {
   unsupported: ['设备不受支持', '选择受支持的设备。'],
   not_ready: ['设备未准备', '完成设备准备后重试。'],
   paired: ['设备已连接', '重置当前连接，或选择其他设备。'],
+  install_failed: ['Engine 安装失败', '检查数据线和设备权限，然后重新选择设备重试。'],
   failed: ['连接失败', '检查设备电源和连接。选择设备，重试连接。'],
   unknown: ['无法读取设备', '检查设备连接。选择设备重试。'],
 };
@@ -76,7 +77,19 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
   function deviceCard(device: Device, selectable = false) {
     const card = element(selectable ? 'button' : 'div', selectable ? 'device-choice' : 'device-summary');
     const copy = element('span');
-    copy.append(element('strong', '', device.name), element('small', '', `设备标识 · ${device.shortId}`));
+    const engine = device.engine;
+    const engineVersion = engine?.installedVersion || engine?.targetVersion;
+    const engineCopy = engine?.state === 'ready'
+      ? engineVersion
+        ? ` · Engine ${engineVersion} · 开机自启`
+        : ' · Engine 已启用 · 开机自启'
+      : engine?.state === 'starting'
+        ? ` · Engine ${engineVersion ? `${engineVersion} · ` : ''}启动中`
+      : engine?.state === 'missing' ? ' · Engine 未安装'
+        : engine?.state === 'incomplete' ? ' · 缺少开机启动'
+          : engine?.state === 'outdated' ? ' · Engine 可更新'
+            : engine?.state === 'unavailable' ? ' · 设备架构不受支持' : '';
+    copy.append(element('strong', '', device.name), element('small', '', `设备标识 · ${device.shortId}${engineCopy}`));
     card.append(copy);
     if (card instanceof HTMLButtonElement) {
       card.type = 'button';
@@ -134,10 +147,47 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
       case 'inspecting':
         copy('读取设备', '保持设备连接。');
         content.append(deviceCard(state.device)); loading(); break;
-      case 'ready':
-        copy('确认设备', '核对设备名称与标识。');
+      case 'ready': {
+        const engine = state.device.engine;
+        const engineReady = !engine || engine.state === 'ready';
+        const engineStarting = engine?.state === 'starting';
+        const description = !engine ? '核对设备名称与标识。'
+          : engine.state === 'outdated' ? '更新运行程序并保持开机自启。'
+            : engine.state === 'incomplete' ? '补齐开机启动，重启后仍可自动运行。'
+              : engine.state === 'unavailable' ? '当前部署包不支持这台设备。'
+                : engineStarting ? '保持模块供电。内核随机源完成后会自动继续，无需重新安装。'
+                  : '核对设备名称与标识。Engine 已启用开机自启。';
+        copy(
+          engineStarting ? 'Engine 正在启动' : engineReady ? '确认设备' : '安装 AirSIM Engine',
+          description,
+        );
         content.append(deviceCard(state.device));
-        actions.append(button('连接设备', () => { void controller.connect(); }), button('选择其他设备', choose, true));
+        if (engineStarting) {
+          actions.append(button('重新检查', () => { void controller.refreshDevice(); }), button('选择其他设备', choose, true));
+        } else if (!engineReady) {
+          const note = element('div', 'install-note');
+          note.append(
+            element('strong', '', '持久化安装'),
+            element('p', '', engine?.state === 'unavailable'
+              ? '请在 RM500U 模块上使用 Chrome 或 Edge 打开本页，并保持 USB 数据连接。'
+              : 'AirSIM Engine 会保存到模块的持久存储，并写入开机启动配置。模块身份和现有云连接配置不会被覆盖。'),
+          );
+          content.append(note);
+          if (engine?.state !== 'unavailable') {
+            actions.append(button(engine?.state === 'missing' ? '安装并启用' : '更新并启用', () => { void controller.installEngine(); }));
+          }
+          actions.append(button('选择其他设备', choose, true));
+        } else {
+          actions.append(button('连接设备', () => { void controller.connect(); }), button('选择其他设备', choose, true));
+        }
+        break;
+      }
+      case 'installing':
+        copy('安装 AirSIM Engine', '不要断开设备电源或数据线。');
+        content.append(deviceCard(state.device));
+        lead.textContent = state.progress;
+        lead.setAttribute('role', 'status');
+        loading();
         break;
       case 'paired': {
         copy('此设备已连接', '如果你现在持有模块，可以重置当前连接。');
@@ -202,6 +252,7 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
       case 'failed': {
         const [title, description] = failures[state.code]; copy(title, description);
         if (state.device) content.append(deviceCard(state.device));
+        if (state.detail) content.append(element('p', 'failure-detail', state.detail));
         actions.append(button('选择设备', choose)); break;
       }
     }

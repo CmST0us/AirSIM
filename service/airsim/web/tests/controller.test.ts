@@ -80,6 +80,24 @@ describe('device flow', () => {
     await replacing;
   });
 
+  it('installs a missing Engine before exposing the pairing action', async () => {
+    const { controller, transport } = await setup();
+    const missing = { ...device, engine: { state: 'missing' as const, compatible: true } };
+    const installed = { ...device, engine: { state: 'ready' as const, compatible: true, installedVersion: '2.0.0-dev.pairing' } };
+    transport.inspect.mockResolvedValue(missing);
+    await controller.requestDevice();
+    expect(controller.state).toEqual({ kind: 'ready', device: missing });
+
+    const deployment = deferred<Device>();
+    transport.install.mockReturnValue(deployment.promise);
+    const deploying = controller.installEngine();
+    expect(controller.state).toEqual({ kind: 'installing', device: missing, progress: '正在准备 AirSIM Engine…' });
+    expect(transport.connect).not.toHaveBeenCalled();
+    deployment.resolve(installed);
+    await deploying;
+    expect(controller.state).toEqual({ kind: 'ready', device: installed });
+  });
+
   it('a disconnect during write becomes unknown and recovery only queries the same operation', async () => {
     const { controller, transport } = await setup();
     await controller.requestDevice();

@@ -54,6 +54,56 @@ it('renders adapter text as text rather than markup', async () => {
   expect(root.textContent).toContain('<img src=x onerror=alert(1)>');
 });
 
+it('offers persistent Engine installation before pairing a bare module', async () => {
+  const { root, controller, transport } = await setup();
+  const missing = { ...device, engine: { state: 'missing' as const, compatible: true } };
+  const installed = { ...device, engine: { state: 'ready' as const, compatible: true } };
+  transport.inspect.mockResolvedValue(missing);
+  transport.install.mockResolvedValue(installed);
+  await controller.requestDevice();
+  expect(root.querySelector('h1')?.textContent).toBe('安装 AirSIM Engine');
+  expect(root.textContent).toContain('开机自启');
+  const install = [...root.querySelectorAll('button')].find(button => button.textContent === '安装并启用')!;
+  const deployment = deferred<typeof installed>();
+  transport.install.mockReturnValueOnce(deployment.promise);
+  install.click();
+  expect(transport.install).toHaveBeenCalledTimes(1);
+  expect(transport.connect).not.toHaveBeenCalled();
+  deployment.resolve(installed);
+  await deployment.promise;
+});
+
+it('continues to device confirmation when the persistent Engine is ready', async () => {
+  const { root, controller, transport } = await setup();
+  transport.inspect.mockResolvedValue({
+    ...device,
+    engine: { state: 'ready', compatible: true, installedVersion: '2.0.0-dev.pairing' },
+  });
+  await controller.requestDevice();
+  expect(root.querySelector('h1')?.textContent).toBe('确认设备');
+  expect(root.textContent).toContain('Engine 2.0.0-dev.pairing · 开机自启');
+  expect(root.textContent).toContain('Engine 已启用开机自启');
+});
+
+it('shows boot initialization separately and can recheck without reinstalling', async () => {
+  const { root, controller, transport } = await setup();
+  const ready = {
+    ...device,
+    engine: { state: 'ready' as const, compatible: true, installedVersion: '2.0.0-dev.pairing' },
+  };
+  transport.inspect
+    .mockResolvedValueOnce({ ...device, engine: { state: 'starting', compatible: true, targetVersion: '2.0.0-dev.pairing' } })
+    .mockResolvedValueOnce(ready);
+  await controller.requestDevice();
+  expect(root.querySelector('h1')?.textContent).toBe('Engine 正在启动');
+  expect(root.textContent).toContain('无需重新安装');
+  const recheck = [...root.querySelectorAll('button')].find(button => button.textContent === '重新检查')!;
+  recheck.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(transport.inspect).toHaveBeenCalledTimes(2);
+  expect(root.querySelector('h1')?.textContent).toBe('确认设备');
+});
+
 it('explains that a connected device can be reset only with the module in hand', async () => {
   const { root, controller, transport } = await setup();
   await controller.requestDevice();
