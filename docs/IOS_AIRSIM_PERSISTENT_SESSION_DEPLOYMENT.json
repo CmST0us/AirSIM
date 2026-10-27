@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-10-27T01:41:49Z",
+  "commit": "be8400fd6361",
+  "ecs_instance_id": "i-wz93dhbsy21quebidepg",
+  "release_directory": "/opt/airsim-v2/releases/be8400f",
+  "business_image": "sha256:3df84fdd9abcb661c3fdcb0c7f7208be17258ff1d75e09814f73a05a3711e03b",
+  "database": {
+    "schema_before": 3,
+    "schema_after": 4,
+    "pre_migration_backup": "/opt/airsim-v2/backups/be8400f-pre-schema4.dump",
+    "pre_migration_backup_bytes": 32000,
+    "non_revoked_paired_clients": 2,
+    "paired_clients_with_inactivity_expiry_after_migration": 0
+  },
+  "cloudflare": {
+    "tunnel_id": "6b13fed2-c630-4391-b062-a2660081ff10",
+    "hostname": "airsim.eric3u.cc",
+    "cname": "6b13fed2-c630-4391-b062-a2660081ff10.cfargotunnel.com",
+    "proxied": true,
+    "device_hostname_remains_dns_only": true
+  },
+  "verification": {
+    "control": "running healthy",
+    "media": "running healthy",
+    "edge": "running healthy",
+    "postgres": "running healthy",
+    "cloudflared": "running",
+    "ecs_local_healthz": 200,
+    "ecs_local_readyz": 200,
+    "public_edge_healthz": {
+      "104.21.26.127": 200,
+      "172.67.136.68": 200
+    },
+    "recent_control_errors": 0,
+    "recent_media_errors": 0
+  },
+  "rollback": {
+    "release_directory": "/opt/airsim-v2/releases/13c9b6963b4d",
+    "business_image": "sha256:06b4504c419797de1e88b88f32b1d1f6d4cbdcbe159118e43e55ce7cf2d6d9c2",
+    "deployment_env_backup": "/opt/airsim-v2/backups/be8400f-pre-deployment.env"
+  },
+  "limitations": [
+    "The Mac station's direct HTTPS request to the Cloudflare edge remained reset by its local network path; public edge health was verified independently from ECS against both Cloudflare addresses.",
+    "The updated iOS build has not yet been installed on a physical iPhone for this deployment record."
+  ]
+}

@@ -18,9 +18,11 @@
 - The complete UI flow passes on a clean iPhone 18 Pro simulator: existing Settings → 添加设备 → eight-digit code → RM500 confirmation → claim → automatic-renewal status → module row. The simulator uses an in-process pairing store because its Keychain is unavailable.
 - Real Chrome WebUSB selected the attached RM500, verified its module identity and Ed25519 proof, and displayed the five-minute code. The web page reached “设备已连接”.
 - The production ECS records the paired client as `connected`, non-revoked, and scoped to the same module as the pairing request.
+- On 2026-10-27 the schema-4 persistent-session service was deployed to ECS; both non-revoked paired clients were migrated without an inactivity expiry, and the public Cloudflare Tunnel route returned healthy responses from both edge addresses. Deployment and rollback details are in [persistent-session deployment evidence](IOS_AIRSIM_PERSISTENT_SESSION_DEPLOYMENT.json).
 
 ## Boundary
 
 - Physical-iPhone Keychain persistence and long-running refresh across App relaunches have not been repeated as part of this pairing closeout.
+- The schema-4 service is live, but the updated iOS build has not yet been installed on a physical iPhone for this deployment record.
 - The API and pairing page use the Cloudflare-proxied `https://airsim.eric3u.cc` hostname. The device hostname remains DNS-only so the RM500 mTLS path is not terminated at the Cloudflare edge.
 - Tapping “添加设备” requires a build with `AIRSIM_V2_PAIRING_ORIGIN` configured to the deployment HTTPS origin. The repository default intentionally contains no maintainer origin.
