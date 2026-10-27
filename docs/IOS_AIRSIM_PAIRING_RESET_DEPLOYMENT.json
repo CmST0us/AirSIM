@@ -1,0 +1,69 @@
+{
+  "recorded_at": "2026-10-27T05:59:43Z",
+  "commit": "a90f3233a2d0f73d376829f37dca18eea66a6d62",
+  "ecs_instance_id": "i-wz93dhbsy21quebidepg",
+  "release_directory": "/opt/airsim-v2/releases/a90f323",
+  "business_image": {
+    "build_image_id": "sha256:ff2576966d78a17dd97376cb03e9570c863dbb37bee44fd5d7ff063f26caa918",
+    "runtime_image_id": "sha256:813961e0d330298946a910f28b215d4e293ef740fae66c81257f312c2efebb9e",
+    "archive": "/opt/airsim-v2/staging/a90f323/business-amd64.tar.gz"
+  },
+  "database": {
+    "schema_before": 5,
+    "schema_after": 6,
+    "pre_migration_backup": "/opt/airsim-v2/backups/a90f323-pre-schema6.dump",
+    "pre_migration_backup_bytes": 34895,
+    "active_paired_clients_after": 1,
+    "revoked_paired_clients_after": 4
+  },
+  "module": {
+    "module_id": "3138c264-cd46-4370-86d7-0e15c0c89bc5",
+    "retained_client_installation_id": "756b19fb-f71c-4eb5-9a02-a26c08a33fb1"
+  },
+  "verification": {
+    "control": "running healthy",
+    "media": "running healthy",
+    "edge": "running healthy",
+    "postgres": "running healthy",
+    "cloudflare_tunnel": "running",
+    "readyz": {
+      "ready": true
+    },
+    "default_pairing_while_connected": {
+      "status": 409,
+      "error": "module_already_paired"
+    },
+    "replacement_challenge": {
+      "module_proof": true,
+      "approved": true,
+      "awaiting_phone_lookup_with_existing_client": 200,
+      "old_phone_retained": true,
+      "challenge_cancelled": true
+    },
+    "web": {
+      "asset": "/assets/index-DFjVzvYm.js",
+      "reset_warning_deployed": true
+    },
+    "agent_cloud": {
+      "connected": true,
+      "last_error": ""
+    },
+    "ios": {
+      "client_installation_id": "756b19fb-f71c-4eb5-9a02-a26c08a33fb1",
+      "snapshot_online": true,
+      "control_available": true,
+      "telephony_available": true,
+      "audio_available": true
+    }
+  },
+  "rollback": {
+    "release_directory": "/opt/airsim-v2/releases/0e18585",
+    "business_image": "sha256:048f0c11b4ab3724d9d43237f23d21a1d11df0e54108fc0ea4f94be0964606c5",
+    "deployment_env_backup": "/opt/airsim-v2/backups/a90f323-pre-deployment.env",
+    "pre_upgrade_database_backup": "/opt/airsim-v2/backups/a90f323-pre-schema6.dump"
+  },
+  "limitations": [
+    "The production reset probe stopped after approval and code lookup, then cancelled the request so the existing connected phone would remain active. The atomic claim-time replacement and old-token revocation are verified in the isolated PostgreSQL test.",
+    "Rolling back to the schema 5 binary requires the pre-upgrade database backup because the schema 5 readiness check rejects schema 6."
+  ]
+}

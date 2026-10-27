@@ -21,6 +21,7 @@
 - Real Chrome WebUSB selected the attached RM500, verified its module identity and Ed25519 proof, and displayed the five-minute code. The web page reached “设备已连接”.
 - The production ECS records the paired client as `connected`, non-revoked, and scoped to the same module as the pairing request.
 - On 2026-10-27 the schema-5 service kept the current simulator installation, revoked four historical duplicate phone clients and removed paired-session expiry. The iOS client reconnected through the existing permanent credential, the module returned online with control, telephony and audio capabilities, and a second pairing request correctly returned `409 module_already_paired`. Deployment and rollback details are in [permanent-pairing deployment evidence](IOS_AIRSIM_PERMANENT_PAIRING_DEPLOYMENT.json).
+- Schema 6 is deployed with the module-holder reset page. A live replacement challenge was authorized by the RM500, produced a valid phone lookup while the old client remained active, and was cancelled without changing the current phone. The claim-time atomic replacement is covered by the isolated PostgreSQL test; deployment details are in [pairing-reset deployment evidence](IOS_AIRSIM_PAIRING_RESET_DEPLOYMENT.json).
 
 ## Boundary
 
