@@ -205,6 +205,7 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 	err = a.discover(discovery, s)
 	discoveryCancel()
 	if err != nil {
+		log.Printf("cloud discovery failed: %v", err)
 		return "discovery_failed"
 	}
 	client, e := a.P.client(s, true)

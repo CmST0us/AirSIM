@@ -190,6 +190,16 @@ func errorCode(e error) string {
 	}
 	return "query_failed"
 }
+
+func useEarlyLinuxRandom() (*os.File, error) {
+	f, e := os.Open("/dev/urandom")
+	if e != nil {
+		return nil, e
+	}
+	rand.Reader = f
+	return f, nil
+}
+
 func main() {
 	profile := flag.String("profile", "", "explicit platform profile")
 	device := flag.String("at-device", "", "explicit AT device")
@@ -207,6 +217,12 @@ func main() {
 		}
 		return
 	}
+	randomDevice, e := useEarlyLinuxRandom()
+	if e != nil {
+		fmt.Fprintln(os.Stderr, "airsim-agent:", e)
+		os.Exit(1)
+	}
+	defer randomDevice.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	go func() {

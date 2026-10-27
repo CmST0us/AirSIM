@@ -5,6 +5,7 @@ import (
 	"airsim.local/airsim-agent/internal/identity"
 	"airsim.local/airsim-agent/internal/strictjson"
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -19,6 +20,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -461,7 +463,115 @@ func (p *Provisioner) client(s *saved, mtls bool) (*http.Client, error) {
 		}
 		cfg.Certificates = []tls.Certificate{{Certificate: [][]byte{c.Raw}, PrivateKey: p.id.Signer(), Leaf: c}}
 	}
-	return &http.Client{Transport: &http.Transport{Proxy: nil, TLSClientConfig: cfg, ForceAttemptHTTP2: false}, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect_rejected") }}, nil
+	dialer := &net.Dialer{KeepAlive: 30 * time.Second}
+	return &http.Client{
+		Transport: &http.Transport{
+			Proxy: nil,
+			DialContext: func(ctx context.Context, _, address string) (net.Conn, error) {
+				return dialIPv4(ctx, dialer, address)
+			},
+			DialTLSContext: func(ctx context.Context, _, address string) (net.Conn, error) {
+				return dialTLSIPv4(ctx, dialer, cfg, address)
+			},
+			TLSClientConfig:   cfg,
+			ForceAttemptHTTP2: false,
+		},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect_rejected") },
+	}, nil
+}
+
+func dialIPv4(ctx context.Context, dialer *net.Dialer, address string) (net.Conn, error) {
+	host, port, e := net.SplitHostPort(address)
+	if e != nil {
+		return nil, e
+	}
+	addresses, e := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+	if e != nil {
+		return nil, e
+	}
+	if len(addresses) == 0 {
+		return nil, errors.New("no_ipv4_address")
+	}
+	var last error
+	for _, ip := range addresses {
+		attempt, cancel := context.WithTimeout(ctx, 5*time.Second)
+		conn, e := dialer.DialContext(attempt, "tcp4", net.JoinHostPort(ip.String(), port))
+		cancel()
+		if e == nil {
+			return conn, nil
+		}
+		last = e
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+	return nil, last
+}
+
+func dialTLSIPv4(ctx context.Context, dialer *net.Dialer, cfg *tls.Config, address string) (net.Conn, error) {
+	host, port, e := net.SplitHostPort(address)
+	if e != nil {
+		return nil, e
+	}
+	addresses, e := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+	if e != nil {
+		return nil, e
+	}
+	if len(addresses) == 0 {
+		return nil, errors.New("no_ipv4_address")
+	}
+	race, cancelRace := context.WithCancel(ctx)
+	defer cancelRace()
+	type result struct {
+		conn net.Conn
+		err  error
+	}
+	results := make(chan result)
+	for _, ip := range addresses {
+		go func(ip net.IP) {
+			attempt, cancel := context.WithTimeout(race, 15*time.Second)
+			defer cancel()
+			raw, e := dialer.DialContext(attempt, "tcp4", net.JoinHostPort(ip.String(), port))
+			if e != nil {
+				select {
+				case results <- result{err: e}:
+				case <-race.Done():
+				}
+				return
+			}
+			tlsConfig := cfg.Clone()
+			if tlsConfig.ServerName == "" {
+				tlsConfig.ServerName = host
+			}
+			conn := tls.Client(raw, tlsConfig)
+			if e = conn.HandshakeContext(attempt); e != nil {
+				raw.Close()
+				select {
+				case results <- result{err: e}:
+				case <-race.Done():
+				}
+				return
+			}
+			select {
+			case results <- result{conn: conn}:
+			case <-race.Done():
+				conn.Close()
+			}
+		}(ip)
+	}
+	var last error
+	for range addresses {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case result := <-results:
+			if result.err == nil {
+				return result.conn, nil
+			}
+			last = result.err
+		}
+	}
+	return nil, last
 }
 func WithLocal(next http.Handler, p *Provisioner, a *Agent) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

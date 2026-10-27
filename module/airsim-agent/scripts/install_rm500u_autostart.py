@@ -43,8 +43,17 @@ def main() -> int:
         "\n".join(
             [
                 "set -eu",
+                f"mkdir -p {shlex.quote(BASE + '/config')} {shlex.quote(BASE + '/state')}",
+                f"chmod 700 {shlex.quote(BASE + '/config')} {shlex.quote(BASE + '/state')}",
+                f"if [ ! -f {shlex.quote(BASE + '/config/random.seed')} ]; then "
+                f"dd if=/dev/urandom of={shlex.quote(BASE + '/config/random.seed.tmp')} bs=64 count=1 2>/dev/null; "
+                f"chmod 600 {shlex.quote(BASE + '/config/random.seed.tmp')}; "
+                f"mv -f {shlex.quote(BASE + '/config/random.seed.tmp')} {shlex.quote(BASE + '/config/random.seed')}; "
+                "fi",
+                f"test \"$(wc -c <{shlex.quote(BASE + '/config/random.seed')})\" -eq 64",
                 f"chmod 700 {shlex.quote(remote_launcher)}",
                 f"mv -f {shlex.quote(remote_launcher)} {shlex.quote(BASE + '/run-agent.sh')}",
+                f"previous=\"$(readlink {shlex.quote(current_link)} 2>/dev/null || true)\"",
                 f"rm -f {shlex.quote(BASE + '/current.next')} {shlex.quote(current_link)}",
                 "ln -s " + shlex.quote(release_link) + " " + shlex.quote(BASE + "/current.next"),
                 "mv " + shlex.quote(BASE + "/current.next") + " " + shlex.quote(current_link),
@@ -52,6 +61,13 @@ def main() -> int:
                 + shlex.quote(current_link)
                 + ")\" = "
                 + shlex.quote(release_link),
+                f"for d in {shlex.quote(BASE + '/releases')}/*; do "
+                "[ -d \"$d\" ] || continue; "
+                "name=${d##*/}; link=releases/$name; "
+                f"if [ \"$link\" = \"$previous\" ] || [ \"$name\" = {shlex.quote(release_name)} ]; then continue; fi; "
+                "rm -f \"$d/airsim-agent\" || true; "
+                "rmdir \"$d\" 2>/dev/null || true; "
+                "done",
             ]
         )
     )

@@ -8,11 +8,22 @@ asm:12345:respawn:/mnt/data/airsim-v2/run-agent.sh
 ```
 
 启动器位于 `/mnt/data/airsim-v2/run-agent.sh`，执行
-`/mnt/data/airsim-v2/current/airsim-agent`。它先等待 `/dev/smd1` 出现，再等待
-Agent 的阻塞式随机源探测完成。该固件会提前暴露 AT 设备节点，但 Go 的
-`crypto/rand` 在内核随机源初始化前会阻塞；缺少第二个条件时，Agent 进程虽然存在，
-却不会创建控制 socket。不能轮询 `entropy_avail`：该值可能到达阈值后在两次采样之间
-立刻回落，导致启动器永久等待。
+`/mnt/data/airsim-v2/current/airsim-agent`。它先等待 `/dev/smd1` 出现，再从
+`/mnt/data/airsim-v2/config/random.seed` 向内核 CRNG 注入 64 字节持久随机种子，
+随后立即启动 Agent。该固件会提前暴露 AT 设备节点，但内核随机源在冷启动时可能阻塞
+约两分钟。Agent 在该平台上从已注入种子的 `/dev/urandom` 读取启动期随机数，避免
+Go 的阻塞式 `getrandom` 把控制 socket 和云连接一起推迟。安装器只在种子缺失时生成
+它；启动器使用后立即生成下一轮种子，文件权限保持 `0600`。
+
+启动器还会把时间、内核 boot ID 和 `boot_reason` 追加到
+`/mnt/data/airsim-v2/state/boot.log`，保留最近 200 次启动，用于区分整机重启与
+Agent 单独重启。
+
+RM500 的蜂窝路由在冷启动后会同时解析出 IPv6 和 IPv4，但当前网络只稳定转发
+IPv4。Agent 的发现、控制、媒体和准入连接明确经 `tcp4` 建立，避免 IPv6 握手超时
+把本已可用的 IPv4 链路拖成 `discovery_failed`。启动器还会在 `sipa_eth0` 出现后把
+MTU 固定为 1400；固件默认的 1500 会让冷启动后的 TLS 握手出现 TCP 连接成功但
+证书阶段超时。
 
 ## 网页安装
 
@@ -24,7 +35,7 @@ Helper 和带 SHA-256 的 manifest。网页通过 Chrome WebUSB 直接传送一�
 `audio-current` 和现有配对，再更新 `current` 与唯一的 `asm:` 条目并重启 Agent。
 
 模块重启后，如果 Engine 已安装但控制 socket 尚未出现，网页显示
-“Engine 正在启动”，不把随机源初始化窗口误报为未安装或设备断开。用户可以保持供电并
+“Engine 正在启动”，不把短暂启动窗口误报为未安装或设备断开。用户可以保持供电并
 点击“重新检查”。
 
 手工安装仍可作为仓库内救援路径。在 `module/airsim-agent` 目录执行：
@@ -40,7 +51,8 @@ adb -s <adb-serial> reboot
 安装脚本把启动器写入 `/mnt/data/airsim-v2/run-agent.sh`，把 `current` 指向
 `releases/<hash前16位>`，并只向 `/etc/inittab` 写一条 `asm:` 条目。原始
 `/etc/inittab` 保存在 `/mnt/data/airsim-v2/config/inittab.orig`。修改系统分区时会暂时
-remount 为可写，写完 `sync` 后恢复只读。它不修改
+remount 为可写，写完 `sync` 后恢复只读。安装器保留新版本和安装前的一个回滚版本，
+删除无引用的旧 Agent，避免 34.8 MB 持久分区被多份 7.8 MB 构建占满。它不修改
 `/etc/quec_app_monitor.json`，厂商监控配置保持原样。
 
 开机后按以下顺序确认链路：
@@ -69,9 +81,8 @@ curl --noproxy '*' -fsS http://127.0.0.1:18765/v2/local/cloud
 
 - 重启后 `/etc/inittab` 中只有一条 `asm:` 条目，系统分区保持只读；
   `/etc/quec_app_monitor.json` 未被修改。
-- 内核随机源尚未初始化时，`airsim-agent --wait-random` 阻塞等待；即使
-  `entropy_avail` 从 127 瞬间回落到个位数，也没有漏过启动条件。约 128 秒后，
-  `/run/airsim-v2/control.sock` 和 `media.sock` 同时出现。
+- 旧启动方式在冷启动时会被内核随机源阻塞约两分钟。持久种子上线后，
+  `/run/airsim-v2/control.sock` 和 `media.sock` 在启动器就绪后立即出现。
 - `/healthz`、`/readyz`、`/v2/local/pairing` 和 `/v2/local/cloud` 均返回 200；
   pairing 显示 `configured=true`、`connected=true`，cloud 同时恢复连接。
 - 对已核对 PID 执行 `SIGKILL` 后，BusyBox init 立即拉起新 PID；数秒内控制 socket

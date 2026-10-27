@@ -377,6 +377,16 @@ audio_hash="$(sha256sum "$audio" | awk '{print $1}')"
 [ "$agent_hash" = "${manifest.agent.sha256}" ]
 [ "$launcher_hash" = "${manifest.launcher.sha256}" ]
 [ "$audio_hash" = "${manifest.audio.sha256}" ]
+mkdir -p "$base/config" "$base/state"
+chmod 700 "$base/config" "$base/state"
+random_seed="$base/config/random.seed"
+if [ ! -f "$random_seed" ] || [ "$(wc -c <"$random_seed")" -ne 64 ]; then
+  dd if=/dev/urandom of="$base/config/random.seed.tmp" bs=64 count=1 2>/dev/null
+  chmod 600 "$base/config/random.seed.tmp"
+  mv -f "$base/config/random.seed.tmp" "$random_seed"
+fi
+chmod 600 "$random_seed"
+test "$(wc -c <"$random_seed")" -eq 64
 mv -f "$agent" "$installed_agent"
 current_audio_hash="$(sha256sum "$base/audio-current/airsim-audiod" 2>/dev/null | awk '{print $1}' || true)"
 if [ "$current_audio_hash" != "${manifest.audio.sha256}" ]; then
@@ -393,10 +403,21 @@ else
 fi
 test -x "$base/audio-current/airsim-audiod"
 
+previous="$(readlink "$base/current" 2>/dev/null || true)"
 rm -f "$base/current.next"
 ln -s "releases/${release}" "$base/current.next"
 rm -f "$base/current"
 mv -f "$base/current.next" "$base/current"
+for d in "$base"/releases/*; do
+  [ -d "$d" ] || continue
+  name="\${d##*/}"
+  link="releases/$name"
+  if [ "$link" = "$previous" ] || [ "$name" = "${release}" ]; then
+    continue
+  fi
+  rm -f "$d/airsim-agent" 2>/dev/null || true
+  rmdir "$d" 2>/dev/null || true
+done
 mv -f "$launcher" "$base/run-agent.sh"
 chmod 700 "$base/run-agent.sh"
 
