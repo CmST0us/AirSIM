@@ -105,93 +105,53 @@ struct V2AudioMetrics {
 #endif
 }
 
-// The tap only copies into five preallocated 20ms mono slots. At most one drain
-// closure can be queued. The processing queue never holds this lock at stop.
+// Use the established v1 voice-bandlimited encoder directly from the audio tap.
+// The queue keeps at most five complete 20 ms frames and never drops frames by age.
 final class V2CaptureBuffer: @unchecked Sendable {
     private let lock = NSLock()
-    private let queue = DispatchQueue(label: "AirSIM.v2.capture")
-    private var storage: [[Float]]
-    private var lengths = [Int](repeating: 0, count: 5)
-    private var times = [UInt64](repeating: 0, count: 5)
-    private var head = 0, count = 0
-    private var scheduled = false, stopped = false, muted = false
-    private var frames: [(pcm: Data, time: UInt64)] = []
+    private let encoder = VoicePCMEncoder()
+    private var tail = Data()
+    private var stopped = false
+    private var frames: [Data] = []
     private var metrics = V2AudioMetrics()
-    private var failure: V2AudioError?
-    private let converter: V2PCMConverter
     let capacity: Int
     init(rate: Double) throws {
-        let capacity = max(1, Int(rate * 0.02))
-        self.capacity = capacity
-        storage = (0..<5).map { _ in [Float](repeating: 0, count: capacity) }
-        converter = try V2PCMConverter(rate: rate, capacity: AVAudioFrameCount(capacity))
+        guard rate > 0 else { throw V2AudioError.format }
+        capacity = max(1, Int(rate * 0.02))
     }
     func push(_ buffer: AVAudioPCMBuffer) {
-        guard let channels = buffer.floatChannelData, buffer.format.commonFormat == .pcmFormatFloat32 else { return }
+        guard buffer.floatChannelData != nil, buffer.format.commonFormat == .pcmFormatFloat32 else { return }
+        let encoded = encoder.encode(buffer)
+        guard !encoded.isEmpty else { return }
         lock.lock()
         guard !stopped else { lock.unlock(); return }
-        let size = Int(buffer.frameLength), n = Int(buffer.format.channelCount)
-        guard n > 0 else { lock.unlock(); return }
-        let capturedAt = DispatchTime.now().uptimeNanoseconds
-        var offset = max(0, size - capacity * 5)
-        if offset > 0 { metrics.inputDrops += UInt64(offset) }
-        while offset < size {
-            if count == 5 { metrics.inputDrops += UInt64(lengths[head]); head = (head + 1) % 5; count -= 1 }
-            let slot = (head + count) % 5, length = min(capacity, size - offset)
-            for i in 0..<length {
-                var value: Float = 0
-                for c in 0..<n { value += buffer.format.isInterleaved ? channels[0][(offset + i) * n + c] : channels[c][offset + i] }
-                storage[slot][i] = value / Float(n)
+        tail.append(encoded)
+        while tail.count >= 320 {
+            let frame = Data(tail.prefix(320))
+            tail.removeFirst(320)
+            if frames.count == 5 {
+                frames.removeFirst()
+                metrics.inputDrops += 1
             }
-            lengths[slot] = length; times[slot] = capturedAt; count += 1; offset += length
+            metrics.captured += 1
+            frames.append(frame)
         }
-        let launch = !scheduled; scheduled = true
         lock.unlock()
-        if launch { queue.async { [weak self] in self?.drain() } }
-    }
-    private func drain() {
-        var scratch = [Float](repeating: 0, count: capacity)
-        // Work per drain is bounded; one continuation is allowed if input arrived.
-        for _ in 0..<5 {
-            lock.lock()
-            guard !stopped, count > 0 else { scheduled = false; lock.unlock(); return }
-            let length = lengths[head], capturedAt = times[head]
-            for i in 0..<length { scratch[i] = storage[head][i] }
-            head = (head + 1) % 5; count -= 1
-            lock.unlock()
-            do {
-                let converted = try scratch.withUnsafeBufferPointer { try converter.convert(samples: UnsafeBufferPointer(start: $0.baseAddress, count: length)) }
-                lock.lock()
-                if !stopped {
-                    for frame in converted {
-                        metrics.captured += 1
-                        if frames.count == 5 { frames.removeFirst(); metrics.outputDrops += 1 }
-                        frames.append((muted ? Data(repeating: 0, count: 320) : frame, capturedAt))
-                    }
-                }
-                lock.unlock()
-            } catch { lock.lock(); failure = .conversion; lock.unlock() }
-        }
-        lock.lock()
-        let again = !stopped && count > 0
-        if !again { scheduled = false }
-        lock.unlock()
-        if again { queue.async { [weak self] in self?.drain() } }
     }
     func pull() -> (frames: [Data], metrics: V2AudioMetrics, error: V2AudioError?) {
         lock.lock(); defer { lock.unlock() }
-        let now = DispatchTime.now().uptimeNanoseconds
-        let current = frames.filter { now >= $0.time && now - $0.time <= 100_000_000 }
-        metrics.outputDrops += UInt64(frames.count - current.count)
-        let result = current.map(\.pcm); frames.removeAll(keepingCapacity: true)
-        return (result, metrics, failure)
+        let result = frames
+        frames.removeAll(keepingCapacity: true)
+        return (result, metrics, nil)
     }
-    func setMuted(_ value: Bool) { lock.lock(); muted = value; lock.unlock() }
+    func setMuted(_ value: Bool) { encoder.setMuted(value) }
     func stop() async {
-        close()
-        await withCheckedContinuation { continuation in queue.async { continuation.resume() } }
+        lock.lock()
+        stopped = true
+        frames.removeAll()
+        tail.removeAll()
+        lock.unlock()
     }
-    private func close() { lock.lock(); stopped = true; frames.removeAll(); count = 0; lock.unlock() }
 }
 
 struct V2PlaybackWindow {
@@ -262,9 +222,11 @@ final class V2AudioEngine: V2AudioIO {
                 guard granted else { throw V2AudioError.permission }
             }
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [])
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+            try session.setPreferredSampleRate(48_000)
             try session.setPreferredIOBufferDuration(0.02)
             if !callKitManaged { try session.setActive(true); sessionActive = true }
+            try session.overrideOutputAudioPort(.none)
             let engine = AVAudioEngine(), player = AVAudioPlayerNode()
             self.engine = engine; self.player = player
             engine.attach(player)
@@ -286,6 +248,7 @@ final class V2AudioEngine: V2AudioIO {
             outputFormat = engine.outputNode.inputFormat(forBus: 0)
             engine.prepare()
             do { try engine.start() } catch { throw V2AudioError.engine((error as NSError).code) }
+            player.play()
             metrics.running = true
 #if DEBUG
             updateRoute()

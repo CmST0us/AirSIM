@@ -1051,7 +1051,7 @@ private struct NetworkPCMStatistics: Sendable {
 }
 
 /// 对麦克风做语音带限与线性降采样，输出模块需要的 8 kHz PCM16LE。
-private final class VoicePCMEncoder: @unchecked Sendable {
+final class VoicePCMEncoder: @unchecked Sendable {
     private let lock = NSLock()
     private var conditioner = VoiceCaptureConditioner()
     private var samples: [Float] = []

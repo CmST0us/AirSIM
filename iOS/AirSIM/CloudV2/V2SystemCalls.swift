@@ -130,11 +130,13 @@ final class V2SystemCallController: CallKitActionHandling {
 #if DEBUG
         NSLog("[AirSIM V2] preparing AVAudioSession category")
 #endif
-        try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [])
+        try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
 #if DEBUG
         NSLog("[AirSIM V2] AVAudioSession category prepared")
 #endif
+        try audio.setPreferredSampleRate(48_000)
         try audio.setPreferredIOBufferDuration(0.02)
+        try audio.overrideOutputAudioPort(.none)
 #if DEBUG
         NSLog("[AirSIM V2] AVAudioSession buffer prepared")
 #endif

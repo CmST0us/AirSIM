@@ -1521,7 +1521,12 @@ extension CloudV2Tests {
         let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48000)!
         buffer.frameLength = 48000
-        for channel in 0..<2 { for i in 0..<48000 { buffer.floatChannelData![channel][i] = channel == 0 ? 0.8 : 0.2 } }
+        for channel in 0..<2 {
+            for i in 0..<48000 {
+                let magnitude: Float = channel == 0 ? 0.8 : 0.2
+                buffer.floatChannelData![channel][i] = i.isMultiple(of: 2) ? magnitude : -magnitude
+            }
+        }
         let capture = try V2CaptureBuffer(rate: 48000)
         capture.setMuted(true)
         for _ in 0..<8 { capture.push(buffer) }
