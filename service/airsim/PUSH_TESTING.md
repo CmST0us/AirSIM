@@ -1,8 +1,20 @@
 # Push notification server verification
 
+## 2026-10-29 — separate APNs environments
+
+ECS control now loads independent Sandbox and Production keys for `com.eric3u.airsim2`. Both run in the same control service and database. `APNS_SANDBOX_KEY_ID` / `APNS_SANDBOX_KEY_FILE` select the sandbox provider; `APNS_PRODUCTION_KEY_ID` / `APNS_PRODUCTION_KEY_FILE` select production. Each provider owns its JWT cache and HTTP transport. Unknown environments, incomplete pairs and mixed shared/environment keys are rejected.
+
+- Provider/control race tests, server vet, full Go unit suite and the production Compose rendering passed. Environment-routing tests verify the selected endpoint, JWT key ID and signature for both alert and VoIP requests. Opt-in database/Compose integration fixtures were not enabled for this run.
+- Deployed control image: `sha256:2e71224066c040e15c920789e1c7e00a3620dc64986715e5756587f17d248bc5` (Linux amd64). Release: `/opt/airsim-v2/releases/apns-env-20261029`. Previous configuration and image reference are retained in `/opt/airsim-v2/backups/apns-env-20261029`.
+- Only control was recreated. Control, edge, media and PostgreSQL are healthy. External discovery reports `apns: true`. Both private keys are outside the release, mode 0600, mounted read-only. The schema and the four existing non-revoked client records were preserved; no pairing was reset.
+- The new `com.eric3u.airsim2` development build is signed. Main App, Watch and Live Activity identities were checked; the main App's `aps-environment=development` matches `AirSIMAPNSEnvironment=sandbox`. The pairing origin is `https://airsim.eric3u.cc`.
+- The signed `com.eric3u.airsim2` App was installed and launched successfully on the selected iPad mini (A17 Pro). Code signature verification passed; the installed build includes audio, VoIP and remote-notification background modes. The user authorized replacing the EG25 pairing with this iPad; the replacement completed, and ECS confirms active Sandbox VoIP and alert registrations for the new Bundle ID. Old App installation data remains intact, while its module authorization is revoked by the replacement. Real APNs delivery, system incoming-call presentation and background wakeup on this iPad remain unverified.
+
+## 2026-10-25 — initial provider verification
+
 2026-10-25. Scope: `service/airsim`; contract: [APNs extension](../../protocol/v2/APNS_EXTENSION.md). No production deployment or real APNs requests were performed.
 
-## Current scope and deployment status
+### Initial scope and deployment status
 
 As confirmed by the controller on 2026-10-25, this delivery and acceptance cover v2 compatibility with the original five App views and CallKit system-call integration. APNs credentials, PushKit offline wakeup and SMS push notifications are outside this phase's delivery and acceptance scope. They are not prerequisites for CallKit integration.
 

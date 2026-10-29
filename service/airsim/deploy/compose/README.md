@@ -93,6 +93,19 @@ The control process sends APNs over HTTP/2 on its dedicated `push_egress` networ
 
 Set `APNS_KEY_ID`, `APNS_TEAM_ID` and `APNS_BUNDLE_ID` for the signed iPhone App. Set `AIRSIM_APNS_KEY_PATH` to the existing external `.p8` file. The production wrapper then includes `compose.apns.yaml`, mounting that file read-only as `APNS_KEY_FILE=/run/secrets/apns.p8`. The file must be readable by control UID 65532 with no group/other permissions (normally owner 65532, mode 0600); parent directories must allow the container runtime to mount it. Never place the key in build context, Git, environment values or logs. A missing host file is rejected instead of being created as a directory. For direct Compose usage, include the same overlay explicitly. Keep these settings on subsequent control recreation.
 
+For separate environment-scoped keys, leave `APNS_KEY_ID`, `APNS_KEY_FILE`, and `AIRSIM_APNS_KEY_PATH` unset. Set the shared `APNS_TEAM_ID` and `APNS_BUNDLE_ID`, plus both pairs:
+
+```sh
+APNS_SANDBOX_KEY_ID=<sandbox-key-id>
+AIRSIM_APNS_SANDBOX_KEY_PATH=/absolute/restricted/apns-sandbox.p8
+APNS_PRODUCTION_KEY_ID=<production-key-id>
+AIRSIM_APNS_PRODUCTION_KEY_PATH=/absolute/restricted/apns-production.p8
+```
+
+The production wrapper selects `compose.apns-environments.yaml`, mounting each key read-only under `/run/secrets/`. Both pairs are required; mixed shared/environment configuration fails startup. Direct Compose users must include this overlay themselves. Each environment has its own signing key, JWT cache and HTTP connection pool. Unknown environments are rejected; sandbox never falls back to the production key. The existing shared-key configuration remains supported.
+
+These are APNs environments, not separate business deployments: one ECS control service and database can serve both. Development-signed Apps register `sandbox`; distribution-signed Apps, including TestFlight, register `production`. The App build setting `AIRSIM_APNS_ENVIRONMENT` must match the final signed `aps-environment` entitlement (`development` maps to `sandbox`); re-signing requires checking both values.
+
 Registration accepts `sandbox` or `production` per installation; it must match the signed App entitlement. Topic is the configured main Bundle ID (`.voip` for incoming calls). APNs transport requires outbound DNS and TLS to Apple's sandbox/production provider. A configured provider and successful mock tests do not establish real APNs delivery or lock-screen wakeup.
 
 `PUT /v2/push/registration` authenticates the existing client Bearer and subscribes that installation to one owned module. Token updates reuse its registration ID; changing subscription domain requires DELETE followed by a new ID. DELETE matches both installation and registration ID, so delayed cleanup cannot delete a newer registration. Responses never contain tokens. Client revocation immediately excludes delivery and hourly cleanup removes obsolete subscriptions and their delivery metadata. CallKit identities remain for 31 days after their last observed call, independently of the long-lived device authorization.

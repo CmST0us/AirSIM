@@ -212,13 +212,14 @@ private struct V2DiagnosticsView: View {
 #if DEBUG
                 LegacyRuntimeDiagnosticsSection()
                 Section("Debug · 音频诊断") {
+                    Text("最后来电推送：\(V2PushController.shared.lastIncomingDiagnostic)")
 #if targetEnvironment(simulator)
                     Toggle("模拟器音频注入：提示与回声", isOn: $model.diagnosticAudio).disabled(model.media.active)
                     Text("默认关闭；开启时不采集真实麦克风，最多 75 秒后定向挂断。")
                     Button("断开本次媒体") { model.media.disconnectForDiagnostics() }.disabled(!model.media.active)
+#endif
                     Button("测试本机音频（3秒）") { model.testLocalAudio() }.disabled(model.busy || model.media.active || model.ownedCall != nil || model.activeCall != nil)
                     Text(model.localAudioResult)
-#endif
                     if let failure = model.lastEligibilityFailure {
                         Text("最后资格失败：\(failure.reason.rawValue) · 当时快照年龄：\(failure.snapshotAgeSeconds.map { String(format: "%.3f s", $0) } ?? "—")")
                     } else { Text("最后资格失败：无") }

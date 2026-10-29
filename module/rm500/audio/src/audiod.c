@@ -17,6 +17,31 @@
 #include <tinyalsa/pcm.h>
 #include <unistd.h>
 
+#ifdef AIRSIM_EG25
+#include "../../../eg25/audio/route.h"
+#define PLATFORM_PROFILE "eg25-qdc507"
+#define PCM_ACCESS PCM_MMAP
+#define CAPTURE_DEVICE 6
+#define PLAYBACK_DEVICE 5
+#define VOICE_PARAMS "/proc/asound/card0/pcm4p/sub0/hw_params"
+#define CAPTURE_PARAMS "/proc/asound/card0/pcm6c/sub0/hw_params"
+#define PLAYBACK_PARAMS "/proc/asound/card0/pcm5p/sub0/hw_params"
+#define PERIOD_SIZE 256
+#define PERIOD_COUNT 8
+#else
+#define PLATFORM_PROFILE "rm500u-embedded"
+#define PCM_ACCESS 0
+#define CAPTURE_DEVICE 9
+#define PLAYBACK_DEVICE 55
+#define VOICE_PARAMS "/proc/asound/card0/pcm5p/sub0/hw_params"
+#define CAPTURE_PARAMS "/proc/asound/card0/pcm9c/sub0/hw_params"
+#define PLAYBACK_PARAMS "/proc/asound/card0/pcm55p/sub0/hw_params"
+#define PERIOD_SIZE 320
+#define PERIOD_COUNT 2
+#endif
+#define BUFFER_FRAMES (PERIOD_SIZE * PERIOD_COUNT)
+#define PLAYBACK_START (2 * PERIOD_SIZE)
+
 /* Two queued frames + receiver, playback and Agent relay working frames = five.
  * No audio is written to stdout, stderr, a log, or a filesystem object. */
 #define QUEUE 2
@@ -50,7 +75,7 @@ static uint64_t started;
 static struct pcm *capture, *playback;
 static unsigned playback_rate = 8000;
 static int16_t playback_previous;
-static const char *voice_params = "/proc/asound/card0/pcm5p/sub0/hw_params";
+static const char *voice_params = VOICE_PARAMS;
 static int stopped(void) { return interrupted || atomic_load(&stopping); }
 static void fail(int code) {
   int expected = 0;
@@ -112,13 +137,13 @@ static int hw_verify(const char *path, struct pcm *pcm,
   out->count = period && buffer % period == 0 ? buffer / period : 0;
   const struct pcm_config *c = pcm_get_config(pcm);
   return strcmp(fmt, "S16_LE") == 0 && channels == 1 && rate == expected_rate &&
-                 period == 320 && buffer == 640 && c &&
+                 period == PERIOD_SIZE && buffer == BUFFER_FRAMES && c &&
                  c->format == PCM_FORMAT_S16_LE && c->channels == 1 &&
-                 c->rate == expected_rate && c->period_size == 320 &&
-                 c->period_count == 2 && out->count == 2 &&
+                 c->rate == expected_rate && c->period_size == PERIOD_SIZE &&
+                 c->period_count == PERIOD_COUNT && out->count == PERIOD_COUNT &&
                  c->start_threshold == start_threshold &&
-                 c->stop_threshold == 640 && c->avail_min == 320 &&
-                 pcm_get_buffer_size(pcm) == 640
+                 c->stop_threshold == BUFFER_FRAMES && c->avail_min == PERIOD_SIZE &&
+                 pcm_get_buffer_size(pcm) == BUFFER_FRAMES
              ? 0
              : -1;
 }
@@ -171,7 +196,7 @@ static int transfer(struct pcm *p, uint8_t *data, int input,
         atomic_fetch_add(&silence, (unsigned)n);
       last = asmp_now_ms();
       atomic_store(&stats->progress, last - started);
-      if (total > (uint64_t)rate * (last - started) / 1000 + 1280) {
+      if (total > (uint64_t)rate * (last - started) / 1000 + 2 * BUFFER_FRAMES) {
         fail(4);
         return -1;
       }
@@ -226,7 +251,7 @@ static void *capture_worker(void *unused) {
     }
     asmp_header(frame, session, 2, seq);
     if (asmp_write(4, frame, sizeof(frame), 100)) {
-      fail(1);
+      if (!stopped()) fail(1);
       break;
     }
   }
@@ -289,7 +314,7 @@ static void *input_worker(void *unused) {
     if (n < 0 && (errno == EAGAIN || errno == EINTR))
       continue;
     if (n <= 0) {
-      fail(1);
+      if (!stopped()) fail(1);
       break;
     }
     if (offset == 0)
@@ -356,6 +381,11 @@ static void finish_media(int ready_sent) {
   shutdown(4, SHUT_RDWR);
 }
 int main(int argc, char **argv) {
+#ifdef AIRSIM_EG25
+  if (argc == 4 && !strcmp(argv[1], "--cleanup") &&
+      !strcmp(argv[2], "--profile") && !strcmp(argv[3], PLATFORM_PROFILE))
+    return eg25_audio_reset() ? 1 : 0;
+#endif
   if (argc == 2 && !strcmp(argv[1], "--version")) {
     puts("airsim-audiod 0.3.0 "
          "tinyalsa-1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d");
@@ -363,7 +393,7 @@ int main(int argc, char **argv) {
   }
   if (argc != 5 || strcmp(argv[1], "--session") ||
       asmp_uuid(argv[2], session) || strcmp(argv[3], "--profile") ||
-      strcmp(argv[4], "rm500u-embedded")) {
+      strcmp(argv[4], PLATFORM_PROFILE)) {
     fputs("airsim-audiod: arguments\n", stderr);
     return 2;
   }
@@ -387,34 +417,37 @@ int main(int argc, char **argv) {
   started = asmp_now_ms();
   struct pcm_config config = {.channels = 1,
                               .rate = 8000,
-                              .period_size = 320,
-                              .period_count = 2,
+                              .period_size = PERIOD_SIZE,
+                              .period_count = PERIOD_COUNT,
                               .format = PCM_FORMAT_S16_LE,
-                              .start_threshold = 320,
-                              .stop_threshold = 640,
-                              .avail_min = 320};
+                              .start_threshold = PERIOD_SIZE,
+                              .stop_threshold = BUFFER_FRAMES,
+                              .avail_min = PERIOD_SIZE};
+#ifdef AIRSIM_EG25
+  if (eg25_audio_start()) { fail(2); goto cleanup; }
+#endif
   if (audio_voice_rate(voice_params, &playback_rate)) {
     fail(3);
     goto cleanup;
   }
   playback_previous = 0;
-  capture = pcm_open(0, 9, PCM_IN | PCM_NONBLOCK | PCM_NORESTART, &config);
+  capture = pcm_open(0, CAPTURE_DEVICE, PCM_IN | PCM_ACCESS | PCM_NONBLOCK | PCM_NORESTART, &config);
   if (!capture || !pcm_is_ready(capture)) {
     fail(2);
     goto cleanup;
   }
-  config.start_threshold = 640;
+  config.start_threshold = PLAYBACK_START;
   config.rate = playback_rate;
-  playback = pcm_open(0, 55, PCM_OUT | PCM_NONBLOCK | PCM_NORESTART, &config);
+  playback = pcm_open(0, PLAYBACK_DEVICE, PCM_OUT | PCM_ACCESS | PCM_NONBLOCK | PCM_NORESTART, &config);
   if (!playback || !pcm_is_ready(playback)) {
     fail(2);
     goto cleanup;
   }
   struct actual_config actual_capture = {0}, actual_playback = {0};
-  if (hw_verify("/proc/asound/card0/pcm9c/sub0/hw_params", capture,
-                &actual_capture, 320, 8000) ||
-      hw_verify("/proc/asound/card0/pcm55p/sub0/hw_params", playback,
-                &actual_playback, 640, playback_rate)) {
+  if (hw_verify(CAPTURE_PARAMS, capture,
+                &actual_capture, PERIOD_SIZE, 8000) ||
+      hw_verify(PLAYBACK_PARAMS, playback,
+                &actual_playback, PLAYBACK_START, playback_rate)) {
     fail(3);
     goto cleanup;
   }
@@ -522,6 +555,9 @@ cleanup:
     pcm_close(playback);
   if (capture)
     pcm_close(capture);
+#ifdef AIRSIM_EG25
+  eg25_audio_stop();
+#endif
   close(4);
   close(3);
   return atomic_load(&failure) ? 1 : 0;

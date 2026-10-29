@@ -4,7 +4,7 @@
 
 ## 范围
 
-电脑网页通过 WebUSB/ADB 访问用户主动选择的 RM500U 上现有 `airsim-agent`。只有已安装 Agent、已加入当前服务且未撤销的模块可授权手机。网页不公开模块目录，不公开管理员签发接口，不读取或导出模块私钥。未准备的模块给出明确状态；裸模块安装、引导自启动和重新加入另一服务另行实施。
+电脑网页通过 WebUSB/ADB 访问用户主动选择的 RM500U 或 EG25 QDC507 上现有 `airsim-agent`。只有已安装 Agent、已加入当前服务且未撤销的模块可授权手机。网页不公开模块目录，不公开管理员签发接口，不读取或导出模块私钥。未准备的模块给出明确状态；网页可安装对应平台 Engine 与 init 启动入口；管理员登记和加入服务仍使用本机 prepare/activate 流程，网页不会自动签发设备证书。
 
 主路径：选择设备 → 核对设备 → 连接设备 → 在 AirSIM 输入连接码并核对 → 设备已连接。网页的设备名称、短标识和连接状态来自真实模块。连接码是完成手机授权所需的一步，不是账户或服务配置。网页可以使用现有公网同源 HTTPS 部署，也可本地开发；部署目标由主控确认。
 
@@ -12,7 +12,7 @@
 
 ## 设备证明
 
-本机新增 `GET /v2/local/pairing`，返回 `{module_id,public_key_base64,profile,configured,server_id,api_origin,media_origin,connected,certificate_expires_at}`。profile 当前为 `rm500u-embedded`。配置损坏、过期或未配置时不得填充成功的服务信息。此接口仅通过原 0600 Unix socket 提供。
+本机新增 `GET /v2/local/pairing`，返回 `{module_id,public_key_base64,profile,configured,server_id,api_origin,media_origin,connected,certificate_expires_at}`。profile 为 `rm500u-embedded` 或 `eg25-qdc507`。配置损坏、过期或未配置时不得填充成功的服务信息。此接口仅通过原 0600 Unix socket 提供。
 
 本机新增 `POST /v2/local/pairing/authorize`，严格字段 `{request_id,server_id,module_id,nonce,expires_at,poll_token_hash}`。要求模块已配置、证书仍有效、server/module 精确匹配；UUID 为小写 v4；nonce 与 poll_token_hash 为 64 位小写 hex；expiry 为 UTC RFC3339，剩余时间在 `(0,305s]`。返回 `{request_id,module_id,public_key_base64,proof_base64}`。
 

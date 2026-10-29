@@ -88,6 +88,15 @@ func (p *Provider) token() (string, error) {
 	return p.jwt, nil
 }
 func (p *Provider) Send(ctx context.Context, n Notification) (Result, error) {
+	var host string
+	switch n.Environment {
+	case "sandbox":
+		host = "https://api.sandbox.push.apple.com"
+	case "production":
+		host = "https://api.push.apple.com"
+	default:
+		return Result{}, errors.New("apns_environment_invalid")
+	}
 	b, e := json.Marshal(n.Payload)
 	if e != nil || len(b) > 4096 {
 		return Result{}, errors.New("apns_payload_invalid")
@@ -95,10 +104,6 @@ func (p *Provider) Send(ctx context.Context, n Notification) (Result, error) {
 	jwt, e := p.token()
 	if e != nil {
 		return Result{}, e
-	}
-	host := "https://api.push.apple.com"
-	if n.Environment == "sandbox" {
-		host = "https://api.sandbox.push.apple.com"
 	}
 	req, e := http.NewRequestWithContext(ctx, "POST", host+"/3/device/"+n.Token, bytes.NewReader(b))
 	if e != nil {

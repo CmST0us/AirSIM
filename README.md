@@ -2,6 +2,8 @@
 
 > **v2 架构（2026-10-27）**：新 [airsim-agent](module/airsim-agent/README.md) 位于 `module/airsim-agent/`；[ECS 服务](service/airsim/README.md) 位于 `service/airsim/`，使用 [Docker Compose](service/airsim/deploy/compose/README.md)；[Worker v2](service/airsim-worker/README.md) 保留独立目录。RM500 已完成 Agent 本地与 ECS 云端通话、短信及音频限定范围验收，并已配置 BusyBox init 开机拉起和崩溃恢复；网页配对不依赖主机 ADB，部署与回滚见 [RM500U 开机启动](module/airsim-agent/RM500U_AUTOSTART.md)。App 保留 v1/v2 选择，原五标签适配与 CallKit 接入已完成；[设备配对](docs/IOS_AIRSIM_PAIRING.md) 将“添加设备”接入真实 WebUSB、模块证明和可续期云端会话，完整原界面 UI 流程、真实 ECS claim 和模块范围绑定已验证。实体双向音频已连通，通话质量优化暂缓。旧 Agent 与旧 Worker 保留；架构边界见 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)。下文发布基线与旧安装说明仍属于 v1。
 
+> **EG25 QDC507（2026-10-29）**：新增 `eg25-qdc507` ARMv7 平台、AT 通话/短信后端、原生音频路由和网页安装资源。当前固件与安装路径见 [EG25 说明](module/eg25/README.md)，实机验证范围见 [验收记录](module/eg25/TESTING.md)。ECS 与 iOS 继续使用同一套 v2 配对和控制协议。
+
 [![Android Standalone](https://img.shields.io/badge/Android-Standalone%20APK-3DDC84?logo=android&logoColor=white)](android-standalone/README.md)
 [![iOS](https://img.shields.io/badge/iOS-16.3%2B-000000?logo=apple&logoColor=white)](iOS/README.md)
 [![watchOS](https://img.shields.io/badge/watchOS-10%2B-000000?logo=apple&logoColor=white)](iOS/README.md)
@@ -142,7 +144,7 @@ App 仅复制命令，必须在 Debian Terminal 中粘贴执行。安装器只�
 open iOS/AirSIM.xcodeproj
 ```
 
-使用自己的 Apple Developer Team，为主 App、Watch App 和 Live Activity Extension 设置唯一 Bundle ID，并重新生成 provisioning profile。仓库中的 `com.example.airsim` 只是占位符，不能直接用于发布或 APNs。签名、CallKit、PushKit 与 APNs topic 的对应关系见 [iOS / watchOS 文档](iOS/README.md)。
+使用自己的 Apple Developer Team，为主 App、Watch App 和 Live Activity Extension 设置唯一 Bundle ID，并重新生成 provisioning profile。当前工程主 Bundle ID 为 `com.eric3u.airsim2`，Watch 与 Live Activity 使用对应后缀；签名和 APNs 需要匹配该标识的 App ID 与 provisioning profile。签名、CallKit、PushKit 与 APNs topic 的对应关系见 [iOS / watchOS 文档](iOS/README.md)。
 
 ### 5. 可选：部署 Cloudflare Relay
 
@@ -175,7 +177,7 @@ npx wrangler deploy --dry-run --config wrangler.toml
 
 AirSIM 不附带原作者的 Apple Developer Team、App ID、证书或 provisioning profile。每位使用者必须：
 
-1. 将主 App 的 `com.example.airsim` 替换为自己控制的唯一 Bundle ID。
+1. 核对主 App 的 `com.eric3u.airsim2` 属于自己的 Apple Team；其他部署者应替换为自己控制的唯一 Bundle ID。
 2. 将 Watch App 和 Live Activity Extension 分别设置为主 Bundle ID 加 `.watchkitapp` 与 `.liveactivity`。
 3. 使用自己的 Apple Developer Team、开发/分发证书与 provisioning profile 重新签名。
 4. 在 Relay 中把 `ALLOWED_BUNDLE_ID` 设置为同一个主 App Bundle ID。
@@ -249,3 +251,11 @@ AirSIM 采用 [PolyForm Noncommercial License 1.0.0](LICENSE)：
 - 第三方组件继续适用其自身许可证，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 禁止商业用途意味着本项目不符合 OSI 的 Open Source Definition。请使用“源码可见”或 “source-available”描述 AirSIM，而不要将其标注为 OSI 开源软件。
+
+AirSIM v2 ECS 支持分别配置 Sandbox / Production APNs 密钥，按 App 注册环境选择；两者可共用同一业务服务和数据库。开发签名的 `aps-environment=development` 对应 Sandbox，TestFlight / 分发签名对应 Production。重签须保持 App 配置与最终签名环境一致，使用新 Bundle ID 可并列安装并保留旧版数据。见 [APNs 部署配置](service/airsim/deploy/compose/README.md#apns)。
+
+Agent 支持 `airsim-v2-callkit` 服务的 APNs 开启和关闭状态；`airsim-v2-r4.1` 仍要求 APNs 关闭。启用 ECS 推送前须使用支持该能力的 Agent。
+
+Agent 在通话期间每秒发布状态快照，空闲时每五秒发布；App 保留八秒快照有效期。iOS Debug 诊断页支持真机三秒本机音频测试。
+
+模块范围配对完成后持久化当前模块；App 重新启动时从配对配置恢复绑定模块，管理员多模块配置仍使用显式选择。

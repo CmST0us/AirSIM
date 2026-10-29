@@ -212,7 +212,7 @@ func TestDuplicateBeforeBootDeadlineAndRestart(t *testing.T) {
 	}
 	c.store = store
 	c.boot, _ = identity.UUID()
-	c.backend.Epoch, _ = identity.UUID()
+	c.backend.(*ofono.Session).Epoch, _ = identity.UUID()
 	if got := c.submit(r); got.Code != 200 {
 		t.Fatal("retry checked old boot before digest")
 	}
@@ -271,17 +271,17 @@ func TestHardwareGateAllowsOnlyManagedCleanup(t *testing.T) {
 func TestInboxBoundsAndOverflowGate(t *testing.T) {
 	c, _, _ := newCoordinator(t)
 	for i := 0; i < 129; i++ {
-		c.incoming("synthetic", nil)
+		c.incoming("synthetic", "")
 	}
 	if len(c.messages) != 128 || !c.gap || c.dropped != 1 {
 		t.Fatal("inbox unbounded")
 	}
-	c.incoming(strings.Repeat("x", 8193), nil)
+	c.incoming(strings.Repeat("x", 8193), "")
 	if c.dropped != 2 {
 		t.Fatal("oversize text accepted")
 	}
 	for i := 0; i < 129; i++ {
-		c.backend.Queue.DeliverSignal("org.ofono.MessageManager", "IncomingMessage", sig("org.ofono.MessageManager.IncomingMessage", "/modem", uint64(i+1), "x", map[string]dbus.Variant{}))
+		c.backend.(*ofono.Session).Queue.DeliverSignal("org.ofono.MessageManager", "IncomingMessage", sig("org.ofono.MessageManager.IncomingMessage", "/modem", uint64(i+1), "x", map[string]dbus.Variant{}))
 	}
 	c.checkSignals()
 	if c.ready {
@@ -513,4 +513,8 @@ func TestCloudMessagesDoNotRebindOldEpoch(t *testing.T) {
 			t.Fatal("old epoch leaked")
 		}
 	}
+}
+
+func (c *Coordinator) signal(s *dbus.Signal, calls, messages uint64) bool {
+	return c.event(c.backend.(*ofono.Session).Normalize(s), calls, messages)
 }

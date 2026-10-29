@@ -206,6 +206,107 @@ final class ActiveCallViewTests: UITestCase {
 }
 
 final class RealRuntimeDiagnosticTests: XCTestCase {
+    func testInspectConnectedAudioDiagnostics() throws {
+#if targetEnvironment(simulator)
+        throw XCTSkip("Requires a paired physical device")
+#endif
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["AIRSIM_LIVE_DEVICE_TESTS"] == "1", "Explicit live-device test invocation required")
+        let app = XCUIApplication(bundleIdentifier: "com.eric3u.airsim2")
+        app.activate()
+        let settings = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "设置")).firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.tap()
+        let diagnostics = app.buttons["连接与音频诊断"]
+        for _ in 0..<8 where !diagnostics.isHittable { app.swipeUp() }
+        XCTAssertTrue(diagnostics.isHittable)
+        diagnostics.tap()
+        XCTAssertTrue(app.navigationBars["诊断"].waitForExistence(timeout: 5))
+        var seen = Set<String>()
+        let prefixes = ["最后来电推送：", "快照年龄：", "最后失败：", "错误域：", "失败距最近下行：", "引擎：", "实际输入：", "请求 speaker=", "接收 ", "采集 ", "audioReady=", "最后资格失败："]
+        for _ in 0..<10 {
+            for element in app.staticTexts.allElementsBoundByIndex {
+                let label = element.label
+                if prefixes.contains(where: { label.hasPrefix($0) }), seen.insert(label).inserted {
+                    print("AIRSIM_AUDIO_DIAGNOSTIC " + label)
+                }
+            }
+            app.swipeUp()
+        }
+        XCTAssertFalse(seen.isEmpty, "Audio diagnostics are unavailable")
+    }
+
+    func testIncomingCallAudioOnDevice() throws {
+#if targetEnvironment(simulator)
+        throw XCTSkip("Requires a paired physical device and an incoming test call")
+#endif
+        continueAfterFailure = false
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["AIRSIM_LIVE_DEVICE_TESTS"] == "1", "Explicit live-device test invocation required")
+        let app = XCUIApplication(bundleIdentifier: "com.eric3u.airsim2")
+        app.launch()
+        sleep(3)
+        XCUIDevice.shared.press(.home)
+        sleep(5)
+        let backgroundCall = ProcessInfo.processInfo.environment["AIRSIM_BACKGROUND_CALL_TEST"] == "1"
+        if !backgroundCall { app.activate() }
+        let surfaces = backgroundCall ? [XCUIApplication(bundleIdentifier: "com.apple.InCallService")] : [app]
+        let predicate = NSPredicate(format: "label IN %@", ["接听", "接受", "Answer", "Accept"])
+        print("AIRSIM_INCOMING_TEST_READY")
+        if backgroundCall { sleep(20) }
+        let deadline = Date().addingTimeInterval(180)
+        var answer: XCUIElement?
+        while Date() < deadline, answer == nil {
+            for surface in surfaces {
+                let candidate = surface.buttons.matching(predicate).firstMatch
+                if candidate.exists && candidate.isHittable { answer = candidate; break }
+            }
+            if answer == nil { sleep(1) }
+        }
+        let incomingAnswer = try XCTUnwrap(answer, "No incoming system call")
+        if backgroundCall {
+            sleep(3)
+            XCTAssertTrue(incomingAnswer.exists && incomingAnswer.isHittable, "System incoming call disappeared before answering")
+        }
+        incomingAnswer.tap()
+        sleep(20)
+        app.activate()
+        let end = app.buttons["挂断"]
+        if end.waitForExistence(timeout: 5) { end.tap() }
+        sleep(3)
+        try testInspectConnectedAudioDiagnostics()
+        let counts = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "接收 ")).firstMatch
+        if counts.exists {
+            let numbers = counts.label.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+            XCTAssertGreaterThan(numbers.first ?? 0, 0, "No received media frames")
+            XCTAssertGreaterThan(numbers.dropFirst().first ?? 0, 0, "No sent media frames")
+        } else { XCTFail("Media counters unavailable") }
+    }
+
+    func testConnectedLocalAudio() throws {
+#if targetEnvironment(simulator)
+        throw XCTSkip("Requires a paired physical device")
+#endif
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["AIRSIM_LIVE_DEVICE_TESTS"] == "1", "Explicit live-device test invocation required")
+        let app = XCUIApplication(bundleIdentifier: "com.eric3u.airsim2")
+        app.launch()
+        let settings = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "设置")).firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.tap()
+        let diagnostics = app.buttons["连接与音频诊断"]
+        for _ in 0..<8 where !diagnostics.isHittable { app.swipeUp() }
+        XCTAssertTrue(diagnostics.isHittable)
+        diagnostics.tap()
+        let localTest = app.buttons["测试本机音频（3秒）"]
+        for _ in 0..<10 where !localTest.isHittable { app.swipeUp() }
+        XCTAssertTrue(localTest.isHittable)
+        XCTAssertTrue(localTest.isEnabled)
+        localTest.tap()
+        let result = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "引擎已停止。")).firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 15))
+        print("AIRSIM_AUDIO_LOCAL " + result.label)
+        XCTAssertTrue(result.label.hasPrefix("本机测试："), result.label)
+
+    }
+
     func testReconnectRealRuntimeAndDumpUI() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]

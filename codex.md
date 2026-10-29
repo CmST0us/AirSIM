@@ -2,6 +2,8 @@
 
 ## v2 建设覆盖说明（2026-10-24）
 
+EG25 QDC507 v2 使用 `eg25-qdc507`、ARMv7、`/usrdata/airsim-v2` 与 init respawn。精确固件、DATA11、校准、网页安装及验收边界见 [EG25 说明](module/eg25/README.md) 和 [实机记录](module/eg25/TESTING.md)。ECS 配对按认证连接的 platform 显示型号，iOS 仍使用公共 v2 协议。
+
 用户已明确新建多平台 v2：`module/airsim-agent/`（新 Agent）、`service/airsim/`（ECS Go 服务）、`service/airsim/deploy/compose/`（首版 Docker Compose）、`service/airsim-worker/`（独立 Worker v2）。先读 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)，再读相应新目录 README。App 云端显式选择 v1/v2，ECS 与 Worker v2 共用对外协议。新 Agent 的 RM500 R1–R3 已完成限定范围实机验收，见 [主控决策](docs/RM500_AGENT_EXECUTION.md) 和 [R3 记录](module/airsim-agent/R3_TESTING.md)。设备配对已在原 App 设置中完成 WebUSB、五分钟连接码、模块证明、claim 和自动续期接线，见 [配对契约](protocol/v2/PAIRING.md) 与 [iOS 记录](docs/IOS_AIRSIM_PAIRING.md)；生产 ECS claim 和完整 UI 流程已通过，实体 iPhone Keychain 与长期刷新仍需复验。
 
 下面有关当前发布、三星 Android、旧 AVF 包/端口和 Worker 的规则继续适用于 v1；不得用这些历史范围禁止用户已确认的 RM500/EG25/Android AVF v2 建设，也不得把旧安装脚本直接用于新 Agent。保留旧 `module/module-agent/`、`push-relay-worker/` 和现有改动。v2 独立建设、ECS 优先；四个执行会话使用 GPT-6-Astra / medium，仅执行主控决定，遇到技术决策交回主控，未明确调度则待命。
@@ -52,7 +54,7 @@ AirSIM 使用 `PolyForm-Noncommercial-1.0.0`，属于源码可见项目而不是
 6. VoWLAN 控制面必须执行路由白名单、时间戳、nonce、HMAC 和消息大小校验。
 7. 通话建立时确定 VoWLAN 或 Relay 传输；本次通话结束前不得静默切换路径。
 8. PCM 只在内存与网络中处理，不保存到磁盘或诊断日志。
-9. iOS/watchOS 工程中的 `com.example.airsim` 是占位符。部署者必须使用自己的 Apple Team、唯一 Bundle ID、证书和 provisioning profile。
+9. iOS 主 Bundle ID 为 `com.eric3u.airsim2`，Watch、Live Activity 和测试 Target 使用对应后缀。部署者必须使用自己的 Apple Team、唯一 Bundle ID、证书和 provisioning profile。
 10. Relay 的 `ALLOWED_BUNDLE_ID` 必须等于重新签名后的主 iOS App Bundle ID。
 11. AirSIM 与 DJOneHub 必须使用不同 hostname、Worker、KV、Durable Objects 和 Dashboard token。维护者 AirSIM hostname 是 `airsim-push.remotepilot.site`；`push.remotepilot.site` 属于 DJOneHub，不得由 AirSIM 接管。
 
@@ -179,3 +181,11 @@ npx wrangler deploy --dry-run --config wrangler.toml
 ## 8. 完成标准
 
 “构建通过”只说明本地编译或测试成功；“部署完成”必须有目标环境的部署结果；“真机可用”必须有实际三星 Android、iPhone/Apple Watch、AVF 和网络链路证据。不能把未执行的步骤写成已完成。
+
+AirSIM v2 ECS 支持分别配置 Sandbox / Production APNs 密钥，按 App 注册环境选择；两者可共用同一业务服务和数据库。开发签名的 `aps-environment=development` 对应 Sandbox，TestFlight / 分发签名对应 Production。重签须保持 App 配置与最终签名环境一致，使用新 Bundle ID 可并列安装并保留旧版数据。见 [APNs 部署配置](service/airsim/deploy/compose/README.md#apns)。
+
+Agent 支持 `airsim-v2-callkit` 服务的 APNs 开启和关闭状态；`airsim-v2-r4.1` 仍要求 APNs 关闭。启用 ECS 推送前须使用支持该能力的 Agent。
+
+Agent 在通话期间每秒发布状态快照，空闲时每五秒发布；App 保留八秒快照有效期。iOS Debug 诊断页支持真机三秒本机音频测试。
+
+模块范围配对完成后持久化当前模块；App 重新启动时从配对配置恢复绑定模块，管理员多模块配置仍使用显式选择。

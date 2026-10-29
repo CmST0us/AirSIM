@@ -66,7 +66,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(e)
 	}
 	ca, key, caPEM := newCA(t)
-	p := NewProvisioner(id, filepath.Join(dir, "cloud.json"))
+	p := NewProvisioner(id, filepath.Join(dir, "cloud.json"), "rm500u-embedded")
 	r := Prepare{uid(), uid(), "https://api.example.test", "https://device.example.test", "https://media.example.test", caPEM, caPEM, strings.Repeat("ab", 32), time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339Nano)}
 	return &fixture{p: p, req: r, ca: ca, key: key, caPEM: caPEM}
 }
@@ -117,7 +117,7 @@ func TestProvisionPersistenceProofAndActivation(t *testing.T) {
 	if !ed25519.Verify(f.p.id.Signer().Public().(ed25519.PublicKey), proofBytes(f.req, f.p.id.ModuleID, block.Bytes), proof) {
 		t.Fatal("proof")
 	}
-	restarted := NewProvisioner(f.p.id, f.p.path)
+	restarted := NewProvisioner(f.p.id, f.p.path, "rm500u-embedded")
 	if restarted.View().LastError != "" {
 		t.Fatal("pending reload")
 	}
@@ -137,7 +137,7 @@ func TestProvisionPersistenceProofAndActivation(t *testing.T) {
 	if restarted.Activate(f.bundle) != 200 {
 		t.Fatal("commit retry")
 	}
-	fresh := NewProvisioner(f.p.id, f.p.path)
+	fresh := NewProvisioner(f.p.id, f.p.path, "rm500u-embedded")
 	if !fresh.View().Configured || fresh.Activate(f.bundle) != 200 {
 		t.Fatal("restart receipt")
 	}
@@ -157,7 +157,7 @@ func TestProvisionPersistenceProofAndActivation(t *testing.T) {
 		t.Fatal("status credential")
 	}
 	os.Chmod(f.p.path, 0644)
-	if NewProvisioner(f.p.id, f.p.path).View().LastError != "cloud_config" {
+	if NewProvisioner(f.p.id, f.p.path, "rm500u-embedded").View().LastError != "cloud_config" {
 		t.Fatal("permissions fail closed")
 	}
 }

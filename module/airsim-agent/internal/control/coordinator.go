@@ -4,10 +4,8 @@ import (
 	"airsim.local/airsim-agent/internal/hal"
 	"airsim.local/airsim-agent/internal/identity"
 	"airsim.local/airsim-agent/internal/journal"
-	"airsim.local/airsim-agent/internal/ofono"
 	"context"
 	"errors"
-	"github.com/godbus/dbus/v5"
 	"strings"
 	"sync"
 	"time"
@@ -44,7 +42,7 @@ type completed struct {
 	ack    chan struct{}
 }
 type connected struct {
-	session *ofono.Session
+	session hal.ControlSession
 	err     error
 }
 type synced struct {
@@ -77,7 +75,7 @@ type Coordinator struct {
 	messages          []*Message
 	messageObjects    map[string]string
 	bodyBytes         int
-	backend           *ofono.Session
+	backend           hal.ControlSession
 	executor          hal.ControlBackend
 	eventSerial       uint64
 	callEvicted       uint64
@@ -128,7 +126,7 @@ func (c *Coordinator) View(ctx context.Context, kind, id string) (any, int) {
 func (c *Coordinator) Done() <-chan struct{} { return c.done }
 func (c *Coordinator) epoch() string {
 	if c.backend != nil {
-		return c.backend.Epoch
+		return c.backend.EpochID()
 	}
 	return ""
 }
@@ -559,14 +557,14 @@ func (c *Coordinator) trimMessages() {
 		c.dropped++
 	}
 }
-func (c *Coordinator) incoming(text string, props map[string]dbus.Variant) {
+func (c *Coordinator) incoming(text, sender string) {
 	if len(text) > 8192 || !utf8.ValidString(text) {
 		c.gap = true
 		c.dropped++
 		return
 	}
 	id, _ := identity.UUID()
-	m := &Message{ID: id, Direction: "incoming", Sender: ofono.String(props, "Sender"), Text: text, State: "received", Delivery: "unknown", Observed: time.Now().UTC(), epoch: c.epoch()}
+	m := &Message{ID: id, Direction: "incoming", Sender: sender, Text: text, State: "received", Delivery: "unknown", Observed: time.Now().UTC(), epoch: c.epoch()}
 	c.messages = append(c.messages, m)
 	c.bodyBytes += len(text)
 	c.trimMessages()

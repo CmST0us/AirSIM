@@ -8,6 +8,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,11 +19,13 @@ type Object struct {
 	Properties map[string]dbus.Variant
 }
 type Session struct {
-	Conn  *dbus.Conn
-	Queue *SignalQueue
-	Owner string
-	Modem dbus.ObjectPath
-	Epoch string
+	eventsOnce sync.Once
+	events     chan hal.ControlEvent
+	Conn       *dbus.Conn
+	Queue      *SignalQueue
+	Owner      string
+	Modem      dbus.ObjectPath
+	Epoch      string
 }
 
 func Connect(ctx context.Context) (*Session, error) {

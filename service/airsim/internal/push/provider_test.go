@@ -91,7 +91,7 @@ func TestAPNsFailureClassification(t *testing.T) {
 		p.client.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: v.code, Body: io.NopCloser(strings.NewReader(`{"reason":"` + v.reason + `"}`)), Header: http.Header{}}, nil
 		})
-		result, e := p.Send(context.Background(), Notification{Token: "synthetic", Payload: map[string]string{}})
+		result, e := p.Send(context.Background(), Notification{Token: "synthetic", Environment: "production", Payload: map[string]string{}})
 		if e == nil || result.Retry != v.retry || result.InvalidToken != v.invalid {
 			t.Fatalf("classification %d", v.code)
 		}

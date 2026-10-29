@@ -7,7 +7,7 @@ import (
 )
 
 func TestReadyDegradedAndStale(t *testing.T) {
-	s := New("m", "b")
+	s := New("m", "b", "rm500u-embedded")
 	fs := map[string]hal.Field{}
 	for _, k := range []string{"sim", "signal", "registration", "calls", "network", "platform"} {
 		fs[k] = hal.Available("fake", nil)
@@ -29,7 +29,7 @@ func TestReadyDegradedAndStale(t *testing.T) {
 	}
 }
 func TestFailedSampleDoesNotReuseData(t *testing.T) {
-	s := New("m", "b")
+	s := New("m", "b", "rm500u-embedded")
 	s.Commit(map[string]hal.Field{"sim": hal.Available("at", hal.SIM{State: "READY"})}, true, "")
 	s.Commit(map[string]hal.Field{"sim": hal.Unavailable("at", "query_failed")}, true, "")
 	v, r := s.View(time.Now())
@@ -39,7 +39,7 @@ func TestFailedSampleDoesNotReuseData(t *testing.T) {
 }
 
 func TestFenceInvalidatesPreviouslyReadyCapabilities(t *testing.T) {
-	s := New("m", "b")
+	s := New("m", "b", "rm500u-embedded")
 	fields := map[string]hal.Field{}
 	for _, k := range []string{"sim", "signal", "registration", "ims", "calls", "network", "platform"} {
 		fields[k] = hal.Available("fake", nil)

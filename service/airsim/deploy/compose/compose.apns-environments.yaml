@@ -1,0 +1,18 @@
+services:
+  control:
+    environment:
+      APNS_SANDBOX_KEY_FILE: /run/secrets/apns-sandbox.p8
+      APNS_PRODUCTION_KEY_FILE: /run/secrets/apns-production.p8
+    volumes:
+      - type: bind
+        source: ${AIRSIM_APNS_SANDBOX_KEY_PATH:?restricted sandbox key file required}
+        target: /run/secrets/apns-sandbox.p8
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AIRSIM_APNS_PRODUCTION_KEY_PATH:?restricted production key file required}
+        target: /run/secrets/apns-production.p8
+        read_only: true
+        bind:
+          create_host_path: false

@@ -314,7 +314,7 @@ final class WatchCallSession: NSObject, ObservableObject {
 #endif
         notifyCompanion(event: "watch_voip_registration", extra: [
             "watch_voip_token": token.map { String(format: "%02x", $0) }.joined(),
-            "watch_bundle_id": Bundle.main.bundleIdentifier ?? "com.example.airsim.watchkitapp",
+            "watch_bundle_id": Bundle.main.bundleIdentifier ?? "com.eric3u.airsim2.watchkitapp",
         ])
     }
 
@@ -390,7 +390,7 @@ extension WatchCallSession: PKPushRegistryDelegate {
         guard type == .voIP else { return }
         notifyCompanion(event: "watch_voip_registration", extra: [
             "watch_voip_token": "",
-            "watch_bundle_id": Bundle.main.bundleIdentifier ?? "com.example.airsim.watchkitapp",
+            "watch_bundle_id": Bundle.main.bundleIdentifier ?? "com.eric3u.airsim2.watchkitapp",
         ])
     }
 

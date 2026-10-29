@@ -23,9 +23,12 @@ type result struct {
 	err   error
 }
 type request struct {
-	ctx     context.Context
-	command string
-	reply   chan result
+	ctx                    context.Context
+	command                string
+	reply                  chan result
+	label, prefix, payload string
+	timeout                time.Duration
+	pduLines               bool
 }
 type Manager struct {
 	port            io.ReadWriteCloser
@@ -70,6 +73,16 @@ func (m *Manager) read() {
 			}
 			pending += string(b[:n])
 			for {
+				if strings.HasPrefix(pending, ">") {
+					select {
+					case m.lines <- ">":
+					case <-m.stop:
+						return
+					case <-m.done:
+						return
+					}
+					pending = strings.TrimPrefix(pending[1:], " ")
+				}
 				i := strings.IndexAny(pending, "\r\n")
 				if i < 0 {
 					if len(pending) > 4096 {
@@ -111,7 +124,11 @@ func (m *Manager) Query(ctx context.Context, cmd string) ([]string, error) {
 	if _, ok := allowed[cmd]; !ok {
 		return nil, ErrInvalid
 	}
-	r := request{ctx, cmd, make(chan result, 1)}
+	return m.submit(request{ctx: ctx, command: cmd, label: cmd, prefix: allowed[cmd], timeout: 5 * time.Second})
+}
+func (m *Manager) submit(r request) ([]string, error) {
+	ctx := r.ctx
+	r.reply = make(chan result, 1)
 	select {
 	case <-m.quiesce:
 		return nil, ErrQuery
@@ -236,7 +253,7 @@ func (m *Manager) run() {
 	}
 }
 func urc(s string) bool {
-	return s == "RING" || s == "NO CARRIER" || strings.HasPrefix(s, "+CMTI:") || strings.HasPrefix(s, "+CREG:") || strings.HasPrefix(s, "+CGREG:") || strings.HasPrefix(s, "+CEREG:") || strings.HasPrefix(s, "+CIREG:")
+	return s == "RING" || s == "NO CARRIER" || strings.HasPrefix(s, "+CMTI:") || strings.HasPrefix(s, "+CLIP:") || strings.HasPrefix(s, "+QIND:") || strings.HasPrefix(s, "+CGEV:") || strings.HasPrefix(s, "+CREG:") || strings.HasPrefix(s, "+CGREG:") || strings.HasPrefix(s, "+CEREG:") || strings.HasPrefix(s, "+CIREG:")
 }
 func (m *Manager) execute(r request) (result, bool) {
 	// This tmpfs fence intentionally survives a failed transaction or process death.
@@ -244,7 +261,7 @@ func (m *Manager) execute(r request) (result, bool) {
 	if e != nil {
 		return result{err: ErrDesynchronized}, true
 	}
-	_, e = f.WriteString("{\"command\":\"" + r.command + "\"}\n")
+	_, e = f.WriteString("{\"command\":\"" + r.label + "\"}\n")
 	if e == nil {
 		e = f.Sync()
 	}
@@ -252,32 +269,30 @@ func (m *Manager) execute(r request) (result, bool) {
 	if e != nil || ce != nil {
 		return result{err: ErrDesynchronized}, true
 	}
-	timer := time.NewTimer(5 * time.Second)
+	timer := time.NewTimer(r.timeout)
 	defer timer.Stop()
-	written := make(chan bool, 1)
-	go func() {
-		payload := []byte(r.command + "\r")
-		n, e := m.port.Write(payload)
-		written <- e == nil && n == len(payload)
-	}()
-	select {
-	case ok := <-written:
-		if !ok {
-			return result{err: ErrDesynchronized}, true
+	write := func(payload []byte) bool {
+		written := make(chan bool, 1)
+		go func() {
+			n, e := m.port.Write(payload)
+			written <- e == nil && n == len(payload)
+		}()
+		select {
+		case ok := <-written:
+			return ok
+		case <-timer.C:
+		case <-r.ctx.Done():
+		case <-m.stop:
 		}
-	case <-timer.C:
 		m.port.Close()
 		<-written
-		return result{err: ErrDesynchronized}, true
-	case <-r.ctx.Done():
-		m.port.Close()
-		<-written
-		return result{err: ErrDesynchronized}, true
-	case <-m.stop:
-		m.port.Close()
-		<-written
+		return false
+	}
+	if !write([]byte(r.command + "\r")) {
 		return result{err: ErrDesynchronized}, true
 	}
+	prompted := false
+
 	lines := []string{}
 	size := 0
 	for {
@@ -295,10 +310,18 @@ func (m *Manager) execute(r request) (result, bool) {
 			if size > 16384 {
 				return result{err: ErrDesynchronized}, true
 			}
-			if line == r.command {
+			if line == ">" && r.payload != "" && !prompted {
+				prompted = true
+				if !write([]byte(r.payload + "\x1a")) {
+					return result{err: ErrDesynchronized}, true
+				}
 				continue
 			}
-			if line == "OK" || line == "ERROR" || strings.HasPrefix(line, "+CME ERROR:") || strings.HasPrefix(line, "+CMS ERROR:") {
+			if line == r.command || (r.payload != "" && line == r.payload) {
+				continue
+			}
+			dialFailed := strings.HasPrefix(r.command, "ATD") && (line == "NO CARRIER" || line == "NO ANSWER" || line == "BUSY" || line == "NO DIALTONE")
+			if dialFailed || line == "OK" || line == "ERROR" || strings.HasPrefix(line, "+CME ERROR:") || strings.HasPrefix(line, "+CMS ERROR:") {
 				if e := os.Remove(m.marker); e != nil {
 					return result{err: ErrDesynchronized}, true
 				}
@@ -317,12 +340,12 @@ func (m *Manager) execute(r request) (result, bool) {
 							}
 						}
 					}
-					m.diagnostic("AT transaction query_failed: command=%s terminal=%s code=%d", r.command, kind, code)
+					m.diagnostic("AT transaction query_failed: command=%s terminal=%s code=%d", r.label, kind, code)
 					return result{err: ErrQuery}, false
 				}
 				return result{lines: lines}, false
 			}
-			prefix := allowed[r.command]
+			prefix := r.prefix
 			if prefix != "" && strings.HasPrefix(line, prefix) {
 				// Registration query responses include reporting mode and registration; URCs don't.
 				if (strings.Contains(r.command, "REG?")) && !strings.Contains(line, ",") {
@@ -336,7 +359,7 @@ func (m *Manager) execute(r request) (result, bool) {
 				m.event()
 				continue
 			}
-			if r.command == "ATI" || r.command == "AT+CGMR" {
+			if r.command == "ATI" || r.command == "AT+CGMR" || (r.pduLines && hexPDU.MatchString(line)) {
 				lines = append(lines, line)
 				continue
 			}

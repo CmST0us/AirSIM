@@ -108,9 +108,9 @@ type Manager struct {
 	err          string
 }
 
-func New(q Qualifier, path, socket string) *Manager {
+func New(q Qualifier, path, socket, profile string) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{q: q, path: path, socket: socket, ctx: ctx, cancel: cancel, done: make(chan struct{}), start: startChild}
+	m := &Manager{q: q, path: path, socket: socket, ctx: ctx, cancel: cancel, done: make(chan struct{}), start: func(ctx context.Context, path, id string) (helper, error) { return startChild(ctx, path, id, profile) }}
 	if e := checkHelper(path); e != nil {
 		m.err = e.Error()
 	}

@@ -601,3 +601,81 @@ func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
 		})
 	}
 }
+
+func TestDiscoveryAPNsProfiles(t *testing.T) {
+	for _, tc := range []struct {
+		name, profile  string
+		apns, accepted bool
+	}{
+		{"r4_without_push", Profile, false, true},
+		{"r4_with_push", Profile, true, false},
+		{"callkit_without_push", "airsim-v2-callkit", false, true},
+		{"callkit_with_push", "airsim-v2-callkit", true, true},
+		{"unknown", "unknown", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			server := tlsServer(t, f, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				d := discovery(f).(map[string]any)
+				d["profile"] = tc.profile
+				d["capabilities"].(map[string]bool)["apns"] = tc.apns
+				json.NewEncoder(w).Encode(d)
+			}))
+			f.req.API, f.req.Device, f.req.Media = server.URL, server.URL, server.URL
+			f.prepare(t)
+			f.issue(t)
+			if f.p.Activate(f.bundle) != 200 {
+				t.Fatal("activation")
+			}
+			a := &Agent{P: f.p}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := a.discover(ctx, f.p.config); (err == nil) != tc.accepted {
+				t.Fatalf("accepted=%v, error=%v", tc.accepted, err)
+			}
+		})
+	}
+}
+
+type snapshotControl struct {
+	fakeControl
+	state string
+}
+
+func (f *snapshotControl) View(ctx context.Context, kind, id string) (any, int) {
+	if kind == "calls" {
+		return control.CallsView{Boot: f.boot, Epoch: f.epoch, Available: true, Calls: []control.Call{{ID: f.call, State: f.state}}}, 200
+	}
+	return f.fakeControl.View(ctx, kind, id)
+}
+func TestSnapshotRefreshDuringCalls(t *testing.T) {
+	for _, state := range []string{"incoming", "dialing", "active", "disconnected"} {
+		t.Run(state, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			fc := &snapshotControl{fakeControl: fakeControl{boot: uid(), epoch: uid(), call: uid()}, state: state}
+			c := &connection{agent: &Agent{Control: fc, Media: &fakeMedia{}}, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 8)}
+			var snap, messages string
+			var sent time.Time
+			if !c.sync(&snap, &messages, &sent) {
+				t.Fatal("initial snapshot")
+			}
+			for len(c.queue) > 0 {
+				<-c.queue
+			}
+			sent = time.Now().Add(-2 * time.Second)
+			if !c.sync(&snap, &messages, &sent) {
+				t.Fatal("refresh")
+			}
+			got := false
+			for len(c.queue) > 0 {
+				if (<-c.queue).kind == "snapshot" {
+					got = true
+				}
+			}
+			if got != (state != "disconnected") {
+				t.Fatalf("snapshot refresh=%v", got)
+			}
+		})
+	}
+}

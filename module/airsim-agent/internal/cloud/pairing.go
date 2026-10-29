@@ -2,7 +2,6 @@ package cloud
 
 import (
 	"airsim.local/airsim-agent/internal/control"
-	"airsim.local/airsim-agent/internal/platform/rm500u"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -75,7 +74,7 @@ func (p *Provisioner) pairingCertificate(now time.Time) (*x509.Certificate, int,
 func (p *Provisioner) pairingView(now time.Time) (any, int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	out := pairingStatus{ModuleID: p.id.ModuleID, Public: base64.StdEncoding.EncodeToString(p.id.Signer().Public().(ed25519.PublicKey)), Profile: rm500u.Profile}
+	out := pairingStatus{ModuleID: p.id.ModuleID, Public: base64.StdEncoding.EncodeToString(p.id.Signer().Public().(ed25519.PublicKey)), Profile: p.profile}
 	cert, code, reason := p.pairingCertificate(now)
 	if reason == "pairing_unconfigured" {
 		return out, 200

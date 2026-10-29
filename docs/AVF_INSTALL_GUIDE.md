@@ -4,7 +4,7 @@
 
 当前应用发布是 [`v0.9.6`](https://github.com/kai-wu-cortex/AirSIM/releases/tag/v0.9.6)，本指南安装的 AVF Agent 是独立版本 [`v0.4.6`](https://github.com/kai-wu-cortex/AirSIM/releases/tag/v0.4.6)（Debian 包 `0.4.6-1`）。两条版本线用途不同，不应相互替换。
 
-RM500U 嵌入式 v2 使用 `/etc/inittab` 和 `/mnt/data/airsim-v2/run-agent.sh`，不是本指南中的 AVF systemd 与 Debian 包。其安装、WebUSB 配对和回滚步骤见 [RM500U Agent 开机启动](../module/airsim-agent/RM500U_AUTOSTART.md)。
+RM500U 嵌入式 v2 使用 `/etc/inittab` 和 `/mnt/data/airsim-v2/run-agent.sh`，不是本指南中的 AVF systemd 与 Debian 包。其安装、WebUSB 配对和回滚步骤见 [RM500U Agent 开机启动](../module/airsim-agent/RM500U_AUTOSTART.md)。EG25 QDC507 使用 ARMv7 安装包和 `/usrdata/airsim-v2`，见 [EG25 安装与恢复](../module/eg25/README.md)。
 
 若 AVF 内已有 DJOneHub，保留其服务和 `7575` 端口。AirSIM 使用独立的 `8575` / `8576`，健康响应还应包含 `"product":"airsim"`；`7575` 返回成功不能当成 AirSIM 已安装。首次安装固定到 v0.4.6。已有 `0.4.4-1` 的设备须先按下文执行一次性签名密钥迁移到 v0.4.5，再通过安装器升级，不能用首次安装命令或 App 的旧 installer 直接跳过迁移。
 
@@ -112,3 +112,11 @@ sudo apt-get -s --no-remove install 'libudev1=252.39-1~deb12u2'
 4. 随后再验证默认电话角色、Shizuku 授权、VoWLAN/Relay、真实通话及双向 PCM。Agent 健康不等于电话链路已经验收。
 
 提交故障报告时记录：手机型号、Android/Terminal 版本、Agent 包版本、两项 `systemctl status`、脱敏 `journalctl`、两个端口的连通性和安装脚本退出码。不要附上控制 token、真实号码、短信或 PCM。
+
+AirSIM v2 ECS 支持分别配置 Sandbox / Production APNs 密钥，按 App 注册环境选择；两者可共用同一业务服务和数据库。开发签名的 `aps-environment=development` 对应 Sandbox，TestFlight / 分发签名对应 Production。重签须保持 App 配置与最终签名环境一致，使用新 Bundle ID 可并列安装并保留旧版数据。见 [APNs 部署配置](../service/airsim/deploy/compose/README.md#apns)。
+
+Agent 支持 `airsim-v2-callkit` 服务的 APNs 开启和关闭状态；`airsim-v2-r4.1` 仍要求 APNs 关闭。启用 ECS 推送前须使用支持该能力的 Agent。
+
+Agent 在通话期间每秒发布状态快照，空闲时每五秒发布；App 保留八秒快照有效期。iOS Debug 诊断页支持真机三秒本机音频测试。
+
+模块范围配对完成后持久化当前模块；App 重新启动时从配对配置恢复绑定模块，管理员多模块配置仍使用显式选择。

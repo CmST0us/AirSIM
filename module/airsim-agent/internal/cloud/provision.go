@@ -76,6 +76,7 @@ type Status struct {
 	CertificateExpiry *time.Time `json:"certificate_expires_at"`
 }
 type Provisioner struct {
+	profile         string
 	mu              sync.Mutex
 	id              identity.Identity
 	path            string
@@ -337,8 +338,8 @@ func persist(path string, v any) error {
 	defer d.Close()
 	return d.Sync()
 }
-func NewProvisioner(id identity.Identity, path string) *Provisioner {
-	p := &Provisioner{id: id, path: path, changed: make(chan struct{}, 1), status: Status{ModuleID: id.ModuleID}}
+func NewProvisioner(id identity.Identity, path, profile string) *Provisioner {
+	p := &Provisioner{profile: profile, id: id, path: path, changed: make(chan struct{}, 1), status: Status{ModuleID: id.ModuleID}}
 	if secureDir(path) != nil {
 		p.status.LastError = "cloud_config"
 		return p

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { challengeRequest, createEngineBundle, failureForStatus, parseHTTPResponse } from '../src/transport/webusb';
+import { challengeRequest, failureForStatus, parseHTTPResponse } from '../src/transport/webusb';
 import { device } from './fixtures';
 
 const encoder = new TextEncoder();
@@ -36,28 +36,4 @@ describe('local Agent HTTP transport', () => {
     expect(failureForStatus(409, 'pairing_conflict')).toBe('busy');
   });
 
-  it('builds a regular-file tar bundle for the persistent Agent and launcher', () => {
-    const agent = encoder.encode('agent');
-    const launcher = encoder.encode('launcher');
-    const audio = encoder.encode('audio');
-    const bundle = createEngineBundle(agent, launcher, audio, '0123456789abcdef', 'install');
-    const decoder = new TextDecoder();
-    expect(decoder.decode(bundle.slice(0, 100)).replace(/\0+$/, ''))
-      .toBe('releases/0123456789abcdef/.airsim-agent.new');
-    expect(decoder.decode(bundle.slice(512, 517))).toBe('agent');
-
-    const second = 1024;
-    expect(decoder.decode(bundle.slice(second, second + 100)).replace(/\0+$/, '')).toBe('.run-agent.sh.new');
-    expect(decoder.decode(bundle.slice(second + 512, second + 520))).toBe('launcher');
-    const third = 2048;
-    expect(decoder.decode(bundle.slice(third, third + 100)).replace(/\0+$/, '')).toBe('.airsim-audiod.new');
-    expect(decoder.decode(bundle.slice(third + 512, third + 517))).toBe('audio');
-    const fourth = 3072;
-    expect(decoder.decode(bundle.slice(fourth, fourth + 100)).replace(/\0+$/, '')).toBe('.airsim-install.sh.new');
-    expect(decoder.decode(bundle.slice(fourth + 512, fourth + 519))).toBe('install');
-    const header = bundle.slice(0, 512);
-    const storedChecksum = Number.parseInt(decoder.decode(header.slice(148, 154)), 8);
-    header.fill(0x20, 148, 156);
-    expect(storedChecksum).toBe(header.reduce((sum, value) => sum + value, 0));
-  });
 });

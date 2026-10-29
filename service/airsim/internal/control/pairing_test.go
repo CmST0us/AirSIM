@@ -62,3 +62,15 @@ func TestPairingDecimalCodePadding(t *testing.T) {
 		t.Fatal("code length")
 	}
 }
+
+func TestPairingUsesAuthenticatedPlatformName(t *testing.T) {
+	s := New(nil, Config{})
+	if s.moduleName("offline") != "AirSIM" {
+		t.Fatal("unknown module was assigned a model")
+	}
+	s.last["eg25"] = &peer{platform: "eg25-qdc507"}
+	s.last["rm500"] = &peer{platform: "rm500u-embedded"}
+	if s.moduleName("eg25") != "EG25 QDC507" || s.moduleName("rm500") != "RM500U" {
+		t.Fatal("model not retained for pairing")
+	}
+}

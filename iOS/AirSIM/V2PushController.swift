@@ -276,6 +276,16 @@ final class V2PushController: NSObject {
         self.model = nil
     }
 
+#if DEBUG
+    var lastIncomingDiagnostic: String { defaults.string(forKey: "airsim.v2.last-incoming-diagnostic") ?? "尚未收到" }
+#endif
+    private func recordIncomingDiagnostic(_ value: String) {
+#if DEBUG
+        defaults.set(value, forKey: "airsim.v2.last-incoming-diagnostic")
+        NSLog("[AirSIM Push] incoming result=%@", value)
+#endif
+    }
+
     func acceptsIncomingPush(_ call: IncomingVoIPCall) -> Bool {
         guard let model, model.isV2Runtime,
               let configuration = model.configuration,
@@ -380,25 +390,34 @@ extension V2PushController: PKPushRegistryDelegate {
         let userInfo = payload.dictionaryPayload
         Task { @MainActor [weak self] in
             guard let self else {
-                ExpiredLegacyPushReporter.shared.report(completion: completion)
+                ExpiredLegacyPushReporter.shared.report(reason: "v2_controller_unavailable", completion: completion)
                 return
             }
             do {
                 let call = try IncomingVoIPCall(userInfo: userInfo)
                 guard acceptsIncomingPush(call) else {
-                    ExpiredLegacyPushReporter.shared.report(completion: completion)
+                    recordIncomingDiagnostic("domain_mismatch")
+                    ExpiredLegacyPushReporter.shared.report(reason: "v2_domain_mismatch", completion: completion)
                     return
                 }
+                self.model?.activateSystemIntegration()
                 CallKitController.shared.reportIncomingPush(call) { error in
-                    if error != nil {
-                        ExpiredLegacyPushReporter.shared.report(completion: completion)
+                    if let error {
+                        self.recordIncomingDiagnostic("callkit_rejected:\((error as NSError).code)")
+                        switch error as? CallKitBridgeError {
+                        case .unavailable, .callInProgress:
+                            ExpiredLegacyPushReporter.shared.report(reason: "v2_report_unavailable", completion: completion)
+                        default:
+                            completion()
+                        }
                     } else {
-                        self.model?.receivePushKitIncomingCall(call)
+                        self.recordIncomingDiagnostic("reported")
                         completion()
                     }
                 }
             } catch {
-                ExpiredLegacyPushReporter.shared.report(completion: completion)
+                recordIncomingDiagnostic((error as? VoIPPushPayloadError) == .expired ? "payload_expired" : "payload_invalid")
+                ExpiredLegacyPushReporter.shared.report(reason: "v2_payload_invalid", completion: completion)
             }
         }
     }

@@ -77,6 +77,10 @@ services:
       APNS_TEAM_ID: ${APNS_TEAM_ID:-}
       APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-}
       APNS_KEY_FILE: ${APNS_KEY_FILE:-}
+      APNS_SANDBOX_KEY_ID: ${APNS_SANDBOX_KEY_ID:-}
+      APNS_SANDBOX_KEY_FILE: ${APNS_SANDBOX_KEY_FILE:-}
+      APNS_PRODUCTION_KEY_ID: ${APNS_PRODUCTION_KEY_ID:-}
+      APNS_PRODUCTION_KEY_FILE: ${APNS_PRODUCTION_KEY_FILE:-}
     volumes:
       - ${AIRSIM_SECRET_DIR}/database-password:/run/secrets/database-password:ro
       - ${AIRSIM_SECRET_DIR}/identity/device-ca.pem:/run/secrets/device-ca.pem:ro

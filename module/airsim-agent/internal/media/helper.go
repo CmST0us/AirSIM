@@ -80,7 +80,7 @@ func parseHelper(b []byte) (HelperEvent, error) {
 			return e, ErrProtocol
 		}
 		for _, p := range []*PCMConfig{e.Capture, e.Playback} {
-			if p.PeriodSize != 320 || p.PeriodCount != 2 || p.BufferFrames != 640 {
+			if !((p.PeriodSize == 320 && p.PeriodCount == 2 && p.BufferFrames == 640) || (p.PeriodSize == 256 && p.PeriodCount == 8 && p.BufferFrames == 2048)) {
 				return e, ErrProtocol
 			}
 		}
@@ -164,7 +164,7 @@ func checkHelper(path string) error {
 	}
 	return nil
 }
-func startChild(_ context.Context, path, id string) (helper, error) {
+func startChild(_ context.Context, path, id, profile string) (helper, error) {
 	if e := checkHelper(path); e != nil {
 		return nil, e
 	}
@@ -179,7 +179,7 @@ func startChild(_ context.Context, path, id string) (helper, error) {
 		return nil, e
 	}
 	defer pf.Close()
-	cmd := exec.Command(path, "--session", id, "--profile", "rm500u-embedded")
+	cmd := exec.Command(path, "--session", id, "--profile", profile)
 	cmd.ExtraFiles = []*os.File{cf, pf}
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
@@ -189,6 +189,18 @@ func startChild(_ context.Context, path, id string) (helper, error) {
 		pcm.Close()
 		return nil, e
 	}
-	go func() { h.exited <- cmd.Wait(); close(h.exited) }()
+	go func() {
+		err := cmd.Wait()
+		if err != nil && profile == "eg25-qdc507" {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			cleanup := exec.CommandContext(ctx, path, "--cleanup", "--profile", profile)
+			cleanup.Stdout = io.Discard
+			cleanup.Stderr = io.Discard
+			_ = cleanup.Run()
+			cancel()
+		}
+		h.exited <- err
+		close(h.exited)
+	}()
 	return h, nil
 }

@@ -27,7 +27,7 @@ func TestProfiles(t *testing.T) {
 	}
 }
 func TestReadOnlyParsers(t *testing.T) {
-	a := &Adapter{AT: fake{"ATI": {"RM500U-CN"}, "AT+CGMR": {Firmware}, "AT+CPIN?": {"+CPIN: READY"}, "AT+CSQ": {"+CSQ: 99,99"}, "AT+CREG?": {"+CREG: 2,1"}, "AT+CIREG?": {"+CIREG: 2,1"}, "AT+CLCC": {"+CLCC: 1,0,0,0,0,\"12345\",129"}}, ctx: context.Background()}
+	a := New(fake{"ATI": {"RM500U-CN"}, "AT+CGMR": {Firmware}, "AT+CPIN?": {"+CPIN: READY"}, "AT+CSQ": {"+CSQ: 99,99"}, "AT+CREG?": {"+CREG: 2,1"}, "AT+CIREG?": {"+CIREG: 2,1"}, "AT+CLCC": {"+CLCC: 1,0,0,0,0,\"12345\",129"}})
 	if a.Verify(context.Background()) != nil {
 		t.Fatal("verify")
 	}
@@ -51,7 +51,7 @@ func TestReadOnlyParsers(t *testing.T) {
 
 func TestFirmwareRejectsDifferentSuffix(t *testing.T) {
 	for _, firmware := range []string{"RM500UCNAAR01A18M2G", "RM500UCNAAR01A18M2G_01.001.01.002", Firmware + "extra", "prefix" + Firmware} {
-		a := &Adapter{AT: fake{"ATI": {"RM500U-CN"}, "AT+CGMR": {firmware}}}
+		a := New(fake{"ATI": {"RM500U-CN"}, "AT+CGMR": {firmware}})
 		if a.Verify(context.Background()) == nil {
 			t.Fatal("accepted unapproved firmware")
 		}

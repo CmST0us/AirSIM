@@ -16,7 +16,7 @@ VoIP payload 字段：`aps: {"content-available": 1}`、`protocol_version: 2`、
 
 普通短信通知使用相同注册的 alert token，push-type=alert、topic=主 Bundle ID，显示固定“收到一条新短信，打开 AirSIM 查看”，payload 带上述身份域及 `event: "incoming_sms"`、`message_id`，不携带短信正文。仅对注册后新收到的 incoming 消息推送，按域/message ID 去重。点击通知获取当前短信后进入原会话；迟到的其他域通知不自动切换服务或模块。
 
-APNs provider 在 control 内实现，使用 ES256 JWT、HTTP/2、受限文件密钥和有限超时；增加仅出站的 Compose 网络，不暴露 control 端口。配置名为 `APNS_KEY_ID`、`APNS_TEAM_ID`、`APNS_BUNDLE_ID`、`APNS_KEY_FILE`；全部为空时关闭推送，部分配置或非法密钥启动报错。APNs 私钥不进入镜像或仓库。增量数据库迁移保留现有身份、命令、模块和媒体数据。
+APNs provider 在 control 内实现，使用 ES256 JWT、HTTP/2、受限文件密钥和有限超时；增加仅出站的 Compose 网络，不暴露 control 端口。配置名为 `APNS_KEY_ID`、`APNS_TEAM_ID`、`APNS_BUNDLE_ID`、`APNS_KEY_FILE`；全部为空时关闭推送，部分配置或非法密钥启动报错。分环境密钥使用 `APNS_SANDBOX_KEY_ID` / `APNS_SANDBOX_KEY_FILE` 和 `APNS_PRODUCTION_KEY_ID` / `APNS_PRODUCTION_KEY_FILE`，共用 `APNS_TEAM_ID` 与 `APNS_BUNDLE_ID`。两组必须完整配置，不能与原单密钥配置混用；按注册环境选择独立密钥、JWT 缓存和 HTTP 连接池，未知环境拒绝发送，不跨环境回退。开发和生产推送可共用同一业务服务与数据库；TestFlight 使用 production。APNs 私钥不进入镜像或仓库。增量数据库迁移保留现有身份、命令、模块和媒体数据。
 
 管理员 `issue-client` 增加 `--client-ttl`，默认一小时，可显式设置 1 小时至 30 天；仍可随时撤销。App 导入上限调整为 30 天加五分钟时钟容差，并在原设置显示有效期。没有自动续期或交互登录；到期明确要求重新导入。后台接听需要 Keychain `AfterFirstUnlockThisDeviceOnly`；v2 控制状态文件使用首次解锁后可读保护，重启未首次解锁时及时结束不可处理的系统来电，不生成未经核对的控制操作。
 

@@ -22,3 +22,19 @@ type ControlBackend interface {
 	Snapshot(context.Context) (ControlSnapshot, error)
 	Execute(context.Context, WriteAction) WriteResult
 }
+
+type ControlEvent struct {
+	Kind, Object, State, Number, Reason, Text, Sender string
+	Sequence                                          uint64
+	EmergencyNumbers                                  []string
+}
+
+type ControlSession interface {
+	ControlBackend
+	EpochID() string
+	Events() <-chan ControlEvent
+	Overflow() <-chan struct{}
+	Done() <-chan struct{}
+	Dropped() uint64
+	Close()
+}

@@ -207,7 +207,7 @@ func setup(t *testing.T, stall bool, earlyError string) (*Manager, *fakeQualifie
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	os.Chmod(dir, 0700)
-	m := New(q, exe, filepath.Join(dir, "m.sock"))
+	m := New(q, exe, filepath.Join(dir, "m.sock"), "rm500u-embedded")
 	var ptr atomic.Pointer[fakeHelper]
 	m.start = func(_ context.Context, _ string, id string) (helper, error) {
 		f := launchFake(id, stall, earlyError)
@@ -522,7 +522,7 @@ func TestRealChildStopKillsAndReapsAfterTwoSeconds(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	h, e := startChild(context.Background(), path, uid())
+	h, e := startChild(context.Background(), path, uid(), "rm500u-embedded")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -545,6 +545,13 @@ func TestRefinedHardwareConfigStrict(t *testing.T) {
 	b, _ := json.Marshal(good)
 	if _, e := parseHelper(b); e != nil {
 		t.Fatal(e)
+	}
+	eg25 := readyEvent()
+	eg25.Capture = &PCMConfig{8000, 256, 8, 2048}
+	eg25.Playback = &PCMConfig{8000, 256, 8, 2048}
+	b, _ = json.Marshal(eg25)
+	if _, e := parseHelper(b); e != nil {
+		t.Fatal("EG25 mmap configuration", e)
 	}
 	for _, cfg := range []PCMConfig{{8000, 160, 4, 640}, {8000, 320, 4, 1280}, {8000, 320, 2, 1280}} {
 		bad := readyEvent()

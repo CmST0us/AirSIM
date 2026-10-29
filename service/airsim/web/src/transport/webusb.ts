@@ -1,3 +1,4 @@
+import { platforms, isPlatform, detectPlatform, hardwareScript, parseProperties, type PlatformID } from './platform';
 import { Adb, AdbDaemonTransport } from '@yume-chan/adb';
 import AdbWebCredentialStore from '@yume-chan/adb-credential-web';
 import {
@@ -26,6 +27,9 @@ interface EngineManifest {
   version: string;
   os: string;
   arch: string;
+  profile: PlatformID;
+  platform?: EngineArtifact[];
+  licenses: EngineArtifact[];
   agent: EngineArtifact;
   launcher: EngineArtifact;
   audio: EngineArtifact;
@@ -127,7 +131,7 @@ function deviceView(usb: AdbDaemonWebUsbDevice, status?: AgentStatus, engine?: E
   const suffix = usb.serial.replace(/[^0-9A-Za-z]/g, '').slice(-8) || 'unknown';
   return {
     id: usb.serial,
-    name: status?.profile === 'rm500u-embedded' ? 'RM500' : (usb.name || 'AirSIM 设备'),
+    name: status && isPlatform(status.profile) ? platforms[status.profile].name : (engine?.profile && isPlatform(engine.profile) ? platforms[engine.profile].name : (usb.name || 'AirSIM 设备')),
     shortId: status?.module_id.slice(-8) || suffix,
     engine,
   };
@@ -253,14 +257,19 @@ function validEngineArtifact(value: unknown): value is EngineArtifact {
     && /^[a-f0-9]{64}$/.test(artifact.sha256);
 }
 
-function validEngineManifest(value: unknown): value is EngineManifest {
+export function validEngineManifest(value: unknown): value is EngineManifest {
   if (!value || typeof value !== 'object') return false;
   const manifest = value as Record<string, unknown>;
   return manifest.schema_version === 1
     && typeof manifest.version === 'string'
     && /^[0-9A-Za-z.+-]+$/.test(manifest.version)
     && manifest.os === 'linux'
-    && manifest.arch === 'arm64'
+    && typeof manifest.profile === 'string' && isPlatform(manifest.profile)
+    && manifest.arch === platforms[manifest.profile].arch
+    && (manifest.profile === 'rm500u-embedded' ? manifest.platform === undefined : Array.isArray(manifest.platform) && manifest.platform.length === 7 && manifest.platform.every(validEngineArtifact) && ['airsim_data11.ko', 'qdc507_aprv3.ko', 'qdc507_voice.ko', 'COPYING-GPL-2.0', 'MODULE-REPORT.md', 'airsim_data11.c', 'isrgrootx1.pem'].every(name => (manifest.platform as EngineArtifact[]).some(file => file.path === name)))
+    && Array.isArray(manifest.licenses) && manifest.licenses.length === 3
+    && manifest.licenses.every(validEngineArtifact)
+    && ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md'].every(name => (manifest.licenses as EngineArtifact[]).some(file => file.path === name))
     && validEngineArtifact(manifest.agent)
     && validEngineArtifact(manifest.launcher)
     && validEngineArtifact(manifest.audio)
@@ -269,11 +278,11 @@ function validEngineManifest(value: unknown): value is EngineManifest {
     && manifest.audio.path === 'airsim-audiod';
 }
 
-function prepareEngineStorageScript(release: string, requiredBytes: number): string {
-  const requiredKiB = Math.ceil(requiredBytes / 1024) + 2048;
+export function prepareEngineStorageScript(profile: PlatformID, release: string, requiredBytes: number): string {
+  const requiredKiB = Math.ceil(requiredBytes / 1024) + 512;
   return `
 set -eu
-base=/mnt/data/airsim-v2
+base=${platforms[profile].base}
 release=${release}
 current=
 current_link="$(readlink "$base/current" 2>/dev/null || true)"
@@ -294,67 +303,16 @@ fi
 `;
 }
 
-export function createEngineBundle(
-  agent: Uint8Array,
-  launcher: Uint8Array,
-  audio: Uint8Array,
-  release: string,
-  installScript: string,
-): Uint8Array {
-  const encoder = new TextEncoder();
-  const entries = [
-    { path: `releases/${release}/.airsim-agent.new`, bytes: agent },
-    { path: '.run-agent.sh.new', bytes: launcher },
-    { path: '.airsim-audiod.new', bytes: audio },
-    { path: '.airsim-install.sh.new', bytes: encoder.encode(installScript) },
-  ];
-  const block = 512;
-  const size = entries.reduce((total, entry) => total + block + Math.ceil(entry.bytes.byteLength / block) * block, 1024);
-  const output = new Uint8Array(size);
-  let offset = 0;
-  const ascii = (target: Uint8Array, start: number, length: number, value: string) => {
-    const encoded = encoder.encode(value);
-    if (encoded.byteLength > length) throw new TransportFailure('install_failed');
-    target.set(encoded, start);
-  };
-  const octal = (target: Uint8Array, start: number, length: number, value: number) => {
-    ascii(target, start, length, value.toString(8).padStart(length - 1, '0') + '\0');
-  };
-  for (const entry of entries) {
-    const header = new Uint8Array(block);
-    ascii(header, 0, 100, entry.path);
-    octal(header, 100, 8, 0o700);
-    octal(header, 108, 8, 0);
-    octal(header, 116, 8, 0);
-    octal(header, 124, 12, entry.bytes.byteLength);
-    octal(header, 136, 12, Math.floor(Date.now() / 1000));
-    header.fill(0x20, 148, 156);
-    header[156] = 0x30;
-    ascii(header, 257, 6, 'ustar\0');
-    ascii(header, 263, 2, '00');
-    ascii(header, 265, 32, 'root');
-    ascii(header, 297, 32, 'root');
-    const checksum = header.reduce((sum, value) => sum + value, 0);
-    ascii(header, 148, 8, checksum.toString(8).padStart(6, '0') + '\0 ');
-    output.set(header, offset);
-    offset += block;
-    output.set(entry.bytes, offset);
-    offset += Math.ceil(entry.bytes.byteLength / block) * block;
-  }
-  return output;
-}
-
-function installEngineScript(manifest: EngineManifest, release: string): string {
+export function installEngineScript(manifest: EngineManifest, release: string): string {
   return `
 set -eu
-base=/mnt/data/airsim-v2
+base=${platforms[manifest.profile].base}
 release_dir="$base/releases/${release}"
 agent="$release_dir/.airsim-agent.new"
 installed_agent="$release_dir/airsim-agent"
 launcher="$base/.run-agent.sh.new"
 audio="$base/.airsim-audiod.new"
 audio_release="$base/audio-releases/audio-${manifest.audio.sha256.slice(0, 16)}"
-bundle="$release_dir/.engine-bundle.tar"
 root_was_ro=0
 if grep -q ' / ubifs ro,' /proc/mounts 2>/dev/null; then
   root_was_ro=1
@@ -366,7 +324,6 @@ restore_root() {
 }
 trap restore_root EXIT HUP INT TERM
 
-rm -f "$bundle"
 chmod 700 "$agent"
 chmod 700 "$launcher"
 chmod 700 "$audio"
@@ -377,7 +334,10 @@ audio_hash="$(sha256sum "$audio" | awk '{print $1}')"
 [ "$agent_hash" = "${manifest.agent.sha256}" ]
 [ "$launcher_hash" = "${manifest.launcher.sha256}" ]
 [ "$audio_hash" = "${manifest.audio.sha256}" ]
-mkdir -p "$base/config" "$base/state"
+${[...(manifest.platform || []), ...manifest.licenses].map(file => `test "$(sha256sum "$base/.${file.path}.new" | awk '{print $1}')" = "${file.sha256}"`).join('\n')}
+mkdir -p "$base/config" "$base/state" "$base/platform" "$base/licenses"
+${manifest.licenses.map(file => `mv -f "$base/.${file.path}.new" "$base/licenses/${file.path}"`).join('\n')}
+${(manifest.platform || []).map(file => `mv -f "$base/.${file.path}.new" "$base/platform/${file.path}"`).join('\n')}
 chmod 700 "$base/config" "$base/state"
 random_seed="$base/config/random.seed"
 if [ ! -f "$random_seed" ] || [ "$(wc -c <"$random_seed")" -ne 64 ]; then
@@ -428,11 +388,11 @@ fi
 tmp=/etc/inittab.airsim-new
 {
   grep -v '^asm:' /etc/inittab 2>/dev/null || true
-  echo 'asm:12345:respawn:/mnt/data/airsim-v2/run-agent.sh'
+  echo 'asm:12345:respawn:${platforms[manifest.profile].base}/run-agent.sh'
 } > "$tmp"
 chmod 644 "$tmp"
 mv -f "$tmp" /etc/inittab
-test "$(grep -c '^asm:12345:respawn:/mnt/data/airsim-v2/run-agent.sh$' /etc/inittab)" -eq 1
+test "$(grep -c '^asm:12345:respawn:${platforms[manifest.profile].base}/run-agent.sh$' /etc/inittab)" -eq 1
 sync
 restore_root
 trap - EXIT HUP INT TERM
@@ -440,21 +400,18 @@ trap - EXIT HUP INT TERM
 pids="$(pidof airsim-agent 2>/dev/null || true)"
 if [ -n "$pids" ]; then
   kill -TERM $pids 2>/dev/null || true
-else
-  kill -HUP 1 2>/dev/null || true
 fi
 echo AIRSIM_ENGINE_INSTALLED
+kill -HUP 1
+sleep 1
 `;
 }
 
-function bootstrapEngineScript(release: string): string {
+function bootstrapEngineScript(profile: PlatformID, release: string): string {
   return `
 set -eu
-base=/mnt/data/airsim-v2
+base=${platforms[profile].base}
 release_dir="$base/releases/${release}"
-bundle="$release_dir/.engine-bundle.tar"
-rm -f "$base/.airsim-install.sh.new" "$base/.run-agent.sh.new" "$base/.airsim-audiod.new" "$release_dir/.airsim-agent.new"
-tar -xf "$bundle" -C "$base"
 sh "$base/.airsim-install.sh.new"
 `;
 }
@@ -640,8 +597,8 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
     }
   }
 
-  async function bootstrapEngine(adb: Adb, release: string, signal: AbortSignal): Promise<string> {
-    const script = bootstrapEngineScript(release);
+  async function bootstrapEngine(adb: Adb, profile: PlatformID, release: string, signal: AbortSignal): Promise<string> {
+    const script = bootstrapEngineScript(profile, release);
     let output = '';
     const errors: string[] = [];
     try { output = await execText(adb, script, signal, installTimeout); }
@@ -649,7 +606,7 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
       if (signal.aborted) throw error;
       if (error instanceof Error) errors.push(`${error.name}: ${error.message}`);
     }
-    if (!output.includes('AIRSIM_ENGINE_INSTALLED') && !signal.aborted) {
+    if (!output.includes('AIRSIM_ENGINE_INSTALLED') && errors.length === 0 && !signal.aborted) {
       try { output += await shellText(adb, script, signal, installTimeout); }
       catch (error) {
         if (signal.aborted) throw error;
@@ -657,6 +614,7 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
       }
     }
     if (!output.includes('AIRSIM_ENGINE_INSTALLED')) {
+      if (errors.length && !signal.aborted) return '';
       const detail = [output.trim(), ...errors].filter(Boolean).join('\n').slice(-1000)
         || '设备未返回安装结果。';
       throw new TransportFailure('install_failed', detail);
@@ -664,10 +622,10 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
     return output;
   }
 
-  async function loadEngineManifest(signal: AbortSignal): Promise<EngineManifest> {
+  async function loadEngineManifest(profile: PlatformID, signal: AbortSignal): Promise<EngineManifest> {
     let response: Response;
     try {
-      response = await request(service(`${engineRoot}/manifest.json`), {
+      response = await request(service(`${engineRoot}/${profile}/manifest.json`), {
         cache: 'no-store',
         credentials: 'omit',
         redirect: 'error',
@@ -683,35 +641,37 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
     let value: unknown;
     try { value = JSON.parse(new TextDecoder().decode(bytes)); }
     catch { throw new TransportFailure('install_failed'); }
-    if (!validEngineManifest(value)) throw new TransportFailure('install_failed');
+    if (!validEngineManifest(value) || value.profile !== profile) throw new TransportFailure('install_failed');
     return value;
   }
 
+  async function identify(adb: Adb, signal: AbortSignal): Promise<PlatformID | undefined> {
+    return detectPlatform(parseProperties(await shellText(adb, hardwareScript, signal)));
+  }
+
   async function inspectEngine(adb: Adb, signal: AbortSignal): Promise<EngineStatus> {
-    const output = await shellText(adb, `
-agent=/mnt/data/airsim-v2/current/airsim-agent
-printf 'os=%s\\n' "$(uname -s)"
-printf 'arch=%s\\n' "$(uname -m)"
-printf 'uid=%s\\n' "$(id -u)"
-printf 'agent=%s\\n' "$(test -x "$agent" && echo 1 || echo 0)"
-printf 'hash=%s\\n' "$(test -r "$agent" && sha256sum "$agent" | awk '{print $1}' || true)"
-printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:/mnt/data/airsim-v2/run-agent.sh$' /etc/inittab 2>/dev/null || true)"
-`, signal);
-    const values = new Map<string, string>();
-    for (const line of output.split(/\r?\n/)) {
-      const index = line.indexOf('=');
-      if (index > 0) values.set(line.slice(0, index), line.slice(index + 1));
-    }
-    const compatible = values.get('os') === 'Linux'
-      && ['aarch64', 'arm64'].includes(values.get('arch') || '')
-      && values.get('uid') === '0';
-    const installed = values.get('agent') === '1';
-    const autostart = values.get('autostart') === '1';
-    const currentHash = values.get('hash') || undefined;
-    const manifest = await loadEngineManifest(signal).catch(error => {
+    const profile = await identify(adb, signal);
+    if (!profile) return { state: 'unavailable', compatible: false };
+    const base = platforms[profile].base;
+    const manifest = await loadEngineManifest(profile, signal).catch(error => {
       if (signal.aborted) throw error;
       return undefined;
     });
+    const supportFiles = manifest ? [...(manifest.platform || []).map(file => ({...file, directory: 'platform'})), ...manifest.licenses.map(file => ({...file, directory: 'licenses'}))] : [];
+    const output = await shellText(adb, `
+agent=${base}/current/airsim-agent
+printf 'agent=%s\\n' "$(test -x "$agent" && echo 1 || echo 0)"
+printf 'launcher_hash=%s\\n' "$(sha256sum ${base}/run-agent.sh 2>/dev/null | awk '{print $1}')"
+printf 'audio_hash=%s\\n' "$(sha256sum ${base}/audio-current/airsim-audiod 2>/dev/null | awk '{print $1}')"
+printf 'hash=%s\\n' "$(test -r "$agent" && sha256sum "$agent" | awk '{print $1}' || true)"
+${supportFiles.map(file => `printf '${file.path}=%s\\n' "$(sha256sum ${base}/${file.directory}/${file.path} 2>/dev/null | awk '{print $1}')"`).join('\n')}
+printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /etc/inittab 2>/dev/null || true)"
+`, signal);
+    const values = parseProperties(output);
+    const compatible = true;
+    const installed = values.get('agent') === '1';
+    const autostart = values.get('autostart') === '1';
+    const currentHash = values.get('hash') || undefined;
     let installedVersion: string | undefined;
     let healthReady = false;
     try {
@@ -728,11 +688,12 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:/mnt/data/airsim-v2/run-
     if (!compatible) state = 'unavailable';
     else if (!installed) state = 'missing';
     else if (!autostart) state = 'incomplete';
-    else if (manifest && currentHash !== manifest.agent.sha256) state = 'outdated';
+    else if (manifest && (currentHash !== manifest.agent.sha256 || values.get('launcher_hash') !== manifest.launcher.sha256 || values.get('audio_hash') !== manifest.audio.sha256 || supportFiles.some(file => values.get(file.path) !== file.sha256))) state = 'outdated';
     else state = healthReady ? 'ready' : 'starting';
     return {
       state,
       compatible,
+      profile,
       installedVersion,
       targetVersion: manifest?.version,
     };
@@ -777,7 +738,7 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:/mnt/data/airsim-v2/run-
     if (!validAgentStatus(response.body) || !response.body.configured) {
       throw new TransportFailure('not_ready');
     }
-    if (response.body.profile !== 'rm500u-embedded') throw new TransportFailure('unsupported');
+    if (!isPlatform(response.body.profile)) throw new TransportFailure('unsupported');
     if (!response.body.server_id || !response.body.api_origin || !response.body.media_origin) throw new TransportFailure('not_ready');
     return response.body;
   }
@@ -794,10 +755,10 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:/mnt/data/airsim-v2/run-
     throw new TransportFailure('disconnected');
   }
 
-  async function fetchEngineArtifact(artifact: EngineArtifact, signal: AbortSignal): Promise<Uint8Array> {
+  async function fetchEngineArtifact(profile: PlatformID, artifact: EngineArtifact, signal: AbortSignal): Promise<Uint8Array> {
     let response: Response;
     try {
-      response = await request(service(`${engineRoot}/${artifact.path}`), {
+      response = await request(service(`${engineRoot}/${profile}/${artifact.path}`), {
         cache: 'no-store',
         credentials: 'omit',
         redirect: 'error',
@@ -891,26 +852,41 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:/mnt/data/airsim-v2/run-
     }
   }
 
-  async function waitForAgent(adb: Adb, signal: AbortSignal): Promise<AgentStatus | undefined> {
+  async function waitForAgent(initial: Attachment, signal: AbortSignal): Promise<{ attachment: Attachment; status?: AgentStatus }> {
     const deadline = Date.now() + 90_000;
+    let attachment: Attachment | undefined = initial;
     while (Date.now() < deadline) {
       if (signal.aborted) throw new TransportFailure('cancelled');
       try {
-        const health = await localJSON<AgentHealth>(adb, 'GET', '/healthz', undefined, signal);
+        if (!attachment) {
+          // USB composition changes re-enumerate the same selected module.
+          const matches = (await activeManager.getDevices()).filter(usb => usb.serial === initial.usb.serial);
+          // Chrome grants serial-less devices access only until USB disconnects.
+          if (matches.length === 0 && !initial.usb.raw.serialNumber) {
+            throw new TransportFailure('install_reconnect');
+          }
+          if (matches.length !== 1) { await pause(1_000, signal); continue; }
+          usbDevices.set(matches[0].serial, matches[0]);
+          attachment = await attach(matches[0], signal);
+        }
+        const health = await localJSON<AgentHealth>(attachment.adb, 'GET', '/healthz', undefined, signal);
         if (health.status === 200 && health.body?.status === 'ok'
           && typeof health.body.version === 'string' && typeof health.body.agent_boot_id === 'string') {
-          try { return await readStatus(adb, signal); }
+          try { return { attachment, status: await readStatus(attachment.adb, signal) }; }
           catch (error) {
-            if (error instanceof TransportFailure && error.code === 'not_ready') return undefined;
+            if (error instanceof TransportFailure && error.code === 'not_ready') return { attachment };
             throw error;
           }
         }
       } catch (error) {
-        if (error instanceof TransportFailure && ['cancelled', 'disconnected'].includes(error.code)) throw error;
+        if (signal.aborted) throw error;
+        if (error instanceof TransportFailure && error.code === 'install_reconnect') throw error;
+        if (attachment) await releaseAttachment(attachment);
+        attachment = undefined;
       }
       await pause(1_000, signal);
     }
-    throw new TransportFailure('install_failed');
+    throw new TransportFailure('install_failed', 'Engine 启动超时，请重新选择设备检查状态。');
   }
 
   async function approve(
@@ -1013,65 +989,51 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:/mnt/data/airsim-v2/run-
 
     async install(device, signal, progress) {
       const usb = await getUsb(device.id, signal);
-      const attachment = await attach(usb, signal);
+      let attachment = await attach(usb, signal);
       let stage = '准备安装';
       try {
+        const profile = await identify(attachment.adb, signal);
+        if (!profile) throw new TransportFailure('unsupported');
+        const base = platforms[profile].base;
         stage = '准备持久化存储';
         progress('正在准备持久化存储…');
-        await shellText(attachment.adb, `mkdir -p ${engineRoot} && chmod 700 ${engineRoot}`, signal);
+        await shellText(attachment.adb, `mkdir -p ${base}/releases && chmod 700 ${base} ${base}/releases`, signal);
         stage = '下载 Engine 发布包';
-        const manifest = await loadEngineManifest(signal);
+        const manifest = await loadEngineManifest(profile, signal);
         progress('正在下载 AirSIM Engine…');
-        const [agent, launcher, audio] = await Promise.all([
-          fetchEngineArtifact(manifest.agent, signal),
-          fetchEngineArtifact(manifest.launcher, signal),
-          fetchEngineArtifact(manifest.audio, signal),
-        ]);
+        const artifacts = [manifest.agent, manifest.launcher, manifest.audio, ...(manifest.platform || []), ...manifest.licenses];
+        const contents = await Promise.all(artifacts.map(file => fetchEngineArtifact(profile, file, signal)));
         const release = manifest.agent.sha256.slice(0, 16);
-        const releaseDirectory = `/mnt/data/airsim-v2/releases/${release}`;
-        const stagedBundle = `${releaseDirectory}/.engine-bundle.tar`;
+        const releaseDirectory = `${base}/releases/${release}`;
         const installScript = installEngineScript(manifest, release);
-        const bundleBytes = createEngineBundle(agent, launcher, audio, release, installScript);
         stage = '整理模块存储';
         progress('正在整理模块存储…');
-        const storage = await shellText(
-          attachment.adb,
-          prepareEngineStorageScript(release, bundleBytes.byteLength + manifest.agent.size),
-          signal,
-        );
-        if (storage.includes('AIRSIM_ENGINE_STORAGE_SHORT')) throw new TransportFailure('install_failed');
+        const storage = await shellText(attachment.adb,
+          prepareEngineStorageScript(profile, release, contents.reduce((n, file) => n + file.byteLength, 0)), signal);
+        if (storage.includes('AIRSIM_ENGINE_STORAGE_SHORT')) throw new TransportFailure('install_failed', '模块空间不足；当前运行版本已保留。');
         stage = '写入模块持久存储';
         progress('正在写入模块持久存储…');
-        await shellText(
-          attachment.adb,
-          `mkdir -p ${releaseDirectory} && rm -f ${stagedBundle} && chmod 700 ${releaseDirectory}`,
-          signal,
-        );
-        const bundleAcknowledged = await pushFile(
-          attachment.adb,
-          stagedBundle,
-          bundleBytes,
-          signal,
-        );
-        stage = '校验模块安装包';
-        progress('正在校验模块安装包…');
-        const remoteBundleHash = (await shellText(
-          attachment.adb,
-          `sha256sum ${stagedBundle} | awk '{print $1}'`,
-          signal,
-        )).trim();
-        if (remoteBundleHash !== await sha256Bytes(bundleBytes)) {
-          const reason = bundleAcknowledged ? '写入确认与校验不一致。' : '设备未返回写入确认，且校验不一致。';
-          throw new TransportFailure('install_failed', reason);
+        await shellText(attachment.adb, `mkdir -p ${releaseDirectory} && chmod 700 ${releaseDirectory}`, signal);
+        const staged = [ `${releaseDirectory}/.airsim-agent.new`, `${base}/.run-agent.sh.new`, `${base}/.airsim-audiod.new`,
+          ...[...(manifest.platform || []), ...manifest.licenses].map(file => `${base}/.${file.path}.new`) ];
+        const scriptBytes = new TextEncoder().encode(installScript);
+        contents.push(scriptBytes); staged.push(`${base}/.airsim-install.sh.new`);
+        for (let i = 0; i < contents.length; i++) {
+          await pushFile(attachment.adb, staged[i], contents[i], signal);
+          const actual = (await shellText(attachment.adb, `sha256sum ${staged[i]} | awk '{print $1}'`, signal)).trim();
+          if (actual !== await sha256Bytes(contents[i])) throw new TransportFailure('install_failed', '模块文件校验失败。');
         }
         stage = '执行持久化安装脚本';
         progress('正在执行持久化安装脚本…');
-        await bootstrapEngine(attachment.adb, release, signal);
+        await bootstrapEngine(attachment.adb, profile, release, signal);
         stage = '等待 Engine 启动';
         progress('等待 AirSIM Engine 启动…');
-        const status = await waitForAgent(attachment.adb, signal);
+        const result = await waitForAgent(attachment, signal);
+        attachment = result.attachment;
+        const status = result.status;
         stage = '读取安装结果';
         const engine = await inspectEngine(attachment.adb, signal);
+        if (engine.state !== 'ready') throw new TransportFailure('install_failed', 'Engine 文件或自启动状态未通过安装验证。');
         const installed = deviceView(usb, status, engine);
         inspectedDevices.set(usb.serial, installed);
         return installed;
@@ -1081,7 +1043,7 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:/mnt/data/airsim-v2/run-
           ? error.detail
           : error instanceof Error ? `${error.name}: ${error.message}` : String(error);
         const message = `${stage}：${detail || '未返回错误信息'}`;
-        if (error instanceof TransportFailure) throw new TransportFailure(error.code, message);
+        if (error instanceof TransportFailure) throw new TransportFailure(error.code, error.code === 'install_reconnect' ? undefined : message);
         throw new TransportFailure('install_failed', message);
       }
     },

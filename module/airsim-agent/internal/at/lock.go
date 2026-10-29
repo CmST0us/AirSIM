@@ -19,7 +19,7 @@ func Lock(path string) (*os.File, error) {
 	return f, nil
 }
 func OpenDevice(path string) (*Device, *os.File, error) {
-	if path != "/dev/smd1" {
+	if path != "/dev/smd1" && path != "/dev/airsim_data11" {
 		return nil, nil, fmt.Errorf("profile_mismatch")
 	}
 	info, e := os.Lstat(path)

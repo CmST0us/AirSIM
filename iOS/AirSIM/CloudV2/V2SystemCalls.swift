@@ -34,6 +34,7 @@ final class V2SystemCallController: CallKitActionHandling {
     private var controlledCall: V2CallContext?
     private var incomingID: String?
     private var incomingPush: V2PushEnvelope?
+    private var incomingSystemUUID: UUID?
     private var incomingAssociationDeadline: ContinuousClock.Instant?
     private var association: V2SystemCommandSubmission?
     private var endingUUID: UUID?
@@ -62,7 +63,7 @@ final class V2SystemCallController: CallKitActionHandling {
         if let push = incomingPush {
             guard model.currentTime < push.expiresAt,
                   incomingAssociationDeadline.map({ ContinuousClock.now < $0 }) == true,
-                  calls.currentSystemCallUUID == push.callUUID,
+                  calls.currentSystemCallUUID == incomingSystemUUID,
                   let configuration = model.configuration,
                   configuration.identity.serverID == push.domain.serverID,
                   model.selectedModuleID == push.domain.moduleID,
@@ -78,12 +79,26 @@ final class V2SystemCallController: CallKitActionHandling {
                   }),
                   let selected = model.selectedModule,
                   let binding = try? response.controlBinding(configuration: configuration, module: selected, now: model.currentTime) else {
+#if DEBUG
+                let response = model.snapshot
+                NSLog("[AirSIM Push] verification failed expiry=%d uuid=%d server=%d module=%d connection=%d boot=%d backend=%d call=%d fresh=%d",
+                      model.currentTime < push.expiresAt,
+                      calls.currentSystemCallUUID == incomingSystemUUID,
+                      response?.server_id == push.domain.serverID,
+                      response?.module_id == push.domain.moduleID,
+                      response?.connection_epoch == push.domain.connectionEpoch,
+                      response?.snapshot?.agent_boot_id == push.domain.agentBootID,
+                      response?.snapshot?.backend_epoch == push.domain.backendEpoch,
+                      response?.snapshot?.calls.calls.contains(where: { $0.call_id == push.callID && $0.state != "disconnected" }) == true,
+                      model.freshBinding != nil)
+#endif
                 endSystemCall()
                 return
             }
             verifiedBinding = binding
             incomingID = call.call_id
             incomingPush = nil
+            incomingSystemUUID = nil
             incomingAssociationDeadline = nil
             calls.synchronize(
                 call: CallRecord(id: call.call_id, index: 0, direction: "incoming", state: call.state,
@@ -121,6 +136,7 @@ final class V2SystemCallController: CallKitActionHandling {
         controlledCall = nil
         incomingID = nil
         incomingPush = nil
+        incomingSystemUUID = nil
         incomingAssociationDeadline = nil
         association = nil
         endingUUID = nil
@@ -158,7 +174,7 @@ final class V2SystemCallController: CallKitActionHandling {
     private func waitForIncomingVerification(uuid: UUID) async throws {
         guard incomingPush != nil, verifiedBinding == nil else { return }
         while verifiedBinding == nil {
-            guard incomingPush?.callUUID == uuid, calls.currentSystemCallUUID == uuid,
+            guard incomingSystemUUID == uuid, calls.currentSystemCallUUID == uuid,
                   let deadline = incomingAssociationDeadline, ContinuousClock.now < deadline else {
                 throw V2Error.stale
             }
@@ -182,11 +198,13 @@ final class V2SystemCallController: CallKitActionHandling {
         }
     }
     func callKitDidReceiveIncoming(_ call: IncomingVoIPCall) {
-        guard let push = call.v2Push, calls.currentSystemCallUUID == push.callUUID else {
+        guard let push = call.v2Push, let systemUUID = calls.currentSystemCallUUID,
+              systemUUID == push.callUUID || currentCallID == push.callID else {
             calls.reportCurrentCallEnded(reason: .failed)
             return
         }
         incomingPush = push
+        incomingSystemUUID = systemUUID
         incomingAssociationDeadline = ContinuousClock.now.advanced(by: associationTimeout)
         incomingID = call.callID
         verifiedBinding = nil

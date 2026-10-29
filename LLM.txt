@@ -9,6 +9,7 @@ V2 ARCHITECTURE OVERRIDE (2026-10-24; RM500 R1-R3 local acceptance passed; R4 cl
 - App cloud activation explicitly selects v1 or v2. ECS and Worker are v2 deployment implementations, not separate App protocol modes. No automatic cross-version fallback.
 - Read docs/SYSTEM_ARCHITECTURE.md, module/ARCHITECTURE.md and the new component READMEs for v2. RM500 R1-R3 acceptance is scoped in docs/RM500_AGENT_EXECUTION.md and module/airsim-agent/R3_TESTING.md. R4 Agent/ECS implementation follows protocol/v2/R4.md and docs/RM500_AGENT_R4.md. Device pairing is defined by protocol/v2/PAIRING.md and docs/IOS_AIRSIM_PAIRING.md: the existing App Settings entry uses a five-minute web code, module-bound renewable session and Keychain persistence. Production WebUSB/ECS claim and the complete UI flow have passed; physical-iPhone Keychain persistence and long-running refresh remain to be repeated.
 - RM500U headless startup is documented in module/airsim-agent/RM500U_AUTOSTART.md. BusyBox init respawns /mnt/data/airsim-v2/run-agent.sh. The launcher waits for /dev/smd1 and runs "airsim-agent --wait-random" as a blocking kernel-random readiness probe before starting the service. Do not replace this with entropy_avail polling. After installation, Chrome WebUSB pairing does not depend on the host adb server.
+- EG25 QDC507 v2 uses profile eg25-qdc507, ARMv7, /usrdata/airsim-v2 and init respawn. Read module/eg25/README.md and module/eg25/TESTING.md for exact firmware, DATA11, calibration, web artifacts and measured acceptance. ECS pairing names come from authenticated Agent platform metadata; iOS uses the shared v2 protocol.
 - The published Android/AVF installation contracts below remain valid for v1; they do not prohibit the explicitly authorized v2 embedded targets or authorize overwriting old installations.
 - Commit at verified milestones; the controller alone stages/commits the shared worktree. Preserve unrelated edits; do not mix incomplete work into a completed milestone.
 - Implement ECS first. Execution chats use GPT-6-Astra / medium, execute only controller decisions, escalate all technical decisions, and remain idle until explicitly dispatched.
@@ -73,7 +74,7 @@ NON-NEGOTIABLE ARCHITECTURE CONTRACTS
 - Android application code cannot force-enable AVF functionality removed or hidden by OEM firmware or system-signature restrictions.
 
 APPLE SELF-SIGNING CONTRACT
-- com.example.airsim is a placeholder, not a reusable identity.
+- The current main Bundle ID is com.eric3u.airsim2; Watch, Live Activity and test targets use its corresponding suffixes. Signing and APNs must match that identity. Other deployers must use an identity owned by their Apple Team.
 - Every deployer must use their own Apple Developer Team, certificates, profiles, and unique Bundle IDs.
 - Main app: deployer-owned Bundle ID.
 - Watch app: main Bundle ID + .watchkitapp.
@@ -140,3 +141,12 @@ AVF INSTALLATION AND RECOVERY
 - AirSIM v0.4.5 rotates the AVF release key because the v0.4.4 private key was not retained. Existing 0.4.4-1 devices must use the one-time, pinned rotate-avf-key.sh from the v0.4.5 Release in the AVF Terminal; the old installerd cannot verify a new-key package. The script preserves the old package and checks the new signature and health before declaring success. The new private key is stored outside Git and backed by GitHub Actions Secret AIRSIM_RELEASE_PRIVATE_KEY_PEM; never print or commit it.
 - A Debian udev/libudev1 exact-version mismatch is an AVF guest package-state fault, not an AirSIM libudev1 dependency. Simulate `apt-get -s -f install` and inspect `apt-cache policy` before any repair; never auto-run fix-broken, remove essential packages, or downgrade system packages. The bootstrap runs `apt-get check` before installation.
 - Future related changes must keep the relevant README files, installation guide, LLM.txt, codex.md, and claude.md synchronized. Source changes do not update published Release assets or devices automatically.
+
+V2 APNS ENVIRONMENTS
+ECS supports separate Sandbox and Production keys on the same service and database. See service/airsim/deploy/compose/README.md. Register the environment matching the final signed aps-environment entitlement: development maps to sandbox, distribution (including TestFlight) to production. A new Bundle ID installs alongside the old App; do not revoke its pairing or alter its data during installation.
+
+Agent 支持 `airsim-v2-callkit` 服务的 APNs 开启和关闭状态；`airsim-v2-r4.1` 仍要求 APNs 关闭。启用 ECS 推送前须使用支持该能力的 Agent。
+
+Agent 在通话期间每秒发布状态快照，空闲时每五秒发布；App 保留八秒快照有效期。iOS Debug 诊断页支持真机三秒本机音频测试。
+
+模块范围配对完成后持久化当前模块；App 重新启动时从配对配置恢复绑定模块，管理员多模块配置仍使用显式选择。

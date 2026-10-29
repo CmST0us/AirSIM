@@ -526,11 +526,14 @@ final class CallKitController: NSObject {
     }
 
     private func fail(_ action: CXAction, error: Error) {
+        let diagnostic = error as NSError
+        debugLog("system action failed domain=\(diagnostic.domain) code=\(diagnostic.code)")
         action.fail()
         handler?.callKitDidFail(error.localizedDescription)
     }
 
     private func performAnswer(_ action: CXAnswerCallAction) async {
+        debugLog("performing answer action")
         do {
             guard currentUUID == action.callUUID else { throw CallKitBridgeError.staleSystemCall }
             guard let handler else { throw CallKitBridgeError.handlerUnavailable }
@@ -547,6 +550,8 @@ final class CallKitController: NSObject {
                 backend: { try await handler.callKitAnswer(origin: origin) }
             )
             if let backendError, currentUUID == action.callUUID, self.handler === handler {
+                let diagnostic = backendError as NSError
+                debugLog("backend action failed domain=\(diagnostic.domain) code=\(diagnostic.code)")
                 finishCurrentCall(previous: nil, reason: .failed)
                 handler.callKitDidFail(backendError.localizedDescription)
             }
@@ -608,6 +613,8 @@ final class CallKitController: NSObject {
                 }
             )
             if let backendError, currentUUID == action.callUUID, self.handler === handler {
+                let diagnostic = backendError as NSError
+                debugLog("backend action failed domain=\(diagnostic.domain) code=\(diagnostic.code)")
                 finishCurrentCall(previous: nil, reason: .failed)
                 handler.callKitDidFail(backendError.localizedDescription)
                 return

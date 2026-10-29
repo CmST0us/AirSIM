@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
-ZIG=${ZIG:-/tmp/airsim-r3-toolchain/zig-aarch64-macos-0.15.2/zig}
+ZIG=${ZIG:-zig}
 test "$("$ZIG" version)" = 0.15.2
 python3 scripts/prepare_vendor.py
 mkdir -p dist

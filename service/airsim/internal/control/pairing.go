@@ -456,6 +456,20 @@ func (s *Server) moduleOnline(module string) bool {
 	return p != nil && p.snapshot != nil
 }
 
+func (s *Server) moduleName(module string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p := s.last[module]; p != nil {
+		switch p.platform {
+		case "rm500u-embedded":
+			return "RM500U"
+		case "eg25-qdc507":
+			return "EG25 QDC507"
+		}
+	}
+	return "AirSIM"
+}
+
 func (s *Server) pairingStatus(w http.ResponseWriter, r *http.Request, requestID, pollToken string) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -566,7 +580,7 @@ func (s *Server) pairingLookup(w http.ResponseWriter, r *http.Request) {
 	}
 	wire.JSON(w, http.StatusOK, map[string]any{
 		"request_id": requestID, "server_id": s.cfg.Server, "module_id": module,
-		"name": "RM500", "short_id": module[len(module)-8:],
+		"name": s.moduleName(module), "short_id": module[len(module)-8:],
 		"online": s.moduleOnline(module), "expires_at": expires,
 	})
 }

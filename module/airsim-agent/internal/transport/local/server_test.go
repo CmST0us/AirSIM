@@ -13,7 +13,7 @@ import (
 )
 
 func TestAllowlist(t *testing.T) {
-	h := Handler(state.New("m", "b"), "v", "b")
+	h := Handler(state.New("m", "b", "rm500u-embedded"), "v", "b")
 	for _, tc := range []struct {
 		method, path string
 		status       int

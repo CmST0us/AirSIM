@@ -2,6 +2,8 @@
 
 Push notifications add installation-scoped APNs registration and incoming-call/SMS notifications to the R4 control and media relay. Public contracts are [`R4`](../../protocol/v2/R4.md) and the [`CallKit contract`](../../protocol/v2/CALLKIT.md). Discovery advertises `airsim-v2-callkit`; `apns` is enabled only with a complete provider configuration. Interactive login, Watch v2, OTA and v1 compatibility are not implemented; administrator clients remain temporary, while paired clients are revocable permanent device sessions. Only the main controller deploys to ECS and performs physical-module tests.
 
+Authenticated Agent hello messages may include `platform`. Pairing lookup displays RM500U or EG25 QDC507 from this live metadata; absent or unknown values use AirSIM. This field does not change ownership, phone scope or media framing.
+
 Device pairing adds the web flow and permanent client session contract in [`PAIRING.md`](../../protocol/v2/PAIRING.md). New paired clients are scoped to one module, and a module accepts only one active paired phone until that client is revoked. Administrator-issued clients retain the existing owner-wide R4 behavior. The browser build is served from the same HTTPS API origin through the Compose edge.
 
 - `cmd/airsim-server`: PostgreSQL-backed control, device authentication, directed commands, ownership and media orchestration.
@@ -33,3 +35,5 @@ The stack script only uses project `airsim-r4-test` and a loopback high port. It
 Deployment prerequisites, administrator operations and rollback are in [Compose operations](deploy/compose/README.md). Current executed checks and remaining production boundaries are in [R4 evidence](R4_TESTING.md).
 
 Push notification database migration adds push registrations, persistent CallKit identities and delivery deduplication without replacing existing records. Administrator-issued clients default to one hour and accept `--client-ttl 1h` through `720h`. Push provider keys remain in a restricted external file. Setup and mock-only validation are documented in [Compose operations](deploy/compose/README.md) and [push testing](PUSH_TESTING.md).
+
+APNs supports either the existing shared key or a complete Sandbox/Production key pair. Environment-scoped keys are selected per registered installation, with separate JWT caches and HTTP clients; see [Compose APNs configuration](deploy/compose/README.md#apns).

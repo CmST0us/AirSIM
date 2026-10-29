@@ -32,6 +32,7 @@ type Capabilities struct {
 	Capabilities map[string]hal.Capability `json:"capabilities"`
 }
 type Store struct {
+	profile  string
 	mu       sync.RWMutex
 	s        Snapshot
 	atOK     bool
@@ -39,8 +40,8 @@ type Store struct {
 	observed map[string]time.Time
 }
 
-func New(module, boot string) *Store {
-	s := &Store{s: Snapshot{Schema: 1, ModuleID: module, BootID: boot, Scope: "read_only", IdentityState: "unenrolled", Fields: map[string]hal.Field{}}, reason: "initializing", observed: map[string]time.Time{}}
+func New(module, boot, profile string) *Store {
+	s := &Store{profile: profile, s: Snapshot{Schema: 1, ModuleID: module, BootID: boot, Scope: "read_only", IdentityState: "unenrolled", Fields: map[string]hal.Field{}}, reason: "initializing", observed: map[string]time.Time{}}
 	for _, k := range []string{"sim", "signal", "registration", "ims", "calls", "network", "platform"} {
 		s.s.Fields[k] = hal.Unavailable("", "initializing")
 	}
@@ -120,7 +121,7 @@ func (s *Store) View(now time.Time) (Snapshot, Ready) {
 }
 func (s *Store) Capabilities(now time.Time) Capabilities {
 	v, r := s.View(now)
-	c := Capabilities{1, v.ModuleID, "rm500u-embedded", map[string]hal.Capability{}}
+	c := Capabilities{1, v.ModuleID, s.profile, map[string]hal.Capability{}}
 	for cap, fields := range map[string][]string{"telephony": {"calls"}, "radio_sim": {"sim", "signal", "registration", "ims"}, "network": {"network"}, "platform": {"platform"}} {
 		x := hal.Capability{Support: "supported", Readiness: "ready"}
 		for _, k := range fields {

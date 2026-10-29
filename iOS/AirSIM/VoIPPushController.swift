@@ -1536,6 +1536,7 @@ final class VoIPPushController: NSObject {
         defaults.set(deviceID, forKey: Keys.deviceID)
         let relayURL = configuredRelayURL()
         let capabilities = CloudModeCapabilities(isEnabled: CloudModePreference.isEnabled())
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.eric3u.airsim2"
         return AgentPushRegistration(
             cloudModeEnabled: capabilities.notificationRelay,
             localMode: false,
@@ -1544,12 +1545,12 @@ final class VoIPPushController: NSObject {
             token: token,
             alertToken: defaults.string(forKey: Keys.alertToken) ?? "",
             watchVoIPToken: defaults.string(forKey: Keys.watchVoIPToken) ?? "",
-            watchBundleID: defaults.string(forKey: Keys.watchBundleID) ?? "com.example.airsim.watchkitapp",
+            watchBundleID: defaults.string(forKey: Keys.watchBundleID) ?? "\(bundleID).watchkitapp",
             liveActivityPushToStartToken: LiveActivityVisibilityPreference.registrationToken(
                 defaults.string(forKey: Keys.liveActivityPushToStartToken) ?? "",
                 defaults: defaults
             ),
-            bundleID: Bundle.main.bundleIdentifier ?? "com.example.airsim",
+            bundleID: bundleID,
             environment: APNsEnvironment.current,
             relayURL: relayURL,
             mediaTransport: CloudMediaTransportPreference.requested().rawValue,

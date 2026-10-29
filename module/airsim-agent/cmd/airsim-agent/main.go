@@ -8,6 +8,8 @@ import (
 	"airsim.local/airsim-agent/internal/identity"
 	"airsim.local/airsim-agent/internal/journal"
 	"airsim.local/airsim-agent/internal/media"
+	"airsim.local/airsim-agent/internal/platform/atmodem"
+	"airsim.local/airsim-agent/internal/platform/eg25"
 	"airsim.local/airsim-agent/internal/platform/rm500u"
 	"airsim.local/airsim-agent/internal/state"
 	"airsim.local/airsim-agent/internal/transport/local"
@@ -20,11 +22,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"syscall"
 	"time"
 )
 
-const version = "2.0.0-dev.pairing"
+const version = "2.0.0-dev.eg25"
 
 func directory(path string) error {
 	if e := os.MkdirAll(path, 0700); e != nil {
@@ -40,8 +43,28 @@ func directory(path string) error {
 	return nil
 }
 func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudConfig string) error {
-	if e := rm500u.Validate(profile, device, runtime.GOOS, runtime.GOARCH); e != nil {
-		return e
+	var adapter platformAdapter
+	switch profile {
+	case rm500u.Profile:
+		if err := rm500u.Validate(profile, device, runtime.GOOS, runtime.GOARCH); err != nil {
+			return err
+		}
+		adapter = rm500u.New(nil)
+		if data == "" {
+			data = "/mnt/data/airsim-v2"
+		}
+	case eg25.Profile:
+		if err := eg25.Validate(profile, device, runtime.GOOS, runtime.GOARCH); err != nil {
+			return err
+		}
+		adapter = eg25.New(nil)
+		if data == "" {
+			data = "/usrdata/airsim-v2"
+		}
+		debug.SetMemoryLimit(6 << 20)
+		debug.SetGCPercent(25)
+	default:
+		return errors.New("profile_mismatch")
 	}
 	if e := directory(data); e != nil {
 		return e
@@ -67,11 +90,10 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 	if e != nil {
 		return e
 	}
-	store := state.New(id.ModuleID, boot)
+	store := state.New(id.ModuleID, boot, profile)
 	marker := filepath.Join(runDir, "at-inflight.json")
 	var manager *at.Manager
 	var lock *os.File
-	adapter := &rm500u.Adapter{}
 	if at.FencePresent(marker) {
 		store.Commit(failedFields(adapter, "at_desynchronized"), false, "at_desynchronized")
 	} else {
@@ -91,7 +113,7 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 				case <-activeManager.Done():
 				}
 			}()
-			adapter.AT = manager
+			adapter.SetAT(manager)
 			verifyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 			e = adapter.Verify(verifyCtx)
 			cancel()
@@ -160,13 +182,26 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 	}()
 	commands, journalErr := journal.Open(filepath.Join(data, "state"))
 	coordinator := control.New(boot, id.CommandDigest, func() bool { _, ready := store.View(time.Now()); return ready.Ready }, commands, journalErr)
-	go coordinator.Run(child)
-	audio := media.New(coordinator, audioHelper, filepath.Join(runDir, "media.sock"))
+	if profile == eg25.Profile {
+		go coordinator.RunWithBackend(child, func(ctx context.Context) (hal.ControlSession, error) {
+			if manager == nil {
+				return nil, errors.New("backend_unavailable")
+			}
+			s, err := eg25.Connect(ctx, manager)
+			if err != nil {
+				return nil, err
+			}
+			return s, nil
+		})
+	} else {
+		go coordinator.Run(child)
+	}
+	audio := media.New(coordinator, audioHelper, filepath.Join(runDir, "media.sock"), profile)
 	go audio.Serve(child)
 	if cloudConfig == "" {
 		cloudConfig = filepath.Join(data, "config", "cloud.json")
 	}
-	provisioner := cloud.NewProvisioner(id, cloudConfig)
+	provisioner := cloud.NewProvisioner(id, cloudConfig, profile)
 	cloudAgent := &cloud.Agent{P: provisioner, Control: coordinator, Media: audio, Boot: boot, Version: version}
 	cloudDone := make(chan struct{})
 	go func() { defer close(cloudDone); cloudAgent.Run(child) }()
@@ -203,7 +238,7 @@ func useEarlyLinuxRandom() (*os.File, error) {
 func main() {
 	profile := flag.String("profile", "", "explicit platform profile")
 	device := flag.String("at-device", "", "explicit AT device")
-	data := flag.String("data-dir", "/mnt/data/airsim-v2", "persistent directory")
+	data := flag.String("data-dir", "", "persistent directory")
 	runDir := flag.String("runtime-dir", "/run/airsim-v2", "runtime directory")
 	audioHelper := flag.String("audio-helper", "", "explicit native audio helper executable")
 	cloudConfig := flag.String("cloud-config", "", "explicit secure cloud configuration file")
@@ -245,7 +280,15 @@ var _ hal.Platform = (*rm500u.Adapter)(nil)
 var _ hal.Audio = (*rm500u.Adapter)(nil)
 var _ hal.Messaging = (*rm500u.Adapter)(nil)
 
-func failedFields(adapter *rm500u.Adapter, code string) map[string]hal.Field {
+type platformAdapter interface {
+	SetAT(atmodem.Querier)
+	Verify(context.Context) error
+	Sample(context.Context) map[string]hal.Field
+	Network() hal.Field
+	Platform() hal.Field
+}
+
+func failedFields(adapter platformAdapter, code string) map[string]hal.Field {
 	fields := map[string]hal.Field{}
 	for _, name := range []string{"sim", "signal", "registration", "ims", "calls"} {
 		fields[name] = hal.Unavailable("at", code)

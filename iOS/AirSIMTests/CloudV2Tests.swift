@@ -190,7 +190,7 @@ final class CloudV2Tests: XCTestCase {
         let tokens = V2TestTokens(), pairings = V2TestPairingStore()
         let lookupObject: [String: Any] = [
             "request_id": v2ID, "server_id": v2ID, "module_id": v2ID,
-            "name": "RM500", "short_id": String(v2ID.suffix(8)), "online": true,
+            "name": "EG25 QDC507", "short_id": String(v2ID.suffix(8)), "online": true,
             "expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(300)),
         ]
         var claims: [Data] = []
@@ -213,10 +213,12 @@ final class CloudV2Tests: XCTestCase {
         }
         let pairing = V2PairingClient(origin: "https://example.invalid", store: pairings, transport: transport, now: { v2Now })
         let device = try await pairing.lookup(code: "00427193")
+        XCTAssertEqual(device.name, "EG25 QDC507")
         do { _ = try await pairing.claim(code: "00427193", device: device); XCTFail() }
         catch { XCTAssertEqual(error as? V2Error, .transport) }
         XCTAssertNotNil(pairings.state.pending)
         let session = try await pairing.claim(code: "00427193", device: device)
+        XCTAssertEqual(session.name, "EG25 QDC507")
         XCTAssertEqual(claims.count, 2)
         XCTAssertEqual(claims[0], claims[1])
         XCTAssertEqual(session.configuration.persistentSession, true)
@@ -225,6 +227,10 @@ final class CloudV2Tests: XCTestCase {
         let store = V2ConfigurationStore(tokens: tokens, defaults: defaults, pairings: pairings)
         try store.commitPairedSession(session)
         XCTAssertEqual(try store.load(), session.configuration)
+        XCTAssertEqual(defaults.string(forKey: V2LocalPaths.selectionKey(session.configuration.identity)), v2ID)
+        defaults.removeObject(forKey: V2LocalPaths.selectionKey(session.configuration.identity))
+        let restored = CloudV2Model(defaults: defaults, root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString), tokens: tokens, pairings: pairings, now: { v2Now })
+        XCTAssertEqual(restored.selectedModuleID, v2ID)
         XCTAssertNil(pairings.state.pending)
         XCTAssertEqual(try tokens.read(account: session.configuration.identity.account), session.token)
     }
@@ -1592,6 +1598,7 @@ extension CloudV2Tests {
     var directoryBlocksAfterFirst = false
     var pending: [String: CheckedContinuation<V2HTTPResponse, Error>] = [:]
     var snapshotCalls: [[String: Any]] = []
+    var connectionEpoch = v2ID
     var writes = 0
     var commandHTTPStatus: Int?
     var delayedReceipts = false
@@ -1651,8 +1658,10 @@ extension CloudV2Tests {
     func response(_ lane: String, module: String = v2ID) throws -> V2HTTPResponse {
         let body: Data
         if lane == "directory" {
-            body = try v2Data(["server_id": v2ID, "modules": [v2ID, v2OtherID].map { ["module_id": $0, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID] }])
-        } else if lane == "snapshot" { body = try v2SnapshotData(module: module, age: -currentNow.timeIntervalSince(v2Now), calls: snapshotCalls) }
+            body = try v2Data(["server_id": v2ID, "modules": [v2ID, v2OtherID].map { ["module_id": $0, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": connectionEpoch] }])
+        } else if lane == "snapshot" { var value = try JSONSerialization.jsonObject(with: v2SnapshotData(module: module, age: -currentNow.timeIntervalSince(v2Now), calls: snapshotCalls)) as! [String: Any]
+            value["connection_epoch"] = connectionEpoch
+            body = try v2Data(value) }
         else { body = try v2Data(["server_id": v2ID, "module_id": module, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": []]) }
         return V2HTTPResponse(status: 200, body: body)
     }
@@ -1994,16 +2003,20 @@ extension CloudV2Tests {
     }
 
     @MainActor func testPushKitIncomingVerifiesFreshDomainBeforeBackgroundAnswerOrReject() async throws {
-        for action in ["call.answer", "call.hangup"] {
+        for (action, coldStart) in [("call.answer", false), ("call.hangup", false), ("call.answer", true), ("call.hangup", true)] {
             let fixture = try V2PollFixture()
             addTeardownBlock { await fixture.close() }
             fixture.commandHTTPStatus = 200
             let system = TestSystemCalls()
             fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(2))
-            await fixture.model.sceneChanged(.active)
-            try await v2PollWait { fixture.model.freshBinding != nil }
+            if !coldStart {
+                await fixture.model.sceneChanged(.active)
+                try await v2PollWait { fixture.model.freshBinding != nil }
+            }
             await fixture.model.sceneChanged(.background)
 
+            let directoryCount = fixture.counts["directory", default: 0]
+            fixture.connectionEpoch = v2OtherID
             let uuid = UUID()
             system.currentSystemCallUUID = uuid
             let now = fixture.currentNow
@@ -2014,7 +2027,7 @@ extension CloudV2Tests {
                 "client_installation_id": v2ID,
                 "registration_id": v2OtherID,
                 "module_id": v2ID,
-                "connection_epoch": v2ID,
+                "connection_epoch": fixture.connectionEpoch,
                 "agent_boot_id": v2ID,
                 "backend_epoch": v2ID,
                 "call_id": v2OtherID,
@@ -2027,17 +2040,48 @@ extension CloudV2Tests {
             incoming["ownership"] = "incoming"
             fixture.snapshotCalls = [incoming]
             fixture.model.systemCalls?.callKitDidReceiveIncoming(call)
-            if action == "call.answer" {
-                try await fixture.model.systemCalls?.callKitAnswer(origin: .system)
-            } else {
-                try await fixture.model.systemCalls?.callKitEnd()
+            do {
+                if action == "call.answer" { try await fixture.model.systemCalls?.callKitAnswer(origin: .system) }
+                else { try await fixture.model.systemCalls?.callKitEnd() }
+            } catch {
+                XCTFail("action=\(action) cold=\(coldStart) ended=\(system.endings) directories=\(fixture.counts["directory",default:0]) writes=\(fixture.writes) binding=\(fixture.model.freshBinding != nil) verified=\(fixture.model.systemCalls?.authorizedBinding != nil) error=\(fixture.model.error ?? "none")")
+                throw error
             }
+            XCTAssertGreaterThan(fixture.counts["directory", default: 0], directoryCount)
             XCTAssertEqual(system.state, "incoming", action)
             XCTAssertEqual(fixture.writes, 1, action)
             XCTAssertEqual(fixture.commands.last?["action"] as? String, action)
             XCTAssertEqual((fixture.commands.last?["args"] as? [String: String])?["call_id"], v2OtherID)
             await fixture.close()
         }
+    }
+
+    @MainActor func testPushAfterForegroundSnapshotKeepsExistingSystemCall() async throws {
+        let fixture = try V2PollFixture()
+        addTeardownBlock { await fixture.close() }
+        fixture.commandHTTPStatus = 200
+        var incoming = v2CallObject(state: "incoming")
+        incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+        fixture.snapshotCalls = [incoming]
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(2))
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { system.currentSystemCallUUID != nil }
+        let originalUUID = try XCTUnwrap(system.currentSystemCallUUID)
+        let now = fixture.currentNow
+        let push = try IncomingVoIPCall(userInfo: [
+            "protocol_version": 2, "event": "incoming_call", "server_id": v2ID,
+            "client_installation_id": v2ID, "registration_id": v2OtherID, "module_id": v2ID,
+            "connection_epoch": v2ID, "agent_boot_id": v2ID, "backend_epoch": v2ID,
+            "call_id": v2OtherID, "call_uuid": UUID().uuidString,
+            "expires_at": V2Validation.timestamp(now.addingTimeInterval(20))
+        ], now: now)
+        fixture.model.systemCalls?.callKitDidReceiveIncoming(push)
+        try await fixture.model.systemCalls?.callKitAnswer(origin: .app)
+        XCTAssertEqual(system.currentSystemCallUUID, originalUUID)
+        XCTAssertEqual(system.endings, 0)
+        XCTAssertEqual(fixture.writes, 1)
+        XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.answer")
     }
 
     @MainActor func testSystemRejectTargetsTheVerifiedIncomingCall() async throws {

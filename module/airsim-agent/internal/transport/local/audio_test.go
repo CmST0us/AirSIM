@@ -9,7 +9,7 @@ import (
 )
 
 func TestAudioRoutesStrictWithoutHelper(t *testing.T) {
-	m := media.New(nil, "", "/unused/media.sock")
+	m := media.New(nil, "", "/unused/media.sock", "rm500u-embedded")
 	h := WithAudio(http.NotFoundHandler(), m)
 	for _, tc := range []struct {
 		method, path, body, content string

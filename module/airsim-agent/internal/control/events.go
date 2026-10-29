@@ -4,7 +4,6 @@ import (
 	"airsim.local/airsim-agent/internal/hal"
 	"airsim.local/airsim-agent/internal/ofono"
 	"context"
-	"github.com/godbus/dbus/v5"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +12,15 @@ import (
 // Run owns every mutable control field. Workers receive immutable jobs and must
 // receive a completion acknowledgment before taking the next job.
 func (c *Coordinator) Run(ctx context.Context) {
+	c.RunWithBackend(ctx, func(ctx context.Context) (hal.ControlSession, error) {
+		s, err := ofono.Connect(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	})
+}
+func (c *Coordinator) RunWithBackend(ctx context.Context, connect func(context.Context) (hal.ControlSession, error)) {
 	defer close(c.done)
 	defer close(c.audioEvents)
 	lifetime, cancel := context.WithCancel(context.Background())
@@ -52,13 +60,13 @@ func (c *Coordinator) Run(ctx context.Context) {
 		}
 	}
 	for {
-		var events <-chan *dbus.Signal
+		var events <-chan hal.ControlEvent
 		var overflow, lost <-chan struct{}
 		if c.backend != nil {
-			overflow = c.backend.Queue.Overflow
-			lost = c.backend.Queue.Done
+			overflow = c.backend.Overflow()
+			lost = c.backend.Done()
 			if !synchronizing {
-				events = c.backend.Queue.Events
+				events = c.backend.Events()
 			}
 		}
 		select {
@@ -97,7 +105,7 @@ func (c *Coordinator) Run(ctx context.Context) {
 			connectCtx, stop := context.WithCancel(lifetime)
 			connectionCancel = stop
 			go func() {
-				s, e := ofono.Connect(connectCtx)
+				s, e := connect(connectCtx)
 				select {
 				case connections <- connected{s, e}:
 				case <-lifetime.Done():
@@ -135,11 +143,11 @@ func (c *Coordinator) Run(ctx context.Context) {
 			c.messageObjects = map[string]string{}
 			synchronizing = true
 			s := result.session
-			startDropped := s.Queue.Dropped()
+			startDropped := s.Dropped()
 			go func() {
 				snapshot, e := s.Snapshot(lifetime)
 				select {
-				case snapshots <- synced{snapshot, e, s.Epoch, startDropped}:
+				case snapshots <- synced{snapshot, e, s.EpochID(), startDropped}:
 				case <-lifetime.Done():
 				}
 			}()
@@ -147,7 +155,7 @@ func (c *Coordinator) Run(ctx context.Context) {
 			if c.backend == nil || c.epoch() != result.epoch || c.stopping {
 				continue
 			}
-			if result.err != nil || c.backend.Queue.Dropped() != result.dropped {
+			if result.err != nil || c.backend.Dropped() != result.dropped {
 				disconnect("snapshot_failed")
 				continue
 			}
@@ -168,7 +176,7 @@ func (c *Coordinator) Run(ctx context.Context) {
 		case <-lost:
 			disconnect("backend_lost")
 		case s := <-events:
-			if !c.signal(s, 0, 0) {
+			if !c.event(s, 0, 0) {
 				disconnect("backend_changed")
 			}
 		case r := <-c.api:
@@ -200,7 +208,7 @@ func (c *Coordinator) lose(reason string) {
 	c.ready = false
 	c.reason = reason
 	if c.backend != nil {
-		c.dropped += c.backend.Queue.Dropped()
+		c.dropped += c.backend.Dropped()
 		c.backend.Close()
 		c.gap = true
 	}
@@ -230,13 +238,13 @@ func (c *Coordinator) checkSignals() {
 	if c.backend == nil || c.reason == "synchronizing" {
 		return
 	}
-	if c.backend.Queue.Dropped() != 0 {
+	if c.backend.Dropped() != 0 {
 		c.ready = false
 		c.reason = "signal_overflow"
 		return
 	}
 	select {
-	case <-c.backend.Queue.Done:
+	case <-c.backend.Done():
 		c.ready = false
 		c.reason = "backend_lost"
 		return
@@ -249,191 +257,89 @@ func (c *Coordinator) drainSignals(callSequence, messageSequence uint64) {
 		return
 	}
 	// A finite snapshot of channel occupancy prevents a noisy peer starving APIs.
-	n := len(c.backend.Queue.Events)
+	n := len(c.backend.Events())
 	for i := 0; i < n; i++ {
-		s := <-c.backend.Queue.Events
-		if !c.signal(s, callSequence, messageSequence) {
+		s := <-c.backend.Events()
+		if !c.event(s, callSequence, messageSequence) {
 			c.ready = false
 			c.reason = "backend_changed"
 			return
 		}
 	}
 }
-func (c *Coordinator) signal(s *dbus.Signal, callSequence, messageSequence uint64) bool {
-	if c.backend == nil || !c.backend.ValidSignal(s) {
+func (c *Coordinator) event(e hal.ControlEvent, callSequence, messageSequence uint64) bool {
+	if c.backend == nil {
 		return true
 	}
-	switch s.Name {
-	case "org.freedesktop.DBus.NameOwnerChanged":
-		if len(s.Body) != 3 {
-			return true
-		}
-		name, _ := s.Body[0].(string)
-		old, _ := s.Body[1].(string)
-		next, _ := s.Body[2].(string)
-		return name != "org.ofono" || (old != c.backend.Owner && next == c.backend.Owner)
-	case "org.ofono.Manager.ModemAdded", "org.ofono.Manager.ModemRemoved":
+	if e.Kind == "backend.changed" {
 		return false
-	case "org.ofono.Modem.PropertyChanged":
-		if s.Path != c.backend.Modem {
-			return true
-		}
-		key, v, ok := property(s)
-		if !ok {
-			return false
-		}
-		switch key {
-		case "Powered", "Online":
-			b, ok := v.Value().(bool)
-			return ok && b
-		case "Interfaces":
-			return ofono.InterfacesReady(map[string]dbus.Variant{"Interfaces": v})
-		}
-		return true
-	case "org.ofono.VoiceCallManager.PropertyChanged":
-		if s.Path != c.backend.Modem {
-			return true
-		}
-		key, v, ok := property(s)
-		if !ok {
-			return true
-		}
-		if key == "EmergencyNumbers" {
-			if uint64(s.Sequence) <= c.emergencySequence {
-				return true
-			}
-			numbers, ok := v.Value().([]string)
-			if !ok {
-				return false
-			}
-			c.emergency = append([]string(nil), numbers...)
+	}
+	if e.Kind == "emergency" {
+		if e.Sequence > c.emergencySequence {
+			c.emergency = append([]string(nil), e.EmergencyNumbers...)
+			c.emergencySequence = e.Sequence
 		}
 		return true
 	}
-	if strings.HasPrefix(s.Name, "org.ofono.VoiceCall") && uint64(s.Sequence) <= callSequence {
+	if strings.HasPrefix(e.Kind, "call.") && e.Sequence <= callSequence {
 		return true
 	}
-	if (s.Name == "org.ofono.MessageManager.MessageAdded" || s.Name == "org.ofono.MessageManager.MessageRemoved" || s.Name == "org.ofono.MessageManager.MessageState" || strings.HasPrefix(s.Name, "org.ofono.Message.")) && uint64(s.Sequence) <= messageSequence {
+	if strings.HasPrefix(e.Kind, "message.") && e.Kind != "message.incoming" && e.Sequence <= messageSequence {
 		return true
 	}
-	switch s.Name {
-	case "org.ofono.VoiceCallManager.CallAdded":
-		object, p, ok := objectProperties(s)
-		if !ok || s.Path != c.backend.Modem || !c.childObject(object) {
-			return true
-		}
+	switch e.Kind {
+	case "call.add":
 		c.eventSerial++
-		state := ofono.String(p, "State")
 		ownership := "unmanaged"
-		if state == "incoming" || state == "waiting" {
+		if e.State == "incoming" || e.State == "waiting" {
 			ownership = "incoming"
 		}
-		c.ensureCall(object, state, ofono.String(p, "LineIdentification"), ownership)
-	case "org.ofono.VoiceCallManager.CallRemoved":
-		object, ok := oneObject(s)
-		if ok && s.Path == c.backend.Modem && c.childObject(object) {
-			c.endCall(object)
-		}
-	case "org.ofono.VoiceCall.PropertyChanged":
-		call := c.calls[c.callObjects[string(s.Path)]]
-		if call == nil {
-			return true
-		}
-		key, v, ok := property(s)
-		if !ok {
-			return true
-		}
-		value, _ := v.Value().(string)
-		switch key {
-		case "State":
-			call.State = callState(value)
-		case "LineIdentification":
-			call.Number = value
-		}
-		call.Observed = time.Now().UTC()
-		c.observe()
-	case "org.ofono.VoiceCall.DisconnectReason":
-		call := c.calls[c.callObjects[string(s.Path)]]
-		if call != nil && len(s.Body) == 1 {
-			value, _ := s.Body[0].(string)
-			switch value {
-			case "local", "remote", "network":
-				call.DisconnectReason = value
-			default:
-				call.DisconnectReason = "unknown"
-			}
-		}
-	case "org.ofono.MessageManager.MessageAdded", "org.ofono.MessageManager.MessageState":
-		object, p, ok := objectProperties(s)
-		if ok && s.Path == c.backend.Modem && c.childObject(object) {
-			if s.Name == "org.ofono.MessageManager.MessageAdded" {
-				for _, old := range c.messages {
-					if old.ID == c.messageObjects[object] && old.removed {
-						delete(c.messageObjects, object)
-						break
-					}
+		c.ensureCall(e.Object, e.State, e.Number, ownership)
+	case "call.remove":
+		c.endCall(e.Object)
+	case "call.state", "call.number", "call.reason":
+		if call := c.calls[c.callObjects[e.Object]]; call != nil {
+			switch e.Kind {
+			case "call.state":
+				call.State = callState(e.State)
+			case "call.number":
+				call.Number = e.Number
+			case "call.reason":
+				switch e.Reason {
+				case "local", "remote", "network":
+					call.DisconnectReason = e.Reason
+				default:
+					call.DisconnectReason = "unknown"
 				}
 			}
-			m := c.ensureMessage(object)
-			m.State = messageState(ofono.String(p, "State"))
-			m.Observed = time.Now().UTC()
+			call.Observed = time.Now().UTC()
+			c.observe()
 		}
-	case "org.ofono.Message.PropertyChanged":
-		id := c.messageObjects[string(s.Path)]
-		key, v, ok := property(s)
-		if ok && key == "State" {
-			for _, m := range c.messages {
-				if m.ID == id {
-					value, _ := v.Value().(string)
-					m.State = messageState(value)
+	case "message.add", "message.state":
+		if e.Kind == "message.add" {
+			for _, old := range c.messages {
+				if old.ID == c.messageObjects[e.Object] && old.removed {
+					delete(c.messageObjects, e.Object)
+					break
+				}
+			}
+		}
+		m := c.ensureMessage(e.Object)
+		m.State = messageState(e.State)
+		m.Observed = time.Now().UTC()
+	case "message.update", "message.remove":
+		for _, m := range c.messages {
+			if m.ID == c.messageObjects[e.Object] {
+				if e.Kind == "message.remove" {
+					m.removed = true
+				} else {
+					m.State = messageState(e.State)
 					m.Observed = time.Now().UTC()
 				}
 			}
 		}
-	case "org.ofono.MessageManager.MessageRemoved":
-		object, ok := oneObject(s)
-		if ok && s.Path == c.backend.Modem {
-			for _, m := range c.messages {
-				if m.ID == c.messageObjects[object] {
-					m.removed = true
-				}
-			}
-		} // Preserve association for a method reply that arrives after removal.
-	case "org.ofono.MessageManager.IncomingMessage", "org.ofono.MessageManager.ImmediateMessage":
-		if s.Path != c.backend.Modem || len(s.Body) != 2 {
-			return true
-		}
-		text, ok := s.Body[0].(string)
-		props, ok2 := s.Body[1].(map[string]dbus.Variant)
-		if ok && ok2 {
-			c.incoming(text, props)
-		}
+	case "message.incoming":
+		c.incoming(e.Text, e.Sender)
 	}
 	return true
-}
-func (c *Coordinator) childObject(object string) bool {
-	return dbus.ObjectPath(object).IsValid() && strings.HasPrefix(object, string(c.backend.Modem)+"/")
-}
-func property(s *dbus.Signal) (string, dbus.Variant, bool) {
-	if len(s.Body) != 2 {
-		return "", dbus.Variant{}, false
-	}
-	key, ok := s.Body[0].(string)
-	value, ok2 := s.Body[1].(dbus.Variant)
-	return key, value, ok && ok2
-}
-func objectProperties(s *dbus.Signal) (string, map[string]dbus.Variant, bool) {
-	if len(s.Body) != 2 {
-		return "", nil, false
-	}
-	object, ok := s.Body[0].(dbus.ObjectPath)
-	props, ok2 := s.Body[1].(map[string]dbus.Variant)
-	return string(object), props, ok && ok2
-}
-func oneObject(s *dbus.Signal) (string, bool) {
-	if len(s.Body) != 1 {
-		return "", false
-	}
-	object, ok := s.Body[0].(dbus.ObjectPath)
-	return string(object), ok
 }

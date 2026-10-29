@@ -1,6 +1,8 @@
-# airsim-agent v2 — R3 当前16kHz语音时钟本地验收通过
+# airsim-agent v2
 
-本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.pairing`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent、RM500 CLI 或云端服务。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false；详细边界见 [R2 记录](R2_TESTING.md)。RM500U 的 headless 启动与恢复见[开机启动说明](RM500U_AUTOSTART.md)。
+本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.eg25`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent 或 RM500 CLI；未配置云端时可独立运行。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false；详细边界见 [R2 记录](R2_TESTING.md)。RM500U 的 headless 启动与恢复见[开机启动说明](RM500U_AUTOSTART.md)。
+
+支持 `rm500u-embedded` 与 `eg25-qdc507` 两个精确平台。RM500U 使用 oFono，EG25 使用 Agent 内的 AT 控制后端，两者共用 HAL、串行协调器、命令去重、本机 API、云端协议与媒体会话。EG25 固件、ARMv7 构建、DATA11、驱动、8 kHz mmap 音频和安装说明见 [EG25](../eg25/README.md)。短信 PDU 使用 `github.com/warthog618/sms v0.3.0`。
 
 云端连接将 discovery 与设备 mTLS 控制握手分别限制为 30 秒和 15 秒。跨网 Cloudflare 路径可能明显慢于局域网测试，不能沿用原 5 秒总预算；外层仍按有界退避重连。
 
@@ -53,7 +55,7 @@ R2 增加 GET `/v2/local/control`、`/v2/local/calls`、`/v2/local/messages`、`
 
 设备配对增加 GET `/v2/local/pairing` 和 POST `/v2/local/pairing/authorize`。前者只返回模块身份、服务绑定和连接状态；后者对网页生成的五分钟请求签名。两者仍只存在于 0600 Unix socket；调用方必须已经能访问该 socket。证明不替代手机确认，也不创建 App token。
 
-这不是冻结的云端 v2 协议。无 TCP 监听、Relay/TLS、更新或固件修改。RM500U 通过
+云端使用 [R4](../../protocol/v2/R4.md) 的 HTTPS/WSS 与设备 mTLS，配对遵循 [PAIRING](../../protocol/v2/PAIRING.md)。本机无 TCP 监听，Agent 不执行自行更新。RM500U 通过
 BusyBox init 重启已退出进程，并由本机启动器等待串口和内核随机池就绪；网页通过
 WebUSB 访问 0600 的 Unix socket。R3 音频仅在授权本地媒体会话及通话 lease 内运行。
 消息正文仅保留进程内存；命令记录最多1024条且不自动淘汰。
@@ -77,4 +79,8 @@ SHA-256：`b9659d09758375ba8597654339d7b76f63603c7588134b478e7a9b3481569707`。�
 
 75.004秒上下行各3750帧，外部序号零缺口、xrun为零（零字段省略）；helper input_drops=14，约0.37%，不能称零丢帧。silence_samples=5760为native16k样本，约0.36秒；echo_dropped=1435主要是主机提示语/非回声窗口主动丢弃，不是网络丢包。真实helper SIGKILL后的helper_exit、PCM关闭/子进程回收、新session成功、旧token拒绝、客户端EOF的media_read及通话结束lease_revoked均通过。最终无活动通话或自有helper，5c/5p/9c/55p closed，控制ready、身份保持。
 
-精确构建哈希、资源采样及最终状态以[主控验收证据](R3_ACCEPTANCE_EVIDENCE.json)为准。此前失败保留在[主控诊断证据](R3_DIAGNOSTIC_EVIDENCE.json)，已由最后成功内容闭环取代。8kHz vendor时钟只有单测；30分钟/100会话长稳、Mac麦克风/扬声器、ECS/Worker/iOS端到端未验证，R4–R5不启动。没有保存录音或声音内容。
+精确构建哈希、资源采样及最终状态以[主控验收证据](R3_ACCEPTANCE_EVIDENCE.json)为准。此前失败保留在[主控诊断证据](R3_DIAGNOSTIC_EVIDENCE.json)，已由最后成功内容闭环取代。8kHz vendor时钟只有单测；30分钟/100会话长稳、Mac麦克风/扬声器、本段不覆盖后续 ECS/iOS 验证；Worker v2 未实现。没有保存录音或声音内容。
+
+Agent 支持 `airsim-v2-callkit` 服务的 APNs 开启和关闭状态；`airsim-v2-r4.1` 仍要求 APNs 关闭。启用 ECS 推送前须使用支持该能力的 Agent。
+
+Agent 在通话期间每秒发布状态快照，空闲时每五秒发布；App 保留八秒快照有效期。iOS Debug 诊断页支持真机三秒本机音频测试。

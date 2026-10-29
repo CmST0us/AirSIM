@@ -168,7 +168,7 @@ func (a *Agent) discover(ctx context.Context, s *saved) error {
 		Pairing   bool `json:"device_pairing"`
 		Refresh   bool `json:"client_session_refresh"`
 	}
-	if exactOptional(v.Capabilities, "controlled_test_client,telephony,messaging,experimental_audio,apns,interactive_login", "device_pairing,client_session_refresh", &caps) != nil || !caps.Test || !caps.Telephony || !caps.Messaging || !caps.Audio || caps.APNS || caps.Login {
+	if exactOptional(v.Capabilities, "controlled_test_client,telephony,messaging,experimental_audio,apns,interactive_login", "device_pairing,client_session_refresh", &caps) != nil || !caps.Test || !caps.Telephony || !caps.Messaging || !caps.Audio || (caps.APNS && v.Profile != "airsim-v2-callkit") || caps.Login {
 		return errConfig
 	}
 	return nil
@@ -217,6 +217,7 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 	defer hcancel()
 	ws, resp, e := websocket.Dial(handshake, "wss"+strings.TrimPrefix(s.Request.Device, "https")+"/v2/device/control", &websocket.DialOptions{HTTPClient: client, Subprotocols: []string{"airsim.control.v2"}, CompressionMode: websocket.CompressionDisabled})
 	if e != nil {
+		log.Printf("cloud control handshake failed: %v", e)
 		if resp != nil && resp.Body != nil {
 			resp.Body.Close()
 		}
@@ -240,7 +241,7 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 		return "control_unavailable"
 	}
 	hello := envelope{Type: "hello", Protocol: 2, Module: a.P.id.ModuleID, Sequence: 1}
-	hello.Payload, _ = json.Marshal(map[string]any{"agent_boot_id": a.Boot, "backend_epoch": status.Epoch, "agent_version": a.Version})
+	hello.Payload, _ = json.Marshal(map[string]any{"agent_boot_id": a.Boot, "backend_epoch": status.Epoch, "agent_version": a.Version, "platform": a.P.profile})
 	b, _ := json.Marshal(hello)
 	if ws.Write(handshake, websocket.MessageText, b) != nil {
 		return "control_write"
@@ -431,7 +432,14 @@ func (c *connection) sync(lastSnap, lastMessages *string, lastSent *time.Time) b
 	}
 	payload := map[string]any{"agent_boot_id": second.Boot, "backend_epoch": second.Epoch, "observed_at": "", "control": second, "calls": calls2, "audio": a.Media.View()}
 	b, _ := json.Marshal(payload)
-	if string(b) != *lastSnap || time.Since(*lastSent) >= 5*time.Second {
+	interval := 5 * time.Second
+	for _, call := range calls2.Calls {
+		if call.State != "disconnected" {
+			interval = time.Second
+			break
+		}
+	}
+	if string(b) != *lastSnap || time.Since(*lastSent) >= interval {
 		payload["observed_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 		if !c.send("snapshot", payload) {
 			return false

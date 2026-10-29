@@ -55,7 +55,12 @@ final class ExpiredLegacyPushReporter: NSObject, CXProviderDelegate {
         provider = CXProvider(configuration: config)
         super.init(); provider.setDelegate(self, queue: .main)
     }
-    func report(completion: @escaping () -> Void) {
+    func report(reason: String = "legacy_runtime", completion: @escaping () -> Void) {
+#if DEBUG
+        UserDefaults.standard.set(reason, forKey: "airsim.push.last-rejection")
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "airsim.push.last-rejection-time")
+        NSLog("[AirSIM Push] rejected reason=%@", reason)
+#endif
         let id = UUID(); let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: "AirSIM 旧版通知")
         provider.reportNewIncomingCall(with: id, update: update) { [weak self] _ in

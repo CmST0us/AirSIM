@@ -17,6 +17,7 @@ const failures: Record<FailureCode, [string, string]> = {
   not_ready: ['设备未准备', '完成设备准备后重试。'],
   paired: ['设备已连接', '重置当前连接，或选择其他设备。'],
   install_failed: ['Engine 安装失败', '检查数据线和设备权限，然后重新选择设备重试。'],
+  install_reconnect: ['确认安装结果', '请再次选择原设备，完成安装状态确认。'],
   failed: ['连接失败', '检查设备电源和连接。选择设备，重试连接。'],
   unknown: ['无法读取设备', '检查设备连接。选择设备重试。'],
 };
@@ -169,7 +170,7 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
           note.append(
             element('strong', '', '持久化安装'),
             element('p', '', engine?.state === 'unavailable'
-              ? '请在 RM500U 模块上使用 Chrome 或 Edge 打开本页，并保持 USB 数据连接。'
+              ? '请用电脑上的 Chrome 或 Edge 连接受支持的 RM500U 或 EG25 QDC507 模块。'
               : 'AirSIM Engine 会保存到模块的持久存储，并写入开机启动配置。模块身份和现有云连接配置不会被覆盖。'),
           );
           content.append(note);

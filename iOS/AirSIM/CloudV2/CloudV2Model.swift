@@ -117,7 +117,7 @@ final class CloudV2Model: ObservableObject {
             configuration = try configurationStore.load()
             history = try historyFile.load() ?? V2History()
             machine = try V2CommandMachine(client: client, store: V2FilePendingStore(url: root.appendingPathComponent("pending.json")), ownedStore: V2FileOwnedCallStore(file: V2ProtectedFile(url: root.appendingPathComponent("owned-call.json"))))
-            if let configuration { selectedModuleID = defaults.string(forKey: V2LocalPaths.selectionKey(configuration.identity)) }
+            if let configuration { selectedModuleID = configuration.moduleID ?? defaults.string(forKey: V2LocalPaths.selectionKey(configuration.identity)) }
         } catch { persistenceFailed = true; self.error = "本地状态读取失败，已禁止控制。" }
         experimentalAudio = defaults.object(forKey: "airsim.v2.experimental-audio") as? Bool ?? true
         client.onRefreshConfiguration = { [weak self] configuration in
@@ -166,11 +166,6 @@ final class CloudV2Model: ObservableObject {
     func updatePushRegistration(status: String, ready: Bool) {
         pushRegistrationStatus = status
         pushRegistrationReady = ready
-    }
-    func receivePushKitIncomingCall(_ call: IncomingVoIPCall) {
-        V2PushController.shared.attach(self)
-        if systemCalls == nil { activateSystemIntegration() }
-        systemCalls?.callKitDidReceiveIncoming(call)
     }
     func registerPush(_ body: V2PushRegistrationBody) async throws -> V2PushRegistrationReceipt {
         guard connected, configuration != nil else {
@@ -423,7 +418,19 @@ final class CloudV2Model: ObservableObject {
 
     func prepareForIncomingPush() async {
         if connected && !busy {
-            startPolling()
+            await cancelPolling()
+            let stamp = generation, module = selectedModuleID
+            snapshot = nil
+            do {
+                let directory = try await client.modules()
+                guard generation == stamp, selectedModuleID == module else { return }
+                modules = directory.modules
+                startPolling()
+            } catch {
+                guard generation == stamp, selectedModuleID == module else { return }
+                syncStatus = "来电设备状态刷新失败，请检查连接。"
+                systemCalls?.endSystemCall()
+            }
             return
         }
         await connect(allowBackground: true)
@@ -444,6 +451,11 @@ final class CloudV2Model: ObservableObject {
                 guard self.connectionEpoch == stamp, allowBackground || self.foreground, !Task.isCancelled else { return }
                 let result = try await self.client.connect(configuration)
                 guard self.connectionEpoch == stamp, allowBackground || self.foreground, !Task.isCancelled else { return }
+                if allowBackground {
+                    let directory = try await self.client.modules()
+                    guard self.connectionEpoch == stamp, !Task.isCancelled else { return }
+                    self.modules = directory.modules
+                }
                 self.discovery = result; self.connected = true; self.syncStatus = nil
                 self.debugLog("connected profile=\(result.profile)")
                 V2PushController.shared.attach(self)
@@ -713,7 +725,7 @@ final class CloudV2Model: ObservableObject {
         }
         objectWillChange.send()
     }
-#if DEBUG && targetEnvironment(simulator)
+#if DEBUG
     func testLocalAudio() {
         guard !busy, !media.active, ownedCall == nil, activeCall == nil, foreground else { return }
         busy = true; localAudioResult = "正在准备本机麦克风和播放测试…"

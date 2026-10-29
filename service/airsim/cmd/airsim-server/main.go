@@ -41,7 +41,12 @@ func main() {
 	}
 	_, e = db.Exec(ctx, "UPDATE commands SET state='outcome_unknown' WHERE state IN ('pending','dispatched')")
 	rt.Exit(e)
-	provider, e := push.Load(os.Getenv("APNS_KEY_ID"), os.Getenv("APNS_TEAM_ID"), os.Getenv("APNS_BUNDLE_ID"), os.Getenv("APNS_KEY_FILE"))
+	provider, e := push.LoadConfig(push.Config{
+		TeamID: os.Getenv("APNS_TEAM_ID"), BundleID: os.Getenv("APNS_BUNDLE_ID"),
+		KeyID: os.Getenv("APNS_KEY_ID"), KeyFile: os.Getenv("APNS_KEY_FILE"),
+		SandboxKeyID: os.Getenv("APNS_SANDBOX_KEY_ID"), SandboxKeyFile: os.Getenv("APNS_SANDBOX_KEY_FILE"),
+		ProductionKeyID: os.Getenv("APNS_PRODUCTION_KEY_ID"), ProductionKeyFile: os.Getenv("APNS_PRODUCTION_KEY_FILE"),
+	})
 	rt.Exit(e)
 	if provider != nil {
 		cfg.Push = provider

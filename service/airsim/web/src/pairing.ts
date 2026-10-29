@@ -7,6 +7,7 @@ export interface Device {
 }
 
 export interface EngineStatus {
+  profile?: string;
   state: 'ready' | 'starting' | 'missing' | 'incomplete' | 'outdated' | 'unavailable';
   installedVersion?: string;
   targetVersion?: string;
@@ -26,7 +27,7 @@ export type ConnectionResult =
   | { state: 'connected'; online: boolean }
   | { state: 'failed' };
 
-export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'unsupported' | 'not_ready' | 'paired' | 'install_failed' | 'failed' | 'unknown';
+export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'unsupported' | 'not_ready' | 'paired' | 'install_reconnect' | 'install_failed' | 'failed' | 'unknown';
 
 export class TransportFailure extends Error {
   constructor(readonly code: FailureCode, readonly detail?: string) { super(code); }

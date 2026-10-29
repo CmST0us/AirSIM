@@ -20,7 +20,7 @@ func TestControlHTTPValidation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go c.Run(ctx)
 	defer func() { cancel(); <-c.Done() }()
-	h := Handler(state.New("module", "boot"), "r2", "boot", c)
+	h := Handler(state.New("module", "boot", "rm500u-embedded"), "r2", "boot", c)
 	for _, tc := range []struct {
 		method, path, body, content string
 		code                        int

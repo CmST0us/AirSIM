@@ -100,6 +100,7 @@ struct V2ConfigurationStore {
         state.pending = nil
         try pairings.save(state)
         defaults.set(metadata, forKey: "airsim.v2.configuration")
+        defaults.set(session.configuration.moduleID, forKey: V2LocalPaths.selectionKey(session.configuration.identity))
     }
     func load() throws -> V2Configuration? {
         if let session = try pairings?.load().session {

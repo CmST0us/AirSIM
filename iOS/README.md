@@ -2,9 +2,11 @@
 
 ## v2 与原界面
 
+EG25 QDC507 与 RM500U 使用相同的 v2 配对、模块范围、通话、短信和 8 kHz/20 ms 媒体协议。App 从 ECS 的连接码查询结果显示型号，无需按 modem 类型选择另一套客户端。EG25 的实机边界见 [验收记录](../module/eg25/TESTING.md)。
+
 App 保留仅本地、云端 v1、云端 v2 选择；已有安装继续使用原选择。v2 已接入原拨号、最近、短信、联系人和设置五标签，设备添加与模块选择也在原首次连接及设置视图中。控制、凭据和历史按服务、安装实例与模块隔离，活动通话或结果未确认的操作会阻止版本切换。
 
-v2 首先使用 `service/airsim/` 的 ECS Docker Compose 服务。正常流程是在电脑网页选择设备、核对模块身份、取得五分钟有效的八位连接码，再在 App 的“添加设备”中确认。配对后的短 Access Token 一小时有效；可撤销的设备刷新凭据长期保存在 Keychain，App 在联网、恢复连接和收到 401 时自动换取新 Token，不要求用户定期打开 App 或重新配对。没有自动回退 v1。旧管理员连接文件保留在“其他方式”。用户须显式选择要使用的模块。通话和短信沿用原界面，未提供的 v2 功能不显示可执行的旧协议入口。
+v2 首先使用 `service/airsim/` 的 ECS Docker Compose 服务。正常流程是在电脑网页选择设备、核对模块身份、取得五分钟有效的八位连接码，再在 App 的“添加设备”中确认。部署者须在构建时通过 `AIRSIM_V2_PAIRING_ORIGIN` 配置自己的 HTTPS 配对服务地址；仓库默认值为空。新配对使用可撤销的长期设备会话，凭据保存在 Keychain，不要求定期打开 App 或重新配对；旧版限时会话继续支持刷新。没有自动回退 v1。旧管理员连接文件保留在“其他方式”。用户须显式选择要使用的模块。通话和短信沿用原界面，未提供的 v2 功能不显示可执行的旧协议入口。
 
 原视图接入已通过 15 项 UI 自动化；最新单元测试 141 项中 139 项通过、1 项硬件音频测试按条件跳过，另有 1 项模拟器真实 Keychain 往返测试受当前测试签名环境限制。CallKit 与已有通话的后台生命周期按 [系统通话契约](../protocol/v2/CALLKIT.md) 实施，真机呼出、系统来电接听、后台保持及原 App 挂断已通过。v2 已接入独立 PushKit/APNs 注册、冷启动来电关联、后台短信通知和首次使用权限申请；真实后台推送仍要求 ECS 完整配置 APNs provider，见 [APNs 扩展](../protocol/v2/APNS_EXTENSION.md)。设备配对的 WebUSB、生产 ECS claim、模块范围绑定和完整原界面配对流程已通过；实现与剩余边界见 [配对记录](../docs/IOS_AIRSIM_PAIRING.md)。此前 [R5](../docs/IOS_AIRSIM_R5.md) 为模拟器前台闭环，[R6](../docs/IOS_AIRSIM_R6.md) 已确认实体双向音频，但通话质量尚未通过。Watch v2 暂不支持。
 
@@ -83,7 +85,7 @@ xcodebuild -project iOS/AirSIM.xcodeproj \
 
 ## 签名与推送
 
-这是源码可见、仅限非商业用途的工程，不提供原作者的 Apple Developer Team、App ID、证书或 provisioning profile。工程中的 `com.example.airsim` 是占位符，不能直接用于发布。首次真机构建前必须使用自己的 Apple Developer 账号重新配置并签名：
+这是源码可见、仅限非商业用途的工程，不提供原作者的 Apple Developer Team、App ID、证书或 provisioning profile。当前工程的主 Bundle ID 为 `com.eric3u.airsim2`，Watch 为 `.watchkitapp`、Live Activity 为 `.liveactivity`，单元测试和 UI 测试分别为 `.tests`、`.uitests`，Watch companion 指向主 App。使用其他 Apple 身份时需要换成自己控制的标识。首次真机构建前必须使用自己的 Apple Developer 账号重新配置并签名：
 
 1. 在 Xcode 为 `AirSIM` 选择自己的 Team，将 Bundle Identifier 改为自己控制的唯一标识，例如 `org.example.airsim`。
 2. 将 Watch App 改为主标识加 `.watchkitapp`，例如 `org.example.airsim.watchkitapp`，并将 `WKCompanionAppBundleIdentifier` 设置为主 App 标识。
@@ -93,11 +95,11 @@ xcodebuild -project iOS/AirSIM.xcodeproj \
 
 只替换签名证书而保留其他人的 Bundle ID 不会获得对应 App ID/APNs topic 的权限。主 App、Watch、Live Activity、provisioning profile 与 Relay 必须使用同一套标识关系。
 
-Relay 地址通过 `AIRSIM_PUSH_RELAY_URL` 注入，APNs 环境通过 `AIRSIM_APNS_ENVIRONMENT` 配置。Debug 开发签名对应 APNs `sandbox`，Release/TestFlight 对应 `production`。
+Relay 地址通过 `AIRSIM_PUSH_RELAY_URL` 注入，APNs 环境通过 `AIRSIM_APNS_ENVIRONMENT` 配置。默认 Debug 构建配置使用 `sandbox`，Release 使用 `production`；最终以签名后的 `aps-environment` 为准：`development` 对应 `sandbox`，分发签名和 TestFlight 对应 `production`。重签时同步 `AIRSIM_APNS_ENVIRONMENT`，安装前核对 Info.plist、签名 entitlement 和描述文件一致。ECS 可在同一业务服务中按环境使用两把独立 `.p8`，见 [部署配置](../service/airsim/deploy/compose/README.md#apns)。
 
 不要把 DJOneHub 的 `https://push.remotepilot.site` 填入 AirSIM。该地址只允许 DJOneHub Bundle ID；AirSIM 与 DJOneHub 的设备注册、命令队列、媒体会话和 Dashboard 相互隔离。维护者 AirSIM 地址也只接受 `com.eric3u.airsim`，开源使用者更换 Bundle ID 后必须同步更换 Relay `ALLOWED_BUNDLE_ID` 和 APNs 凭据。
 
-新安装需要重新完成三星配对、通知授权、CallKit/PushKit 注册和 Watch 配套安装。
+更换 Bundle ID 后会作为独立 App 安装，原 App 的容器和 Keychain 配对不会自动转移。新 App 需要重新授权并配对；v2 模块已有手机绑定时，通过网页的重置连接流程换绑。APNs 配置需使用新主 Bundle ID 及对应 provisioning profile。
 
 GitHub Release 中的 `AirSIM-iOS-<version>-unsigned.ipa` 是供重签的 arm64 构建产物，不包含 `_CodeSignature` 或 `embedded.mobileprovision`，不能直接安装。不能只签主 App：必须同步替换并签署 Watch App 与 Live Activity Extension 的 Bundle ID、entitlements 和 provisioning profile。公开 Release 不应上传包含开发设备 UDID 的 development/ad hoc IPA。
 
@@ -112,3 +114,13 @@ GitHub Release 中的 `AirSIM-iOS-<version>-unsigned.ipa` 是供重签的 arm64 
 ## 当前状态
 
 模拟器构建与测试已覆盖主要协议和传输选择。正式发布前仍需完成 Apple 签名、实体 iPhone/Apple Watch 安装、三星实机拨号接听、双向语音、短信与后台推送验收。
+
+Debug 构建的“连接与音频诊断”提供三秒本机音频测试，可用于真机验证麦克风、语音处理与播放帧；有活动通话时禁用。来电媒体仍要求快照新鲜，不能用本机测试代替端到端通话验收。
+
+后台 PushKit 来电在校验前刷新模块目录；模块重新建立连接和 App 冷启动均重新核对连接代次。Debug 诊断页保留最后来电推送结果码，不保存 payload、号码或 token。真机诊断 XCTest 通过 `TEST_RUNNER_AIRSIM_LIVE_DEVICE_TESTS=1` 显式启用，普通测试默认跳过；`testIncomingCallAudioOnDevice` 需要外部测试手机呼入，自动接听二十秒后挂断并检查媒体帧。
+
+模块范围配对完成后持久化当前模块；App 重新启动时从配对配置恢复绑定模块，管理员多模块配置仍使用显式选择。
+
+PushKit 通过 CallKit handler 单次进入来电核对流程，上报完成回调仅确认推送处理结果。同一通来电由前台快照先创建系统通话时，后续 PushKit 继续关联该系统 UUID；仍须用推送域和新鲜快照核对模块、连接代次与 call_id 后才能接听。
+
+已调用 CallKit 上报的来电，其系统拒绝或结束回调只完成原 PushKit 回调，不创建另一通占位来电。Debug 日志记录拒绝路径和域核对结果，不记录号码、payload 或 token。真机测试可额外设置 `TEST_RUNNER_AIRSIM_BACKGROUND_CALL_TEST=1`，保持 App 在后台并直接操作系统接听界面。
