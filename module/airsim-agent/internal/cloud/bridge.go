@@ -62,8 +62,11 @@ func (c *connection) startMediaAt(b []byte, now time.Time) bool {
 	if !hex32(r.Ticket) || !validMediaExpiry(r.Expires, now) {
 		return false
 	}
+	c.agent.ownerMu.Lock()
 	o, ok := c.owners[r.Call]
-	if !ok || o.client != r.Client || o.generation != r.Generation || o.boot != r.Boot || o.epoch != r.Epoch {
+	usbOwned := c.agent.claim != nil && c.agent.claim.route == "usb"
+	c.agent.ownerMu.Unlock()
+	if usbOwned || !ok || o.client != r.Client || o.generation != r.Generation || o.boot != r.Boot || o.epoch != r.Epoch {
 		return c.send("media_status", map[string]string{"session_id": r.Session, "state": "closed", "reason": "media_owner"})
 	}
 	if c.mediaCancel != nil {
@@ -201,6 +204,9 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 	if !c.send("media_status", map[string]string{"session_id": r.Session, "state": "streaming", "reason": ""}) {
 		return "control_disconnected"
 	}
+	return bridgeFrames(ctx, cancel, ws, conn, local.ID, r.Session, counts)
+}
+func bridgeFrames(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn net.Conn, localID, sessionID string, counts *bridgeCounters) string {
 	down := newPlayoutQueue(counts)
 	up := newPlayoutQueue(counts)
 	clock := realPlayoutClock{}
@@ -217,7 +223,7 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 			if e != nil || t != websocket.MessageBinary || len(b) != media.FrameSize {
 				return
 			}
-			f, gap, e := media.ReadFrame(bytes.NewReader(b), r.Session, 1, &sequence)
+			f, gap, e := media.ReadFrame(bytes.NewReader(b), sessionID, 1, &sequence)
 			if e != nil {
 				return
 			}
@@ -231,7 +237,7 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 		var seq uint64
 		playPCM(ctx, down, clock, true, func(f media.Frame) error {
 			seq++
-			out := media.NewFrame(local.ID, 1, seq)
+			out := media.NewFrame(localID, 1, seq)
 			copy(out[40:], f[40:])
 			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
 			return writeFrame(conn, out[:])
@@ -243,7 +249,7 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 		var seq uint64
 		for {
 			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-			f, gap, e := media.ReadFrame(conn, local.ID, 2, &seq)
+			f, gap, e := media.ReadFrame(conn, localID, 2, &seq)
 			if e != nil {
 				return
 			}
@@ -257,7 +263,7 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 		var seq uint64
 		playPCM(ctx, up, clock, false, func(f media.Frame) error {
 			seq++
-			out := media.NewFrame(r.Session, 2, seq)
+			out := media.NewFrame(sessionID, 2, seq)
 			copy(out[40:], f[40:])
 			wctx, wcancel := context.WithTimeout(ctx, 100*time.Millisecond)
 			defer wcancel()

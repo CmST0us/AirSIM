@@ -1,0 +1,15 @@
+{
+  "images": [
+    {
+      "filename": "a1-sms-thread-back.svg",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  },
+  "properties": {
+    "preserves-vector-representation": true
+  }
+}

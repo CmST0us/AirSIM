@@ -231,12 +231,58 @@ enum ModuleConnectivityPolicy {
     }
 }
 
-/// 移动端 App 的主状态中心：前台轮询模块代理并驱动五个主要页面。
+struct SMSConversationID: Hashable {
+    let identity: V2Identity
+    let moduleID: String
+    let peer: String
+}
+
+enum SMSSendOutcome: Equatable {
+    case sent
+    case notSent
+    case unknown
+}
+
+struct AccountSMSMessage: Identifiable, Equatable {
+    let id: String
+    let conversationID: SMSConversationID
+    let text: String
+    let direction: String
+    let timestamp: Date
+    let state: String
+    let delivery: String
+    var retryOutcome: SMSSendOutcome? = nil
+    var canRetry: Bool { retryOutcome == nil && direction == "outgoing" && ["failed", "rejected"].contains(state) }
+    var statusText: String {
+        if retryOutcome == .sent { return "已使用原号卡重试" }
+        if retryOutcome == .unknown { return "重试结果待核对，请勿重发" }
+        guard direction == "outgoing" else { return "已接收" }
+        switch state {
+        case "sent": return "已发送（不代表已送达）"
+        case "failed", "rejected": return "未发送"
+        default: return "发送结果待核对"
+        }
+    }
+}
+
+struct AccountSMSThread: Identifiable, Equatable {
+    let id: SMSConversationID
+    let messages: [AccountSMSMessage]
+    var lastMessage: AccountSMSMessage { messages[messages.count - 1] }
+}
+
+/// 移动端 App 的主状态中心。
 @MainActor
 final class AppModel: ObservableObject {
     @Published var activeCall: CallRecord?
     @Published var callHistory: [CallRecord] = []
     @Published var messages: [SMSMessage] = []
+    @Published private(set) var accountSMSThreads: [AccountSMSThread] = []
+    @Published var selectedSMSConversation: SMSConversationID?
+    @Published private var smsDrafts: [SMSConversationID: String] = [:]
+    private var smsRetryOutcomes: [String: SMSSendOutcome] = [:]
+    private var pendingSMSDraft: (commandID: String, conversation: SMSConversationID, text: String, retryMessageID: String?)?
+    @Published private var smsSubmissionOutcomes: [SMSConversationID: SMSSendOutcome] = [:]
     @Published var numberInput = ""
     @Published var isOnline = false
     @Published private(set) var isReconnecting = false
@@ -324,7 +370,7 @@ final class AppModel: ObservableObject {
     }
 
     var connectionModePresentation: ConnectionModePresentation {
-        if let cloudV2 { return ConnectionModePresentation(mode: .cloud, title: "云端 v2", status: cloudV2.connected ? "已连接" : "未连接", detail: cloudV2.userStatus) }
+        if let cloudV2 { return ConnectionModePresentation(mode: .cloud, title: cloudV2.usingUSB ? "USB 本地" : "云端", status: cloudV2.connected ? "已连接" : "未连接", detail: cloudV2.userStatus) }
         return ConnectionModePresentation.make(
             vowlanOnline: vowlan.availability.isOnlineForDisplay,
             cloudModeEnabled: CloudModePreference.isEnabled(),
@@ -333,7 +379,7 @@ final class AppModel: ObservableObject {
     }
 
     var pairedAndroidAgents: [AndroidAgentPresentation] {
-        if let cloudV2 { return cloudV2.modules.enumerated().map { index, module in AndroidAgentPresentation(id: module.module_id, deviceName: "模块 · \(module.module_id.prefix(8))", phoneNumber: nil, agentKind: "v2", cloudOnline: module.online, vowlanOnline: false, isCurrent: module.module_id == cloudV2.selectedModuleID) } }
+        if let cloudV2 { return cloudV2.modules.map { module in AndroidAgentPresentation(id: module.module_id, deviceName: cloudV2.moduleName(module.module_id), phoneNumber: nil, agentKind: "v2", cloudOnline: module.online, vowlanOnline: false, isCurrent: module.module_id == cloudV2.selectedModuleID) } }
         let cloudStatus = cloudAgentDirectory ?? cloudAgentStatus
         let cloudStatusIsFresh = Date().timeIntervalSince(lastCloudStatusRefresh) <= 90
         var values: [String: AndroidAgentPresentation] = [:]
@@ -1251,6 +1297,83 @@ final class AppModel: ObservableObject {
         return local + " · " + detail
     }
 
+    var defaultOutgoingModuleID: String? { cloudV2?.defaultOutgoingModuleID ?? currentAndroidAgent?.id }
+
+    func lineTitle(moduleID: String?) -> String {
+        if let cloudV2 {
+            guard let id = moduleID ?? cloudV2.selectedModuleID else { return "未选择号卡" }
+            return cloudV2.moduleName(id)
+        }
+        return pairedAndroidAgents.first(where: { $0.id == moduleID })?.deviceName
+            ?? (moduleID == nil ? currentAndroidAgent?.deviceName : nil) ?? "当前线路"
+    }
+
+    func moduleID(for call: CallRecord) -> String? {
+        guard let cloudV2 else { return nil }
+        return cloudV2.history.calls.first {
+            $0.id == call.id && $0.domain.identity == cloudV2.configuration?.identity
+        }?.domain.moduleID
+    }
+
+    @discardableResult
+    func selectLine(moduleID: String?, persistSelection: Bool = true) async -> Bool {
+        guard let cloudV2 else {
+            if let moduleID, moduleID != currentAndroidAgent?.id {
+                errorMessage = "请先在设备页连接这张号卡，再重试"
+                return false
+            }
+            guard isOnline || currentAndroidAgent?.cloudOnline == true else {
+                errorMessage = "线路尚未连接，请连接设备后重试"
+                return false
+            }
+            return true
+        }
+        guard let target = moduleID ?? cloudV2.selectedModuleID,
+              cloudV2.modules.contains(where: { $0.module_id == target }) else {
+            errorMessage = "原号卡不可用，请在设备页重新连接"
+            return false
+        }
+        let identity = cloudV2.configuration?.identity
+        await cloudV2.selectModule(target, persistSelection: persistSelection)
+        guard cloudV2.selectedModuleID == target, cloudV2.canAct else {
+            errorMessage = "请先结束通话或确认未完成操作，再切换号卡"
+            return false
+        }
+        // 切换模块会清空快照，等待新模块的轮询结果后才能提交操作。
+        for _ in 0..<50 {
+            guard !Task.isCancelled, cloudV2.configuration?.identity == identity,
+                  cloudV2.selectedModuleID == target else {
+                errorMessage = "号卡选择已改变，请重新操作"
+                return false
+            }
+            if cloudV2.freshBinding != nil { projectCloudState(); return true }
+            guard cloudV2.connected else { break }
+            do { try await Task.sleep(for: .milliseconds(100)) }
+            catch { return false }
+        }
+        errorMessage = "所选号卡尚未连接，请等待连接恢复后重试"
+        return false
+    }
+
+    func call(number: String, moduleID: String? = nil, persistSelection: Bool = true) async {
+        guard await selectLine(moduleID: moduleID, persistSelection: persistSelection) else { return }
+        numberInput = number
+        await dial()
+    }
+
+    func redial(_ record: CallRecord) async {
+        let originalModuleID = moduleID(for: record)
+        guard !isV2 || originalModuleID != nil else {
+            errorMessage = "无法确认这条通话记录的原号卡，未发起回拨"
+            return
+        }
+        guard let number = record.number, !number.isEmpty else {
+            errorMessage = "这条通话记录没有可回拨的号码"
+            return
+        }
+        await call(number: number, moduleID: originalModuleID)
+    }
+
     func dial() async {
         if let cloudV2 {
 #if targetEnvironment(simulator)
@@ -1522,6 +1645,92 @@ final class AppModel: ObservableObject {
 #endif
     }
 
+    static func accountMessageThreads(_ items: [V2StoredMessage], identity: V2Identity?) -> [AccountSMSThread] {
+        guard let identity else { return [] }
+        let messages = items.filter { $0.domain.identity == identity }.map { item in
+            let message = item.message
+            let peer = message.direction == "incoming" ? message.sender : message.recipient
+            return AccountSMSMessage(id: item.id,
+                conversationID: SMSConversationID(identity: identity, moduleID: item.domain.moduleID, peer: peer),
+                text: message.text, direction: message.direction, timestamp: message.observedAt,
+                state: message.state, delivery: message.delivery)
+        }
+        return Dictionary(grouping: messages, by: \.conversationID).map { id, messages in
+            AccountSMSThread(id: id, messages: messages.sorted {
+                $0.timestamp == $1.timestamp ? $0.id < $1.id : $0.timestamp < $1.timestamp
+            })
+        }.sorted {
+            $0.lastMessage.timestamp == $1.lastMessage.timestamp
+                ? $0.lastMessage.id < $1.lastMessage.id : $0.lastMessage.timestamp > $1.lastMessage.timestamp
+        }
+    }
+
+    func smsConversation(to peer: String, moduleID: String? = nil) -> SMSConversationID? {
+        guard let cloudV2, let identity = cloudV2.configuration?.identity,
+              let moduleID = moduleID ?? cloudV2.selectedModuleID else { return nil }
+        return SMSConversationID(identity: identity, moduleID: moduleID, peer: peer)
+    }
+
+    func smsDraft(for conversation: SMSConversationID) -> String { smsDrafts[conversation] ?? "" }
+    func setSMSDraft(_ text: String, for conversation: SMSConversationID) {
+        smsDrafts[conversation] = text.isEmpty ? nil : text
+    }
+    func smsSendOutcome(for conversation: SMSConversationID) -> SMSSendOutcome? { smsSubmissionOutcomes[conversation] }
+    func canSendSMS(in conversation: SMSConversationID) -> Bool {
+        cloudV2?.configuration?.identity == conversation.identity && cloudV2?.canAct == true
+    }
+
+    func sendSMS(in conversation: SMSConversationID, content: String) async -> SMSSendOutcome {
+        guard let cloudV2, canSendSMS(in: conversation) else {
+            errorMessage = "当前身份不可用或已有操作待核对，本条短信尚未发送"
+            return .notSent
+        }
+        guard await selectLine(moduleID: conversation.moduleID, persistSelection: false) else { return .notSent }
+        guard cloudV2.configuration?.identity == conversation.identity,
+              cloudV2.selectedModuleID == conversation.moduleID, cloudV2.canAct else {
+            errorMessage = "号卡或身份已改变，本条短信尚未发送"
+            return .notSent
+        }
+        let sent = await sendSMS(to: conversation.peer, content: content)
+        if sent {
+            smsSubmissionOutcomes[conversation] = .sent
+            if smsDraft(for: conversation) == content { setSMSDraft("", for: conversation) }
+            return .sent
+        }
+        if cloudV2.hasUnresolvedCommand {
+            if let commandID = cloudV2.pendingSMSCommandID {
+                pendingSMSDraft = (commandID, conversation, content, nil)
+            }
+            smsSubmissionOutcomes[conversation] = .unknown
+            errorMessage = "发送结果待核对，请勿重发"
+            return .unknown
+        }
+        smsSubmissionOutcomes[conversation] = .notSent
+        return .notSent
+    }
+
+    func retrySMS(_ message: AccountSMSMessage) async -> SMSSendOutcome {
+        guard message.canRetry,
+              let current = accountSMSThreads.first(where: { $0.id == message.conversationID })?
+                .messages.first(where: { $0.id == message.id }), current.canRetry else {
+            errorMessage = "这条短信未确认发送失败，不能重发"
+            return .unknown
+        }
+        let outcome = await sendSMS(in: message.conversationID, content: message.text)
+        if outcome != .notSent {
+            smsRetryOutcomes[message.id] = outcome
+            if outcome == .sent { cloudV2?.markMessageRetried(message.id) }
+            if outcome == .unknown {
+                pendingSMSDraft?.retryMessageID = message.id
+                if let commandID = cloudV2?.pendingSMSCommandID {
+                    cloudV2?.recordPendingMessageRetry(commandID: commandID, originalMessageID: message.id)
+                }
+            }
+            projectCloudState()
+        }
+        return outcome
+    }
+
     func sendSMS(to phone: String, content: String) async -> Bool {
         if let cloudV2 { cloudV2.smsNumber = phone; cloudV2.smsText = content; let sent = await cloudV2.sendSMS(); projectCloudState(); return sent }
         let target = Self.validatedNumber(phone)
@@ -1621,8 +1830,28 @@ final class AppModel: ObservableObject {
         catch { errorMessage = "删除失败，已保留本机短信。" }
     }
 
+    static func accountCallHistory(_ calls: [V2StoredCall], identity: V2Identity?) -> [V2StoredCall] {
+        guard let identity else { return [] }
+        return calls.filter { $0.domain.identity == identity }.sorted {
+            if $0.call.observedAt != $1.call.observedAt { return $0.call.observedAt > $1.call.observedAt }
+            return $0.id < $1.id
+        }
+    }
+
     func projectCloudState() {
         guard let cloudV2 else { return }
+        if let pending = pendingSMSDraft, let resolved = cloudV2.lastSMSResolution,
+           pending.commandID == resolved.commandID {
+            smsSubmissionOutcomes[pending.conversation] = resolved.succeeded ? .sent : .notSent
+            if resolved.succeeded, smsDraft(for: pending.conversation) == pending.text {
+                setSMSDraft("", for: pending.conversation)
+            }
+            if let retryID = pending.retryMessageID {
+                smsRetryOutcomes[retryID] = resolved.succeeded ? .sent : nil
+                if resolved.succeeded { cloudV2.markMessageRetried(retryID) }
+            }
+            pendingSMSDraft = nil
+        }
         let oldActive = activeCall
         func record(_ item: V2StoredCall) -> CallRecord {
             let call = item.call
@@ -1632,8 +1861,21 @@ final class AppModel: ObservableObject {
                 updatedAt: call.observedAt, endedAt: call.state == "disconnected" ? call.observedAt : nil,
                 missed: call.direction == "incoming" && call.disconnect_reason == "missed")
         }
-        callHistory = cloudV2.visibleCalls.map(record)
+        callHistory = Self.accountCallHistory(cloudV2.history.calls, identity: cloudV2.configuration?.identity).map(record)
         activeCall = cloudV2.visibleCalls.first { $0.call.call_id == cloudV2.activeCall?.call_id && $0.domain.bootID == cloudV2.snapshot?.snapshot?.agent_boot_id && $0.domain.backendEpoch == cloudV2.snapshot?.snapshot?.backend_epoch && $0.call.state != "disconnected" }.map(record)
+        accountSMSThreads = Self.accountMessageThreads(cloudV2.history.messages, identity: cloudV2.configuration?.identity).map { thread in
+            AccountSMSThread(id: thread.id, messages: thread.messages.map { message in
+                var value = message
+                value.retryOutcome = cloudV2.history.retriedMessageIDs?.contains(message.id) == true ? .sent
+                    : cloudV2.history.pendingMessageRetry?.originalMessageID == message.id ? .unknown : smsRetryOutcomes[message.id]
+                return value
+            })
+        }
+        if let selectedSMSConversation,
+           selectedSMSConversation.identity != cloudV2.configuration?.identity
+            || !accountSMSThreads.contains(where: { $0.id == selectedSMSConversation }) {
+            self.selectedSMSConversation = nil
+        }
         messages = cloudV2.visibleMessages.map { item in
             SMSMessage(sender: item.message.direction == "incoming" ? item.message.sender : item.message.recipient,
                 content: item.message.text, code: nil, timestamp: item.message.observedAt,

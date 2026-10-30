@@ -34,6 +34,7 @@ final class V2SystemCallController: CallKitActionHandling {
     private var controlledCall: V2CallContext?
     private var incomingID: String?
     private var incomingPush: V2PushEnvelope?
+    private var verifyingPush = false
     private var incomingSystemUUID: UUID?
     private var incomingAssociationDeadline: ContinuousClock.Instant?
     private var association: V2SystemCommandSubmission?
@@ -61,6 +62,7 @@ final class V2SystemCallController: CallKitActionHandling {
     }
     func observeSnapshot() {
         if let push = incomingPush {
+            if verifyingPush { return }
             guard model.currentTime < push.expiresAt,
                   incomingAssociationDeadline.map({ ContinuousClock.now < $0 }) == true,
                   calls.currentSystemCallUUID == incomingSystemUUID,
@@ -70,7 +72,7 @@ final class V2SystemCallController: CallKitActionHandling {
                   let response = model.snapshot,
                   response.server_id == push.domain.serverID,
                   response.module_id == push.domain.moduleID,
-                  response.connection_epoch == push.domain.connectionEpoch,
+                  model.pushConnectionMatches(push, response: response),
                   let snapshot = response.snapshot,
                   snapshot.agent_boot_id == push.domain.agentBootID,
                   snapshot.backend_epoch == push.domain.backendEpoch,
@@ -78,7 +80,7 @@ final class V2SystemCallController: CallKitActionHandling {
                       $0.call_id == push.callID && $0.direction == "incoming" && $0.state != "disconnected"
                   }),
                   let selected = model.selectedModule,
-                  let binding = try? response.controlBinding(configuration: configuration, module: selected, now: model.currentTime) else {
+                  let binding = try? response.controlBinding(configuration: configuration, module: selected, now: model.currentTime, usbLocal: model.usingUSB) else {
 #if DEBUG
                 let response = model.snapshot
                 NSLog("[AirSIM Push] verification failed expiry=%d uuid=%d server=%d module=%d connection=%d boot=%d backend=%d call=%d fresh=%d",
@@ -203,7 +205,14 @@ final class V2SystemCallController: CallKitActionHandling {
             calls.reportCurrentCallEnded(reason: .failed)
             return
         }
+        if model.usingUSB, currentCallID == push.callID, let binding = authorizedBinding,
+           binding.bootID == push.domain.agentBootID, binding.backendEpoch == push.domain.backendEpoch,
+           binding.moduleID == push.domain.moduleID, binding.identity.serverID == push.domain.serverID {
+            Task { [weak self] in await self?.model.verifyUSBPush(push) }
+            return
+        }
         incomingPush = push
+        verifyingPush = true
         incomingSystemUUID = systemUUID
         incomingAssociationDeadline = ContinuousClock.now.advanced(by: associationTimeout)
         incomingID = call.callID
@@ -211,7 +220,9 @@ final class V2SystemCallController: CallKitActionHandling {
         let expectedUUID = push.callUUID
         Task { [weak self] in
             guard let self else { return }
-            await self.model.prepareForIncomingPush()
+            await self.model.prepareForIncomingPush(push)
+            self.verifyingPush = false
+            if self.model.snapshot != nil { self.observeSnapshot() }
             guard self.incomingPush?.callUUID == expectedUUID else { return }
             await self.model.systemCallScopeChanged()
             try? await Task.sleep(for: self.associationTimeout)

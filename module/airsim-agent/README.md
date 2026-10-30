@@ -1,6 +1,6 @@
 # airsim-agent v2
 
-本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.eg25`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent 或 RM500 CLI；未配置云端时可独立运行。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false；详细边界见 [R2 记录](R2_TESTING.md)。RM500U 的 headless 启动与恢复见[开机启动说明](RM500U_AUTOSTART.md)。
+本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.eg25.usb`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent 或 RM500 CLI；未配置云端时可独立运行。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false；详细边界见 [R2 记录](R2_TESTING.md)。RM500U 的 headless 启动与恢复见[开机启动说明](RM500U_AUTOSTART.md)。
 
 支持 `rm500u-embedded` 与 `eg25-qdc507` 两个精确平台。RM500U 使用 oFono，EG25 使用 Agent 内的 AT 控制后端，两者共用 HAL、串行协调器、命令去重、本机 API、云端协议与媒体会话。EG25 固件、ARMv7 构建、DATA11、驱动、8 kHz mmap 音频和安装说明见 [EG25](../eg25/README.md)。短信 PDU 使用 `github.com/warthog618/sms v0.3.0`。
 
@@ -55,7 +55,7 @@ R2 增加 GET `/v2/local/control`、`/v2/local/calls`、`/v2/local/messages`、`
 
 设备配对增加 GET `/v2/local/pairing` 和 POST `/v2/local/pairing/authorize`。前者只返回模块身份、服务绑定和连接状态；后者对网页生成的五分钟请求签名。两者仍只存在于 0600 Unix socket；调用方必须已经能访问该 socket。证明不替代手机确认，也不创建 App token。
 
-云端使用 [R4](../../protocol/v2/R4.md) 的 HTTPS/WSS 与设备 mTLS，配对遵循 [PAIRING](../../protocol/v2/PAIRING.md)。本机无 TCP 监听，Agent 不执行自行更新。RM500U 通过
+云端使用 [R4](../../protocol/v2/R4.md) 的 HTTPS/WSS 与设备 mTLS，配对遵循 [PAIRING](../../protocol/v2/PAIRING.md)。未配置 `--usb-listen` 时本机不监听 TCP；EG25 启动器启用下述 USB v2 入口。Agent 不执行自行更新。RM500U 通过
 BusyBox init 重启已退出进程，并由本机启动器等待串口和内核随机池就绪；网页通过
 WebUSB 访问 0600 的 Unix socket。R3 音频仅在授权本地媒体会话及通话 lease 内运行。
 消息正文仅保留进程内存；命令记录最多1024条且不自动淘汰。
@@ -84,3 +84,11 @@ SHA-256：`b9659d09758375ba8597654339d7b76f63603c7588134b478e7a9b3481569707`。�
 Agent 支持 `airsim-v2-callkit` 服务的 APNs 开启和关闭状态；`airsim-v2-r4.1` 仍要求 APNs 关闭。启用 ECS 推送前须使用支持该能力的 Agent。
 
 Agent 在通话期间每秒发布状态快照，空闲时每五秒发布；App 保留八秒快照有效期。iOS Debug 诊断页支持真机三秒本机音频测试。
+
+## USB 本地 v2
+
+EG25 启动器在 USB 私网 `192.168.225.1:8577` 提供 v2 HTTPS/WSS，沿用现有通话、短信、ASMP 和音频 helper。首次授权和24小时续期通过 ECS 的已配对客户端及模块 mTLS；本地使用独立 P-256 TLS 证书、客户端授权、时间窗/nonce/HMAC。证书与授权在配置目录0600保存，App固定校验证书并将授权保存到Keychain。监听地址消失时关闭本地媒体；控制请求和媒体只走USB网卡。
+
+EG25 启动器等待厂商建立 `bridge0=192.168.225.1/24`，再通过固件自带 DNSMasq 提供 USB DHCP，地址池为 `192.168.225.10–30`。已有 DHCP 服务时保留其所有权；等待和恢复在后台执行，不阻塞云端 Agent。此服务关闭 DNS，不下发 IPv4 默认路由或 DNS；厂商原有 IPv6 配置保持不变。
+
+App空闲时可选择USB，已提交操作和通话保持原传输；本地与云端在Agent统一仲裁。命令关联持久保存客户端、generation及非敏感元数据，重启后查询原结果，不保存号码或短信正文。ECS在线撤销通过设备控制帧清除授权；完全离线时最迟24小时到期。完整契约见 [USB_LOCAL](../../protocol/v2/USB_LOCAL.md)。RM500保留 `--usb-listen <私网IPv4:端口>` 显式配置，当前未验收其USB地址。没有有效本地授权时不能纯离线首次配对；完全离线不保证唤醒已挂起/终止的App。

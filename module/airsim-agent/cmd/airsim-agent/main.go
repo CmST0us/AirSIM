@@ -27,7 +27,7 @@ import (
 	"time"
 )
 
-const version = "2.0.0-dev.eg25"
+const version = "2.0.0-dev.eg25.usb"
 
 func directory(path string) error {
 	if e := os.MkdirAll(path, 0700); e != nil {
@@ -42,7 +42,7 @@ func directory(path string) error {
 	}
 	return nil
 }
-func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudConfig string) error {
+func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudConfig string, usbAddress ...string) error {
 	var adapter platformAdapter
 	switch profile {
 	case rm500u.Profile:
@@ -203,6 +203,11 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 	}
 	provisioner := cloud.NewProvisioner(id, cloudConfig, profile)
 	cloudAgent := &cloud.Agent{P: provisioner, Control: coordinator, Media: audio, Boot: boot, Version: version}
+	if len(usbAddress) > 0 {
+		if e = cloudAgent.ConfigureUSB(usbAddress[0], filepath.Join(data, "config")); e != nil {
+			return e
+		}
+	}
 	cloudDone := make(chan struct{})
 	go func() { defer close(cloudDone); cloudAgent.Run(child) }()
 	e = local.Serve(ctx, filepath.Join(runDir, "control.sock"), cloud.WithLocal(local.WithAudio(local.Handler(store, version, boot, coordinator), audio), provisioner, cloudAgent))
@@ -241,6 +246,7 @@ func main() {
 	data := flag.String("data-dir", "", "persistent directory")
 	runDir := flag.String("runtime-dir", "/run/airsim-v2", "runtime directory")
 	audioHelper := flag.String("audio-helper", "", "explicit native audio helper executable")
+	usbAddress := flag.String("usb-listen", "", "USB private IPv4 TLS listen address")
 	cloudConfig := flag.String("cloud-config", "", "explicit secure cloud configuration file")
 	waitRandom := flag.Bool("wait-random", false, "wait until the kernel random source is initialized")
 	flag.Parse()
@@ -267,7 +273,7 @@ func main() {
 		<-timer.C
 		os.Exit(1)
 	}()
-	if e := run(ctx, *profile, *device, *data, *runDir, *audioHelper, *cloudConfig); e != nil {
+	if e := run(ctx, *profile, *device, *data, *runDir, *audioHelper, *cloudConfig, *usbAddress); e != nil {
 		fmt.Fprintln(os.Stderr, "airsim-agent:", e)
 		os.Exit(1)
 	}

@@ -45,6 +45,27 @@ if [ "$(cat /sys/class/android_usb/f_audio/audio_enable)" != 1 ]; then
   echo 1 > /sys/class/android_usb/f_audio/audio_enable
 fi
 
+# Vendor networking creates bridge0 asynchronously. USB DHCP must not delay
+# the cloud Agent, and an existing vendor DHCP server keeps ownership.
+dhcp_watch="$run/usb-dhcp-watch.pid"
+if [ ! -s "$dhcp_watch" ] || ! kill -0 "$(cat "$dhcp_watch")" 2>/dev/null; then
+  (
+    while :; do
+      if ip -o -4 addr show dev bridge0 2>/dev/null | grep -qF 'inet 192.168.225.1/24'; then
+        if ! netstat -uln | awk '$4 ~ /:67$/ { found=1 } END { exit !found }'; then
+          /usr/bin/dnsmasq --conf-file=/dev/null --keep-in-foreground \
+            --port=0 --interface=bridge0 --bind-interfaces \
+            --dhcp-range=192.168.225.10,192.168.225.30,255.255.255.0,12h \
+            --dhcp-option=3 --dhcp-option=6 --user=root \
+            --pid-file="$run/usb-dhcp.pid" --dhcp-leasefile="$run/usb-dhcp.leases" || :
+        fi
+      fi
+      sleep 5
+    done
+  ) >>"$run/usb-dhcp.log" 2>&1 &
+  echo "$!" > "$dhcp_watch"
+fi
+
 log=/run/airsim-calibration.log
 if ! grep -qF 'ACDB -> Sent VocProc Cal!' "$log" 2>/dev/null; then
   if [ -p /run/alsaucm_test ]; then
@@ -66,4 +87,5 @@ fi
 
 exec "$base/current/airsim-agent" --profile eg25-qdc507 \
   --at-device /dev/airsim_data11 --data-dir "$base" --runtime-dir "$run" \
+  --usb-listen 192.168.225.1:8577 \
   --audio-helper "$base/audio-current/airsim-audiod" </dev/null >>"$run/agent.log" 2>&1

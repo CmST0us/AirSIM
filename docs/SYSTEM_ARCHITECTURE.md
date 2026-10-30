@@ -1,6 +1,6 @@
 # AirSIM 系统架构：个人多模块、浏览器初始化与自托管 Relay
 
-日期：2026-10-24。状态：产品级目标架构，尚未完成端到端实现。RM500 新 Agent 的 R1–R3 已通过限定范围本地实机验收，见 [执行记录](RM500_AGENT_EXECUTION.md)；R4 Agent/ECS 云端接入按 [公共契约](../protocol/v2/R4.md) 实施中，App v1/v2 选择器待实施。用户已确认：**一个用户、多个模块、不共享**。手机与 Watch 是同一用户的客户端；RM500、EG25 和 Android AVF 是被管理的终端。本文定义产品级边界；模块内部实现见 [Agent / HAL 架构](../module/ARCHITECTURE.md)，EG25 约束见 [实机审查](../module/DEVICE_SURVEY.md)。
+日期：2026-10-24。状态：产品级目标架构，尚未完成端到端实现。RM500 新 Agent 的 R1–R3 已通过限定范围本地实机验收，见 [执行记录](RM500_AGENT_EXECUTION.md)；R4 Agent/ECS 云端接入按 [公共契约](../protocol/v2/R4.md) 实施中，App 已于 2026-10-30 确定使用 v2 唯一入口。用户已确认：**一个用户、多个模块、不共享**。手机与 Watch 是同一用户的客户端；RM500、EG25 和 Android AVF 是被管理的终端。本文定义产品级边界；模块内部实现见 [Agent / HAL 架构](../module/ARCHITECTURE.md)，EG25 约束见 [实机审查](../module/DEVICE_SURVEY.md)。
 
 2026-10-24 主控更新：用户确定新 Agent 名为 `airsim-agent`，在 `module/airsim-agent/` 独立建设；旧 `module/module-agent/` 保留。新 ECS 服务端放在 `service/airsim/`，先做 ECS + Docker Compose，部署入口为 `service/airsim/deploy/compose/`。Cloudflare Worker v2 独立放在 `service/airsim-worker/`，旧版保留在 `push-relay-worker/`。App 启用云端时明确选择 v1 或 v2，v2 两种服务实现共用对外协议。以下目录、拆分与兼容边界取代此前原地重构旧 Agent、自动选择云端主版本及 ECS 首版承担完整 v1 兼容层的设想；总体架构按下述边界实施；当前R4代码开发与实测进度见 [主控计划](RM500_AGENT_R4.md)，不能把目标设计视为已验收。
 
@@ -156,24 +156,17 @@ selected → inspected → bootstrap_ready → package_verified → installed
 
 ## 5. 手机/网页怎样获取信息、设置模块
 
-### 5.0 App 云端版本选择与配置隔离
+### 5.0 App v2 唯一入口与配置隔离
 
-用户启用云端模式时选择 `v1（现有版本）` 或 `v2（新架构）`，配置完成后记住选择，后续启动直接使用该版本。已有用户升级 App 时保留 v1 配置与选择；新安装尚未选择时不自动注册到任何 Relay。
+App 固定使用 v2。新安装直接进入设备连接页，已有安装的 v1／仅本地偏好不参与启动路由。现有 v2 配对、凭据、模块选择与历史保留；只有旧版配置的安装通过“添加设备”完成 v2 配对。旧版客户端与旧服务仍独立维护。
 
-| 云端版本 | 客户端配置与链路 | 首版范围 |
-| --- | --- | --- |
-| v1 | 保留既有 Relay 地址、device_id/secret、配对和推送注册；连接现有 Worker 与旧 Agent/Android 实现 | 维持旧功能与必要修复，不承诺新版账户和多模块语义 |
-| v2 | 配置新 Relay，验证 discovery 的 server_id/协议能力，登录账户并同步模块目录；连接 ECS 与新 airsim-agent | 独立账户、module_id、client_installation_id、明确目标和会话授权 |
+USB 是已配对模块的 v2 本地传输。EG25 可直接连接 iPad / iPhone；首次授权要求 App 与模块均在线连接 ECS，由认证控制连接传递模块本地证书和客户端授权。App 在 Keychain 缓存证书与 24 小时授权，按服务、模块和客户端隔离；有效期内 ECS 不可达仍可本地通话和收发短信，剩余不足一小时时联网自动续期。空闲时优先使用已验证的 USB，掉线自动重试；命令提交、通话和媒体固定同一路由与连接代次，未确认操作不能向另一传输重发。接口、授权撤销与路由约束见 [USB 本地契约](../protocol/v2/USB_LOCAL.md)。
 
-v2 先完成 ECS，后续支持独立 Worker v2。App 使用相同业务契约，通过 Relay 地址接入，不要求用户额外选择云厂商；不同服务实例仍有独立 server_id、账户与凭据。
+USB 真机通话、短信、双向音频与拔线恢复仍需联合验收。完全离线时不承诺唤醒被系统挂起或终止的 App，后台和冷启动来电继续依赖 APNs/PushKit。
 
-选择主版本之后仍需校验服务身份、协议版本和端点能力；选择 v2 不表示任意 URL 都是合格 v2 Relay。发现不匹配、鉴权失败或超时则显示错误，禁止自动降级到 v1，禁止把同一次拨号/短信转发到另一版本重试。
+v2 先使用 ECS，后续支持独立 Worker v2。App 使用相同业务契约，通过 Relay 地址接入；不同服务实例具有独立 server_id、账户与凭据。连接时验证服务身份、协议和端点能力；不匹配、鉴权失败或超时均显示错误，不跨协议重试命令。
 
-首版每个客户端安装实例仅启用一个云端版本。两版地址、凭据、模块选择、订阅和历史记录按版本与服务身份隔离；v2 再按 module_id/sim_epoch 隔离，旧历史来源不明时保留为旧版记录。切换须等待活动通话结束、确认在途操作的结果，并完成旧云端推送停用/注销与连接关闭；无法确认停用时不宣称切换完成。新版本注册和健康检查成功后才启用控制；失败时保持未启用状态，由用户显式选择恢复旧配置，不自动恢复双边控制。
-
-R5阶段性细化：已确认现有v1服务没有远端推送注销接口。本轮App切换以本安装所有旧运行时任务、推送注册、媒体/控制和迟到事件隔离均可核验完成作为本机启用门槛；服务端旧注册删除仍标记unsupported，不能声称远端注销成功。其他安装实例/Watch不随本手机切换。具体本机停用及必须报告CallKit的迟到VoIP push隔离见 [R5契约](../protocol/v2/R5.md)；完整后台迁移需后续远端注销和真机APNs验证。R4/R5现有快照无sim_epoch，只按实际server/client/module/boot/backend分域，不伪造SIM世代。
-
-推送必须按其所属版本/服务/会话处理，不能按 UI 当前选项重新解释迟到推送；具体 PushKit、CallKit、Watch 及 Live Activity 的切换与迟到来电策略需要主控冻结契约并完成真机验收。只增加一个版本选择开关不构成完成。手机选择不自动切换其他手机或 Watch；每个安装实例独立停用、注册和验证。
+主 App 启动和通知代理只启用 v2。推送继续校验所属服务、安装实例、模块和注册身份；迟到的旧推送不得进入 v2 业务控制。v2 按实际 server/client/module/boot/backend 分域，不伪造 SIM 世代。其他已安装客户端与 Watch 不随本 App 自动切换。
 
 ### 5.1 唯一业务命令入口
 
@@ -289,7 +282,7 @@ WebSocket 的心跳/超时需与反向代理、ECS 网络路径及可选负载�
 | DO alarm / 延迟任务 | 数据库 job/outbox + 控制服务 worker，带期限、重试预算和幂等处理 |
 | Worker Secrets | 受保护的主机文件或 Secret 管理；分开设备 CA、APNs、账户会话与发行签名凭据 |
 
-现有 Worker 和旧 Agent/Android 实现继续组成 v1 链路；新 ECS 服务与 `module/airsim-agent/` 组成 v2 链路。App 通过用户的主版本选择进入对应适配器，再验证该版本的协议能力。v1/v2 是协议与身份边界，不是 Cloudflare/ECS 的厂商标识。
+现有 Worker 和旧 Agent/Android 实现继续组成 v1 链路；新 ECS 服务与 `module/airsim-agent/` 组成 v2 链路。当前 App 固定进入 v2 适配器并验证协议能力；旧版客户端独立维护。v1/v2 是协议与身份边界，不是 Cloudflare/ECS 的厂商标识。
 
 首版 ECS 不要求提供完整 `/v1/*`，新 Agent 不要求连接旧 Worker；旧 App 继续使用旧服务。兼容主要由 App 双协议入口与旧栈保留完成，不把两套身份、命令队列和配置混入新核心。以后确需跨版本接入，由主控单独定义和批准兼容适配器。
 
@@ -383,7 +376,7 @@ module/airsim-agent/        # 新单体 Go Agent + 能力 HAL，独立工程
 module/module-agent/        # 旧 Agent 保留，不原地改成新架构
 module/<platform>/          # bootstrap、原生适配、安装/更新和固件集成
 module/avf-installerd/       # AVF 安装器继续保留
-iOS/                        # 显式 v1/v2 入口；v2 账户、模块与会话隔离
+iOS/                        # v2 唯一入口；账户、模块与会话隔离
 push-relay-worker/          # v1 旧服务保留
 ```
 
@@ -394,7 +387,7 @@ push-relay-worker/          # v1 旧服务保留
 | S0：契约与硬件前提 | user/module/client/call 标识与所有权；三平台固件 profile；EG25 Go/TLS 资源、控制入口与音频依赖；浏览器关闭/开启 ADB 实测矩阵 |
 | S1：ECS 控制服务最小闭环 | 登录、激活事务、模块目录、独立设备身份、只读状态；用两个 fake 模块验证不会串设备；数据库恢复测试 |
 | S2：浏览器初始化与 App 多模块 | 一个真实 RM500/EG25 的可恢复安装/绑定；同一账户 App 自动出现模块；缺启动入口时明确受阻；多客户端 token 不覆盖 |
-| S3：真实控制与媒体 | 三端 HAL 逐项验收、定向命令、唯一接听 lease、媒体 worker、APNs、弱网与跨入口竞争；App v1/v2 分别验收并保持隔离 |
+| S3：真实控制与媒体 | 三端 HAL 逐项验收、定向命令、唯一接听 lease、媒体 worker、APNs、弱网与跨入口竞争；App v2 验收，旧版客户端独立维护 |
 | S4：OTA 与日常配置 | 独立 updater、签名/回放/断电/空间不足验证；配置试用回退；灰度及远程撤销 |
 | S5：迁移与运行 | 旧身份显式映射、v1 → ECS v2 受控切换、备份恢复、并发/带宽测量；Worker v2 另行调度并复用契约验收，再决定媒体协议升级和横向扩容 |
 

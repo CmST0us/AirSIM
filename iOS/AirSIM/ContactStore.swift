@@ -54,12 +54,7 @@ struct ContactFetcher: Sendable {
         request.sortOrder = .userDefault
         var contacts: [ContactStore.Contact] = []
         try store.enumerateContacts(with: request) { contact, _ in
-            let cjkName = Self.containsCJK(contact.givenName + contact.familyName)
-            let nameParts = cjkName
-                ? [contact.familyName, contact.givenName]
-                : [contact.givenName, contact.familyName]
-            let separator = cjkName ? "" : " "
-            let name = nameParts.filter { !$0.isEmpty }.joined(separator: separator)
+            let name = Self.displayName(contact)
             let phones = contact.phoneNumbers
                 .map { ContactStore.normalized($0.value.stringValue) }
                 .filter { !$0.isEmpty }
@@ -73,6 +68,64 @@ struct ContactFetcher: Sendable {
             ))
         }
         return contacts
+    }
+
+    func save(id: String?, name: String, phones: [String]) throws {
+        let store = CNContactStore()
+        let contact: CNMutableContact
+        if let id {
+            let existing = try store.unifiedContact(withIdentifier: id, keysToFetch: [
+                CNContactGivenNameKey as CNKeyDescriptor, CNContactFamilyNameKey as CNKeyDescriptor,
+                CNContactPhoneNumbersKey as CNKeyDescriptor
+            ])
+            contact = existing.mutableCopy() as! CNMutableContact
+        } else {
+            contact = CNMutableContact()
+        }
+        let changed = Self.applyEdits(to: contact, name: name, phones: phones)
+        guard id == nil || changed else { return }
+        let request = CNSaveRequest()
+        if id == nil { request.add(contact, toContainerWithIdentifier: nil) }
+        else { request.update(contact) }
+        try store.execute(request)
+    }
+
+    private static func displayName(_ contact: CNContact) -> String {
+        let cjkName = containsCJK(contact.givenName + contact.familyName)
+        let parts = cjkName ? [contact.familyName, contact.givenName] : [contact.givenName, contact.familyName]
+        return parts.filter { !$0.isEmpty }.joined(separator: cjkName ? "" : " ")
+    }
+
+    @discardableResult
+    static func applyEdits(to contact: CNMutableContact, name: String, phones: [String]) -> Bool {
+        var changed = false
+        if name != displayName(contact) {
+            contact.givenName = name
+            contact.familyName = ""
+            changed = true
+        }
+        let original = contact.phoneNumbers
+        var remaining = Array(original.indices)
+        // 编辑器显示归一化号码；未改变的号码保留通讯录中的国家码、格式、标签和标识。
+        let matches: [Int?] = phones.map { phone in
+            guard let position = remaining.firstIndex(where: {
+                ContactStore.normalized(original[$0].value.stringValue) == ContactStore.normalized(phone)
+            }) else { return nil }
+            return remaining.remove(at: position)
+        }
+        let updated = phones.enumerated().map { index, phone in
+            if let match = matches[index] { return original[match] }
+            if !remaining.isEmpty {
+                let previous = original[remaining.removeFirst()]
+                return previous.settingValue(CNPhoneNumber(stringValue: phone))
+            }
+            return CNLabeledValue(label: CNLabelPhoneNumberMobile, value: CNPhoneNumber(stringValue: phone))
+        }
+        if original.count != updated.count || !zip(original, updated).allSatisfy({ pair in pair.0 === pair.1 }) {
+            contact.phoneNumbers = updated
+            changed = true
+        }
+        return changed
     }
 
     func displayName(for number: String) throws -> String? {
@@ -110,6 +163,14 @@ final class ContactStore: ObservableObject {
         let phones: [String]
         let emails: [String]
         let photoData: Data?
+
+        var groupInitial: String {
+            let latin = name.applyingTransform(.toLatin, reverse: false) ?? name
+            let folded = latin.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX")).uppercased()
+            guard let first = folded.trimmingCharacters(in: .whitespaces).first,
+                  ("A"..."Z").contains(String(first)) else { return "#" }
+            return String(first)
+        }
     }
 
     @Published private(set) var contacts: [Contact] = []
@@ -117,11 +178,68 @@ final class ContactStore: ObservableObject {
     @Published private(set) var authorizationState: ContactAuthorizationState = .notDetermined
     @Published var errorMessage: String?
     private let cache: ContactCacheStore
+    private let defaults: UserDefaults
+    @Published private var favoriteIDs: Set<String>
+    @Published private var preferredModules: [String: String]
 
-    init(fileManager: FileManager = .default) {
+    var favoriteContacts: [Contact] { contacts.filter { favoriteIDs.contains($0.id) } }
+    func isFavorite(id: String) -> Bool { favoriteIDs.contains(id) }
+    func toggleFavorite(id: String) {
+        if favoriteIDs.contains(id) { favoriteIDs.remove(id) } else { favoriteIDs.insert(id) }
+        defaults.set(favoriteIDs.sorted(), forKey: "airsim.contacts.favorites")
+    }
+    func preferredModuleID(for contactID: String) -> String? { preferredModules[contactID] }
+    func setPreferredModuleID(_ moduleID: String?, for contactID: String) {
+        preferredModules[contactID] = moduleID
+        defaults.set(preferredModules, forKey: "airsim.contacts.preferred-modules")
+    }
+
+    @discardableResult
+    func saveContact(id: String? = nil, name: String, phones: [String]) async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phones = phones.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !Self.normalized($0).isEmpty }
+        guard !name.isEmpty, !phones.isEmpty else {
+            errorMessage = "请填写姓名和至少一个电话号码"
+            return false
+        }
+        if ContactFetcher().authorizationState() == .notDetermined {
+            await requestAccessAndLoad()
+        }
+        guard ContactFetcher().authorizationState() == .authorized else {
+            errorMessage = "请在系统设置中允许 AirSIM 访问通讯录后再保存"
+            return false
+        }
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try ContactFetcher().save(id: id, name: name, phones: phones)
+            }.value
+            await refresh(userInitiated: true)
+            return true
+        } catch {
+            errorMessage = "联系人未保存，请检查通讯录权限或账户是否允许编辑后重试"
+            return false
+        }
+    }
+
+    init(fileManager: FileManager = .default, defaults: UserDefaults = .standard) {
+        let defaults = UITestScenario.active ? UITestScenario.defaults : defaults
+        self.defaults = defaults
+        favoriteIDs = Set(defaults.stringArray(forKey: "airsim.contacts.favorites") ?? [])
+        preferredModules = defaults.dictionary(forKey: "airsim.contacts.preferred-modules") as? [String: String] ?? [:]
         cache = ContactCacheStore(fileManager: fileManager)
         if UITestScenario.active {
-            contacts = [.init(id: "qa-contact", name: "QA虚构联系人", phones: ["00000000001"], emails: [], photoData: nil)]
+            if UITestScenario.name == "design-empty" {
+                contacts = []
+            } else if UITestScenario.name == "design-a1" || UITestScenario.name?.hasPrefix("design-messages") == true
+                || ["v2-incoming-fixture", "v2-active-fixture", "v2-dialing-fixture"].contains(UITestScenario.name ?? "") {
+                let names = ["陈默", "陈明", "林晓", "苏晴", "张凯", "周宁"] + (UITestScenario.name?.hasPrefix("design-messages") == true ? ["顺丰速运"] : [])
+                contacts = names.enumerated().map { index, name in
+                    .init(id: "design-contact-\(index)", name: name, phones: [String(format: "%011d", index + 1)], emails: [], photoData: nil)
+                }
+            } else {
+                contacts = [.init(id: "qa-contact", name: "QA虚构联系人", phones: ["00000000001"], emails: [], photoData: nil)]
+            }
             authorizationState = .authorized; isAuthorized = true
             return
         }

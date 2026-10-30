@@ -269,6 +269,24 @@ func TestPairingDatabaseScopeClaimRefreshAndRevoke(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("replacement lookup with active phone: %d %s", status, response)
 	}
+	usbContext, usbCancel := context.WithCancel(ctx)
+	defer usbCancel()
+	usbPeer := &peer{module: module, usbLocal: true, ctx: usbContext, cancel: usbCancel, queue: make(chan Envelope, 32)}
+	s.peers[module] = usbPeer
+	assertUSBRevoke := func(expected string) {
+		t.Helper()
+		select {
+		case frame := <-usbPeer.queue:
+			var value struct {
+				Client string `json:"client_installation_id"`
+			}
+			if frame.Type != "usb_revoke" || json.Unmarshal(frame.Payload, &value) != nil || value.Client != expected {
+				t.Fatal("wrong USB revocation")
+			}
+		default:
+			t.Fatal("missing USB revocation")
+		}
+	}
 	replacementClient, replacementClaim := wire.ID(), wire.ID()
 	status, response = pairingRequest(t, s.Handler(), "POST", "/v2/pairing/claim", map[string]string{
 		"code": replaceApproved.Code, "claim_id": replacementClaim,
@@ -277,6 +295,7 @@ func TestPairingDatabaseScopeClaimRefreshAndRevoke(t *testing.T) {
 	if status != http.StatusCreated {
 		t.Fatalf("replacement claim: %d %s", status, response)
 	}
+	assertUSBRevoke(client)
 	var replacementSession sessionResponse
 	if json.Unmarshal(response, &replacementSession) != nil || replacementSession.Client != replacementClient || replacementSession.Schema != 3 {
 		t.Fatal("replacement session")
@@ -300,6 +319,8 @@ func TestPairingDatabaseScopeClaimRefreshAndRevoke(t *testing.T) {
 	if _, err = db.Exec(ctx, "UPDATE clients SET revoked=true WHERE id=$1", client); err != nil {
 		t.Fatal(err)
 	}
+	s.syncUSBRevocations(ctx)
+	assertUSBRevoke(client)
 	status, _ = pairingRequest(t, s.Handler(), "POST", "/v2/client-sessions/refresh", map[string]string{
 		"client_installation_id": client, "refresh_token": refreshToken,
 	}, "")
@@ -310,6 +331,20 @@ func TestPairingDatabaseScopeClaimRefreshAndRevoke(t *testing.T) {
 	if status != http.StatusUnauthorized {
 		t.Fatal("revoked access token remained valid")
 	}
+
+	adminClient := wire.ID()
+	if _, err = db.Exec(ctx, "INSERT INTO clients(id,user_id,token_hash,expires_at) VALUES($1,$2,$3,now()+interval '1 hour')", adminClient, user, wire.Hash(wire.Token())); err != nil {
+		t.Fatal(err)
+	}
+	s.syncUSBRevocations(ctx)
+	if len(usbPeer.queue) != 0 {
+		t.Fatal("active administrator client revoked")
+	}
+	if _, err = db.Exec(ctx, "UPDATE clients SET revoked=true WHERE id=$1", adminClient); err != nil {
+		t.Fatal(err)
+	}
+	s.syncUSBRevocations(ctx)
+	assertUSBRevoke(adminClient)
 	if strings.Contains(string(response), refreshToken) {
 		t.Fatal("refresh token leaked")
 	}

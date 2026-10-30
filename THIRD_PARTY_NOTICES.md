@@ -97,3 +97,7 @@ DAMAGE.
 ## QDC507 kernel runtime
 
 The EG25 runtime distributes `airsim_data11.ko` under GPL-2.0-only and `qdc507_aprv3.ko` / `qdc507_voice.ko` from [MaVo commit 0443dfd](https://github.com/moluncn/mavo/tree/0443dfdaf8aec086fd76ba2ee9152fd908114524/Resources/ModuleVoice) under GPL-2.0. The corresponding COPYING-GPL-2.0 and MODULE-REPORT.md accompany the runtime. AirSIM DATA11 source is in `module/eg25/kmod/`.
+
+## Noto Sans SC
+
+The iOS interface includes Noto Sans SC from the [Noto CJK project](https://github.com/notofonts/noto-cjk), licensed under the SIL Open Font License 1.1. The bundled font and full copyright/license notice are in `iOS/AirSIM/Fonts/`.

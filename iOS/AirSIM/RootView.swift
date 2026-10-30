@@ -23,187 +23,151 @@ enum SystemCommunicationURL {
 }
 
 enum PhoneTab: String, CaseIterable, Identifiable {
-    case dial = "拨号"
-    case recents = "最近通话"
+    case calls = "通话"
+    case contacts = "联系人"
     case messages = "短信"
-    case contacts = "通讯录"
-    case settings = "设置"
-
+    case dial = "拨号键盘"
+    case cards = "号卡"
     var id: String { rawValue }
-
-    var icon: String {
-        switch self {
-        case .dial: return "circle.grid.3x3"
-        case .recents: return "clock"
-        case .messages: return "message"
-        case .contacts: return "person.crop.circle"
-        case .settings: return "gearshape"
-        }
-    }
-
-    var tabTitle: String {
-        switch self {
-        case .recents: return "最近"
-        case .contacts: return "联系人"
-        default: return rawValue
-        }
-    }
 }
 
-/// 五个主要目的地使用系统 TabView；iOS 26 原生标签栏负责 Liquid Glass、
-/// 长按放大与选中态交互，避免分页手势和自绘按钮争抢横向滑动。
 struct RootView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
-    @AppStorage("airsim.selected-tab") private var selectedTabRawValue = PhoneTab.dial.rawValue
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @AppStorage("airsim.selected-tab") private var selectedTabRawValue = PhoneTab.calls.rawValue
     @State private var pendingSMSRecipient: String?
     @State private var pendingSMSConversation: String?
-    @AppStorage("airsim.first-connection-complete") private var firstConnectionComplete = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        GeometryReader { geometry in
+            content.environment(\.a1UsesWideLayout, horizontalSizeClass == .regular
+                && geometry.size.width >= 840 && verticalSizeClass != .compact
+                && !dynamicTypeSize.isAccessibilitySize)
+        }
+    }
+
+    private var content: some View {
+        ZStack {
             TabView(selection: selectedTabBinding) {
-                DialPadView()
-                    .tag(PhoneTab.dial)
-                    .tabItem { Label(L10n.t(PhoneTab.dial.tabTitle), systemImage: PhoneTab.dial.icon) }
-
-                RecentsView(onCall: dial, onMessage: composeMessage)
-                    .tag(PhoneTab.recents)
-                    .tabItem { Label(L10n.t(PhoneTab.recents.tabTitle), systemImage: PhoneTab.recents.icon) }
-
-                MessagesView(
-                    pendingRecipient: $pendingSMSRecipient,
-                    pendingConversation: $pendingSMSConversation
-                )
-                    .tag(PhoneTab.messages)
-                    .tabItem { Label(L10n.t(PhoneTab.messages.tabTitle), systemImage: PhoneTab.messages.icon) }
-
-                ContactsView(onCall: dial, onMessage: composeMessage)
+                A1CallsView(onCall: dial, onMessage: composeMessage,
+                            onContacts: { selectedTab = .contacts },
+                            onSettings: { selectedTab = .cards }, onDial: { selectedTab = .dial })
+                    .tag(PhoneTab.calls)
+                    .tabItem { tabLabel(.calls, asset: selectedTab == .calls ? "a1-tab-calls-selected" : "a1-tab-calls") }
+                A1ContactsView(onCall: dial, onMessage: composeMessage)
                     .tag(PhoneTab.contacts)
-                    .tabItem { Label(L10n.t(PhoneTab.contacts.tabTitle), systemImage: PhoneTab.contacts.icon) }
-
+                    .tabItem { tabLabel(.contacts, asset: selectedTab == .contacts ? "a1-tab-contacts-selected" : "a1-tab-contacts") }
+                A1MessagesView(pendingRecipient: $pendingSMSRecipient,
+                               pendingConversation: $pendingSMSConversation,
+                               onSettings: { selectedTab = .cards })
+                    .tag(PhoneTab.messages)
+                    .tabItem { Label { Text("短信") } icon: { messageTabIcon } }
+                A1DialPadView(onSettings: { selectedTab = .cards })
+                    .tag(PhoneTab.dial)
+                    .tabItem { tabLabel(.dial, asset: selectedTab == .contacts ? "a1-contacts-tab-keypad" : "a1-tab-keypad") }
                 AirSIMSettingsView()
-                    .tag(PhoneTab.settings)
-                    .tabItem { Label(L10n.t(PhoneTab.settings.tabTitle), systemImage: PhoneTab.settings.icon) }
+                    .tag(PhoneTab.cards)
+                    .tabItem { tabLabel(.cards, asset: selectedTab == .contacts ? "a1-contacts-tab-sim" : "a1-tab-sim") }
             }
-            .id(model.messageScope)
-            .phoneTabBarMinimizeOnScroll()
-            .phoneTabSelectionFeedback(selectedTabRawValue)
-            .tint(.blue)
-
+            .phoneTabSelectionFeedback(selectedTab.rawValue)
+            .tint(A1Palette.linkBlue)
             if let call = model.inAppPresentedCall {
                 ActiveCallView(call: call)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
             }
         }
-        .background(PhoneBackdrop())
-        .animation(.easeInOut(duration: 0.2), value: model.inAppPresentedCall?.id)
+        .background(A1Palette.background)
         .preferredColorScheme(settings.appearance.colorScheme)
-        .fullScreenCover(isPresented: Binding(
-            get: { !firstConnectionComplete },
-            set: { if !$0 { firstConnectionComplete = true } }
-        )) {
-            AirSIMFirstConnectionView()
-                .environmentObject(model)
-        }
         .onChange(of: model.messageScope) { _ in
             pendingSMSRecipient = nil; pendingSMSConversation = nil; model.numberInput = ""
         }
         .onOpenURL(perform: handleSystemCommunicationURL)
         .onAppear {
-            if !UITestScenario.active, let sender = IncomingSMSPresentationRequest.consume() {
-                openSMSConversation(sender)
-            }
+            if !UITestScenario.active, let sender = IncomingSMSPresentationRequest.consume() { openSMSConversation(sender) }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .airsimRemoteSMSReceived)) { _ in
-            model.reloadMessagesFromLocalStore()
-        }
+        .onReceive(NotificationCenter.default.publisher(for: .airsimRemoteSMSReceived)) { _ in model.reloadMessagesFromLocalStore() }
         .onReceive(NotificationCenter.default.publisher(for: .airsimOpenSMSConversation)) { notification in
-            let sender = IncomingSMSPresentationRequest.consume()
-                ?? notification.userInfo?["sender"] as? String
-            guard let sender else {
-                selectedTab = .messages
-                return
-            }
-            openSMSConversation(sender)
+            let sender = IncomingSMSPresentationRequest.consume() ?? notification.userInfo?["sender"] as? String
+            if let sender { openSMSConversation(sender) } else { selectedTab = .messages }
         }
         .onReceive(NotificationCenter.default.publisher(for: .airsimOpenIncomingCall)) { _ in
+            selectedTab = .calls
             model.presentCurrentCallInApp()
         }
         .overlay(alignment: .top) {
             if let message = model.errorMessage, !message.isEmpty {
-                TransientNoticeBanner(message: message) {
-                    model.errorMessage = nil
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                TransientNoticeBanner(message: message) { model.errorMessage = nil }
+                    .padding(.horizontal, 16).padding(.top, 8)
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.easeOut(duration: 0.2), value: model.errorMessage)
+        .animation(.easeInOut(duration: reduceMotion ? 0.1 : 0.2), value: model.inAppPresentedCall?.id)
+        .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.2), value: model.errorMessage)
     }
 
+    private func tabLabel(_ tab: PhoneTab, asset: String) -> some View {
+        Label { Text(tab.rawValue) } icon: {
+            Image(asset).renderingMode(.template)
+        }
+    }
+    private var messageTabIcon: Image {
+        Image("a1-detail-message").renderingMode(.template)
+    }
     private var selectedTabBinding: Binding<PhoneTab> {
-        Binding(
-            get: { PhoneTab(rawValue: selectedTabRawValue) ?? .dial },
-            set: { newTab in
-                guard newTab.rawValue != selectedTabRawValue else { return }
-                selectedTabRawValue = newTab.rawValue
-            }
-        )
+        Binding(get: { selectedTab }, set: { selectedTab = $0 })
     }
-
     private var selectedTab: PhoneTab {
-        get { PhoneTab(rawValue: selectedTabRawValue) ?? .dial }
+        get { PhoneTab(rawValue: selectedTabRawValue) ?? .calls }
         nonmutating set { selectedTabRawValue = newValue.rawValue }
     }
-
-    private func dial(_ number: String) {
-        model.numberInput = number
-        selectedTab = .dial
-        Task { await model.dial() }
+    private func dial(_ number: String, _ moduleID: String?) {
+        Task { await model.call(number: number, moduleID: moduleID) }
     }
-
-    private func composeMessage(_ number: String) {
-        pendingSMSRecipient = number
-        selectedTab = .messages
+    private func composeMessage(_ number: String, _ moduleID: String?) {
+        Task {
+            guard await model.selectLine(moduleID: moduleID) else { return }
+            pendingSMSRecipient = number
+            selectedTab = .messages
+        }
     }
-
     private func openSMSConversation(_ sender: String) {
         model.reloadMessagesFromLocalStore()
         pendingSMSConversation = sender
         selectedTab = .messages
     }
-
     private func handleSystemCommunicationURL(_ url: URL) {
         switch SystemCommunicationURL.destination(for: url) {
-        case let .call(number):
-            dial(number)
-        case let .message(recipient):
-            composeMessage(recipient)
-        case nil:
-            break
+        case let .call(number): dial(number, nil)
+        case let .message(recipient): composeMessage(recipient, nil)
+        case nil: break
         }
     }
 }
 
 struct TransientNoticeBanner: View {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     let message: String
     let dismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.circle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(A1Palette.negative)
+                .padding(.top, 12)
             Text(message)
                 .font(.footnote)
                 .foregroundStyle(.primary)
-                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 10)
             Spacer(minLength: 2)
             Button(action: dismiss) {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.bold))
-                    .frame(width: 28, height: 28)
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("关闭提示")
@@ -211,17 +175,18 @@ struct TransientNoticeBanner: View {
         .padding(.leading, 14)
         .padding(.trailing, 6)
         .padding(.vertical, 8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .background {
+            if reduceTransparency {
+                RoundedRectangle(cornerRadius: 15).fill(Color(uiColor: .secondarySystemBackground))
+            } else {
+                RoundedRectangle(cornerRadius: 15).fill(.regularMaterial)
+            }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .stroke(Color.primary.opacity(0.08))
         }
         .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
-        .task(id: message) {
-            try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled else { return }
-            dismiss()
-        }
     }
 }
 

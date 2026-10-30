@@ -28,6 +28,9 @@ type Config struct {
 }
 type peer struct {
 	queried                      bool
+	usbLocal                     bool
+	usbRevoked                   map[string]bool
+	usbRequests                  map[string]*usbRequest
 	conn                         *websocket.Conn
 	module, epoch, boot, backend string
 	platform                     string
@@ -140,13 +143,14 @@ func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 		Backend  string `json:"backend_epoch"`
 		Version  string `json:"agent_version"`
 		Platform string `json:"platform,omitempty"`
+		USBLocal bool   `json:"usb_local,omitempty"`
 	}
 	if e != nil || typ != websocket.MessageText || wire.Decode(b, &env, "type", "protocol_version", "module_id", "connection_epoch", "sequence", "payload") != nil || env.Type != "hello" || env.Version != 2 || env.Module != module || env.Epoch != "" || env.Sequence != 1 || wire.Decode(env.Payload, &hello, "agent_boot_id", "backend_epoch", "agent_version") != nil || !wire.UUID.MatchString(hello.Boot) || (hello.Backend != "" && !wire.UUID.MatchString(hello.Backend)) {
 		return
 	}
 	ctx, cancel = context.WithDeadline(r.Context(), certificateExpiry)
 	defer cancel()
-	p := &peer{conn: c, module: module, epoch: wire.ID(), boot: hello.Boot, backend: hello.Backend, platform: hello.Platform, ctx: ctx, cancel: cancel, queue: make(chan Envelope, 32), last: time.Now()}
+	p := &peer{conn: c, module: module, epoch: wire.ID(), boot: hello.Boot, backend: hello.Backend, platform: hello.Platform, usbLocal: hello.USBLocal, ctx: ctx, cancel: cancel, queue: make(chan Envelope, 32), last: time.Now()}
 	s.mu.Lock()
 	if old := s.peers[module]; old != nil {
 		for _, m := range s.sessions {
@@ -219,6 +223,9 @@ func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seq++
+		if env.Type == "usb_authorization" && len(b) > 16*1024 {
+			return
+		}
 		s.mu.Lock()
 		if s.peers[module] != p {
 			s.mu.Unlock()
@@ -249,6 +256,8 @@ func (s *Server) enqueue(p *peer, kind string, payload any) bool {
 }
 func (s *Server) consume(p *peer, env Envelope) bool {
 	switch env.Type {
+	case "usb_authorization":
+		return s.usbResponse(p, env.Payload)
 	case "receipt":
 		return s.receipt(p, env.Payload)
 	case "media_status":

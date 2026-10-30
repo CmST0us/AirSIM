@@ -88,96 +88,30 @@ enum IncomingSMSPresentationRequest {
 /// 接收锁屏通知动作，并在系统授予的后台执行时间内直接控制模块通话。
 @MainActor
 final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
-    private var coldHandler: ColdLaunchCallKitHandler?
-    static weak var current: AirSIMNotificationDelegate?
-    private var coldLaunchCallHandler: ColdLaunchCallKitHandler {
-        if let coldHandler { return coldHandler }
-        let handler = ColdLaunchCallKitHandler(); coldHandler = handler; return handler
-    }
-    func stopRuntime() { coldHandler?.stop(); coldHandler = nil }
-    private let historyStore = LocalHistoryStore()
-
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        Self.current = self
         UNUserNotificationCenter.current().delegate = self
-        if UITestScenario.active { LegacyRuntimeGate.configure(false); return true }
+        LegacyRuntimeGate.configure(false)
+        guard !UITestScenario.active else { return true }
         let router = AppRouteCoordinator.shared
-        if router.choice == .v2 { router.ensureRuntime() }
-        let selection = router.choice
-        if let selection { CloudVersionPreference.save(selection) }
-        LegacyRuntimeGate.configure(selection == .v1 || selection == .local)
-        if selection == .v2, let cloud = router.cloud {
-            V2PushController.shared.attach(cloud)
-            V2PushController.shared.start(model: cloud)
-            application.registerForRemoteNotifications()
-            return true
-        }
-        guard LegacyRuntimeGate.allowed else { return true }
-        IncomingCallNotification.registerCategory()
-        let localModeEnabled = LocalModePreference.isEnabled()
-        CallKitController.shared.setEnabled(!localModeEnabled)
-        if !localModeEnabled, CallKitController.shared.handler == nil {
-            CallKitController.shared.handler = coldLaunchCallHandler
-        }
-		// Watch token 与跨设备接听所有权必须在冷启动阶段就可接收，不能等待
-		// SwiftUI 首屏 onAppear（锁屏 PushKit 唤醒时首屏可能永远不出现）。
-		WatchCallCoordinator.shared.start()
-        if !localModeEnabled {
-            VoIPPushController.shared.start()
-            application.registerForRemoteNotifications()
-        }
-#if DEBUG
-        print(localModeEnabled
-            ? "[AirSIM Local] 已跳过 APNs、PushKit 与 CallKit 注册"
-            : "[AirSIM APNs] 已启动普通通知与 PushKit 注册")
-#endif
+        router.ensureRuntime()
+        if let cloud = router.cloud { V2PushController.shared.start(model: cloud) }
         return true
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
-        // 首次授权弹窗可能晚于 didFinishLaunching 返回；回到前台时重新登记是幂等的。
-        if AppRouteCoordinator.shared.choice == .v2, let cloud = AppRouteCoordinator.shared.cloud {
-            V2PushController.shared.start(model: cloud)
-            application.registerForRemoteNotifications()
-            return
-        }
-        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
-        VoIPPushController.shared.start()
-        application.registerForRemoteNotifications()
-        Task { await VoIPPushController.shared.syncRegistration() }
+        guard !UITestScenario.active, let cloud = AppRouteCoordinator.shared.cloud else { return }
+        V2PushController.shared.start(model: cloud)
     }
 
-    func application(
-        _ application: UIApplication,
-        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
-    ) {
-        if AppRouteCoordinator.shared.choice == .v2 {
-            V2PushController.shared.storeAlertToken(deviceToken)
-            return
-        }
-        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
-        VoIPPushController.shared.storeAlertToken(deviceToken)
-#if DEBUG
-        print("[AirSIM APNs] 普通通知 token 已更新；字节数=\(deviceToken.count)")
-#endif
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        V2PushController.shared.storeAlertToken(deviceToken)
     }
 
-    func application(
-        _ application: UIApplication,
-        didFailToRegisterForRemoteNotificationsWithError error: Error
-    ) {
-        if AppRouteCoordinator.shared.choice == .v2 {
-            V2PushController.shared.registrationFailed("通知 token 注册失败，请检查网络后重试")
-            return
-        }
-        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else { return }
-        VoIPPushController.shared.clearAlertToken()
-#if DEBUG
-        print("[AirSIM APNs] 普通通知 token 注册失败：\(error.localizedDescription)")
-#endif
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        V2PushController.shared.registrationFailed("通知 token 注册失败，请检查网络后重试")
     }
 
     func application(
@@ -185,47 +119,7 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
-        if AppRouteCoordinator.shared.choice == .v2 {
-            if V2PushController.shared.acceptsAlert(userInfo) {
-                completionHandler(.newData)
-            } else {
-                completionHandler(.noData)
-            }
-            return
-        }
-        guard LegacyRuntimeGate.allowed, !LocalModePreference.isEnabled() else {
-            completionHandler(.noData)
-            return
-        }
-        if userInfo["event"] as? String == "call_owner",
-           userInfo["owner"] as? String == "watch" {
-            let callID = userInfo["call_id"] as? String
-            let uuid = (userInfo["call_uuid"] as? String).flatMap(UUID.init(uuidString:))
-            if CallKitController.shared.matchesCurrentCall(callID: callID, uuid: uuid) {
-                let reason: CXCallEndedReason = userInfo["phase"] as? String == "active"
-                    ? .answeredElsewhere : .declinedElsewhere
-                CallKitController.shared.reportCurrentCallEnded(reason: reason)
-                completionHandler(.newData)
-            } else {
-                completionHandler(.noData)
-            }
-            return
-        }
-        do {
-            let pushed = try IncomingRemoteSMS(userInfo: userInfo)
-            let saved = persistRemoteSMS(pushed)
-            if saved {
-                NotificationCenter.default.post(name: .airsimRemoteSMSReceived, object: nil)
-            }
-            completionHandler(saved ? .newData : .noData)
-        } catch RemoteSMSPushError.unsupportedEvent {
-            completionHandler(.noData)
-        } catch {
-#if DEBUG
-            print("[AirSIM APNs] 短信推送解析失败：\(error.localizedDescription)")
-#endif
-            completionHandler(.failed)
-        }
+        completionHandler(V2PushController.shared.acceptsAlert(userInfo) ? .newData : .noData)
     }
 
     func userNotificationCenter(
@@ -233,20 +127,7 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        if AppRouteCoordinator.shared.choice == .v2 {
-            if V2PushController.shared.acceptsAlert(notification.request.content.userInfo) {
-                completionHandler([.banner, .list, .sound])
-            } else {
-                completionHandler([])
-            }
-            return
-        }
-        guard LegacyRuntimeGate.allowed else { completionHandler([]); return }
-        guard notification.request.content.userInfo["event"] as? String == "incoming_sms" else {
-            completionHandler([])
-            return
-        }
-        completionHandler([.banner, .list, .sound])
+        completionHandler(V2PushController.shared.acceptsAlert(notification.request.content.userInfo) ? [.banner, .list, .sound] : [])
     }
 
     func userNotificationCenter(
@@ -254,117 +135,17 @@ final class AirSIMNotificationDelegate: NSObject, UIApplicationDelegate, @precon
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if AppRouteCoordinator.shared.choice == .v2 {
-            let userInfo = response.notification.request.content.userInfo
-            guard userInfo["event"] as? String == "incoming_sms",
-                  V2PushController.shared.acceptsAlert(userInfo) else {
-                completionHandler()
-                return
-            }
-            let sender = userInfo["sender"] as? String
-            if let sender { IncomingSMSPresentationRequest.markPending(sender: sender) }
-            NotificationCenter.default.post(
-                name: .airsimOpenSMSConversation,
-                object: nil,
-                userInfo: sender.map { ["sender": $0] }
-            )
-            completionHandler()
-            return
-        }
-        guard LegacyRuntimeGate.allowed else {
-            UserDefaults.standard.removeObject(forKey: IncomingCallPresentationRequest.key)
-            UserDefaults.standard.removeObject(forKey: IncomingSMSPresentationRequest.key)
-            completionHandler(); return
-        }
-        let stamp = LegacyRuntimeGate.generation
-        let actionIdentifier = response.actionIdentifier
-        if response.notification.request.content.userInfo["event"] as? String == "incoming_sms" {
-            let userInfo = response.notification.request.content.userInfo
-            if let pushed = try? IncomingRemoteSMS(userInfo: userInfo), persistRemoteSMS(pushed) {
-                NotificationCenter.default.post(name: .airsimRemoteSMSReceived, object: nil)
-            }
-            let sender = userInfo["sender"] as? String
-            if let sender { IncomingSMSPresentationRequest.markPending(sender: sender) }
-            NotificationCenter.default.post(
-                name: .airsimOpenSMSConversation,
-                object: nil,
-                userInfo: sender.map { ["sender": $0] }
-            )
-            completionHandler()
-            return
-        }
-        if response.notification.request.content.userInfo["event"] as? String == "incoming_call",
-           actionIdentifier == UNNotificationDefaultActionIdentifier {
-            IncomingCallPresentationRequest.markPending()
-            NotificationCenter.default.post(name: .airsimOpenIncomingCall, object: nil)
-            completionHandler()
-            return
-        }
-        guard actionIdentifier == IncomingCallNotification.answerActionIdentifier
-                || actionIdentifier == IncomingCallNotification.rejectActionIdentifier,
-              let callID = response.notification.request.content.userInfo[
-                  IncomingCallNotification.callIDKey
-              ] as? String else {
-            completionHandler()
-            return
-        }
-
-        Task { @MainActor in
-            defer {
-                center.removeDeliveredNotifications(
-                    withIdentifiers: [response.notification.request.identifier]
-                )
-                completionHandler()
-            }
-            do {
-                guard LegacyRuntimeGate.accepts(stamp) else { return }
-                guard let api = await coldLaunchCallHandler.availableSamsungAPI() else {
-                    throw CallKitBridgeError.noReachableTransport
-                }
-                let status = try await api.callStatus()
-                // 必须匹配仍在振铃的同一通电话，防止用户点击过期通知误操作新通话。
-                guard LegacyRuntimeGate.accepts(stamp), status.active?.id == callID,
-                      status.active?.direction == "incoming",
-                      let state = status.active?.state,
-                      ["incoming", "waiting"].contains(state) else { return }
-
-                if actionIdentifier == IncomingCallNotification.answerActionIdentifier {
-                    try await api.answerCall(callID: callID)
-                } else {
-                    _ = try await api.rejectCall(callID: callID)
-                }
-            } catch {
-                guard LegacyRuntimeGate.accepts(stamp) else { return }
-                Self.reportActionFailure(error)
-            }
-        }
-    }
-
-    private static func reportActionFailure(_ error: Error) {
-        let content = UNMutableNotificationContent()
-        content.title = "AirSIM 操作失败"
-        content.body = error.localizedDescription
-        content.sound = .default
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(
-                identifier: "airsim.call-action-failed.\(UUID().uuidString)",
-                content: content,
-                trigger: nil
-            )
+        defer { completionHandler() }
+        let userInfo = response.notification.request.content.userInfo
+        guard userInfo["event"] as? String == "incoming_sms",
+              V2PushController.shared.acceptsAlert(userInfo) else { return }
+        let sender = userInfo["sender"] as? String
+        if let sender { IncomingSMSPresentationRequest.markPending(sender: sender) }
+        NotificationCenter.default.post(
+            name: .airsimOpenSMSConversation,
+            object: nil,
+            userInfo: sender.map { ["sender": $0] }
         )
-    }
-
-    private func persistRemoteSMS(_ pushed: IncomingRemoteSMS) -> Bool {
-        // 超长内容在 APNs payload 中只带预览，等待下次与 Agent 同步完整正文，避免本地出现两条。
-        guard !pushed.contentTruncated else { return false }
-        var messages = historyStore.loadMessages()
-        guard !messages.contains(where: { $0.deliveryID == pushed.deliveryID }) else { return false }
-        messages.append(pushed.message)
-        messages.sort { $0.timestamp > $1.timestamp }
-        if messages.count > 2_000 {
-            messages = Array(messages.prefix(2_000))
-        }
-        return historyStore.saveMessages(messages)
     }
 }
 

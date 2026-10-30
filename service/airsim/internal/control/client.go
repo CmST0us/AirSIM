@@ -46,6 +46,10 @@ func (s *Server) client(w http.ResponseWriter, r *http.Request) {
 		wire.Error(w, 404, "not_found")
 		return
 	}
+	if len(parts) == 2 && parts[1] == "usb-authorization" && r.Method == "POST" {
+		s.usbAuthorization(w, r, client, module)
+		return
+	}
 	if len(parts) == 2 && parts[1] == "commands" && r.Method == "POST" {
 		s.command(w, r, user, client, module)
 		return

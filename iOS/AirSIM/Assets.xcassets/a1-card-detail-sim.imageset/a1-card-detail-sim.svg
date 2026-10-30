@@ -1,0 +1,7 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Icon/sim">
+<path id="Vector" d="M11.6667 3.33333H25L33.3333 11.6667V36.6667H6.66667V8.33333C6.66667 7.00725 7.19345 5.73548 8.13113 4.7978C9.06882 3.86012 10.3406 3.33333 11.6667 3.33333Z" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke="#007AFF"/>
+<path id="Vector_2" d="M15 16.6667H25C25.9205 16.6667 26.6667 17.4129 26.6667 18.3333V28.3333C26.6667 29.2538 25.9205 30 25 30H15C14.0795 30 13.3333 29.2538 13.3333 28.3333V18.3333C13.3333 17.4129 14.0795 16.6667 15 16.6667Z" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke="#007AFF"/>
+<path id="Vector_3" d="M20 16.6667V23.3333M20 23.3333V30M20 23.3333H13.3333M20 23.3333H26.6667" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke="#007AFF"/>
+</g>
+</svg>

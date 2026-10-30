@@ -147,15 +147,6 @@ func DecodeNullable(b []byte, v any, nullable ...string) error {
 	if _, e := d.Token(); e != io.EOF {
 		return ErrInvalid
 	}
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(b, &fields) != nil {
-		return ErrInvalid
-	}
-	for _, k := range []string{"command_id", "status_code", "receipt"} {
-		if _, ok := fields[k]; !ok {
-			return ErrInvalid
-		}
-	}
 	if exactShape(b, reflect.TypeOf(v)) != nil {
 		return ErrInvalid
 	}

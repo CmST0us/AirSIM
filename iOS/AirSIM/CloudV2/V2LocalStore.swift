@@ -57,10 +57,16 @@ struct V2StoredCall: Codable, Identifiable, Equatable {
     let call: V2Call
     var id: String { domain.identity.account + domain.moduleID + domain.bootID + domain.backendEpoch + call.call_id }
 }
+struct V2PendingMessageRetry: Codable, Equatable {
+    let commandID: String
+    let originalMessageID: String
+}
 struct V2History: Codable {
     var messages: [V2StoredMessage] = []
     var calls: [V2StoredCall] = []
     var clearedMessageIDs: [String]? = nil
+    var retriedMessageIDs: [String]? = nil
+    var pendingMessageRetry: V2PendingMessageRetry? = nil
     @discardableResult
     mutating func merge(messages incoming: [V2StoredMessage]) -> Bool {
         var byID = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, newest in newest })

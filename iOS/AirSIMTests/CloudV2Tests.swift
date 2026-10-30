@@ -1,6 +1,7 @@
 import XCTest
 import AVFoundation
 import CallKit
+import Network
 @testable import AirSIM
 
 private let v2ID = "00112233-4455-4677-8899-aabbccddeeff"
@@ -582,35 +583,36 @@ private func v2Accepted(id: String = v2ID, action: String = "call.dial", callID:
     return try v2Data(["command_id": id, "state": "completed", "generation": v2ID, "receipt": receipt])
 }
 extension CloudV2Tests {
-    func testFreshInstallAndEveryLegacyMigrationEvidence() {
-        let suite = "airsim.route.test.\(UUID())"
-        let store = UserDefaults(suiteName: suite)!; defer { store.removePersistentDomain(forName: suite) }
-        XCTAssertNil(CloudVersionPreference.selection(defaults: store))
-        XCTAssertEqual(CloudVersionPreference.selection(defaults: store, paired: true), .v1)
-        for key in ["airsim.first-connection-complete", LocalModePreference.key, CloudModePreference.key, "airsim.push-relay-url", "airsim.voip-push-token", "airsim.alert-push-token", "airsim.push-device-id", "airsim.live-activity-push-to-start-token", "airsim.watch-voip-push-token", "airsim.watch-bundle-id", "airsim.appearance", "airsim.language"] {
-            store.set(false, forKey: key)
-            XCTAssertEqual(CloudVersionPreference.selection(defaults: store), .v1, key)
-            store.removeObject(forKey: key)
-        }
-        store.set(true, forKey: LocalModePreference.key)
-        XCTAssertEqual(CloudVersionPreference.selection(defaults: store), .local)
-        CloudVersionPreference.save(.v2, defaults: store)
-        XCTAssertEqual(CloudVersionPreference.selection(defaults: store), .v2)
+    @MainActor func testRouteAlwaysCreatesV2AndPreservesConfiguration() async throws {
+        let fixture = try V2PollFixture()
+        defer { fixture.model.systemCalls?.stop() }
+        addTeardownBlock { await fixture.close() }
+        let configuration = fixture.model.configuration
+        let selectedModule = fixture.model.selectedModuleID
+        var creations = 0
+        let router = AppRouteCoordinator(makeCloud: { creations += 1; return fixture.model })
+        XCTAssertNil(router.model)
+        XCTAssertFalse(LegacyRuntimeGate.allowed)
+        router.ensureRuntime()
+        router.ensureRuntime()
+        XCTAssertEqual(creations, 1)
+        XCTAssertTrue(router.model?.isV2 == true)
+        XCTAssertTrue(router.cloud === fixture.model)
+        XCTAssertEqual(router.cloud?.configuration, configuration)
+        XCTAssertEqual(router.cloud?.selectedModuleID, selectedModule)
+        XCTAssertFalse(LegacyRuntimeGate.allowed)
     }
-    @MainActor func testRouteUsesInjectedDefaultsAndReservationsBlockSwitch() async {
-        let suite = "airsim.route.test.\(UUID())"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite); LegacyRuntimeGate.configure(false) }
-        let router = AppRouteCoordinator(defaults: defaults, paired: false)
-        XCTAssertNil(router.choice); XCTAssertNil(router.legacy); XCTAssertNil(router.cloud); XCTAssertFalse(LegacyRuntimeGate.allowed)
+
+    @MainActor func testV2LaunchDoesNotWaitForLegacyReservations() async throws {
+        let fixture = try V2PollFixture()
+        addTeardownBlock { await fixture.close() }
         let reservation = LegacyBusinessReservations.reserve()
-        await router.choose(.v2)
-        XCTAssertNil(router.choice); XCTAssertNotNil(router.error)
-        LegacyBusinessReservations.release(reservation)
-        await router.choose(.v2)
-        XCTAssertEqual(router.choice, .v2)
-        XCTAssertEqual(CloudVersionPreference.selection(defaults: defaults), .v2)
-        XCTAssertNil(router.legacy)
+        defer { LegacyBusinessReservations.release(reservation); fixture.model.systemCalls?.stop() }
+        LegacyRuntimeGate.configure(true)
+        let router = AppRouteCoordinator(makeCloud: { fixture.model })
+        router.ensureRuntime()
+        XCTAssertTrue(router.model?.isV2 == true)
+        XCTAssertFalse(LegacyRuntimeGate.allowed)
     }
     func testLegacyGateABADropsOldRegistrationWatchAndMediaCompletions() throws {
         defer { LegacyRuntimeGate.configure(false) }
@@ -1593,11 +1595,14 @@ extension CloudV2Tests {
     var currentNow: Date { v2Now.addingTimeInterval(Date().timeIntervalSince(started)) }
     var defaults: UserDefaults!
     var model: CloudV2Model!
+    var transport: V2TestTransport!
     var counts: [String: Int] = [:], inFlight: [String: Int] = [:], maxInFlight: [String: Int] = [:]
     var blocked = Set<String>(), failed = Set<String>()
+    var discoveryFailures = 0
     var directoryBlocksAfterFirst = false
     var pending: [String: CheckedContinuation<V2HTTPResponse, Error>] = [:]
     var snapshotCalls: [[String: Any]] = []
+    var snapshotMessages: [[String: Any]] = []
     var connectionEpoch = v2ID
     var writes = 0
     var commandHTTPStatus: Int?
@@ -1611,7 +1616,7 @@ extension CloudV2Tests {
         defaults = UserDefaults(suiteName: suite)!
         _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
         defaults.set(v2ID, forKey: V2LocalPaths.selectionKey(v2Config().identity))
-        let transport = V2TestTransport { [unowned self] request in
+        transport = V2TestTransport { [unowned self] request in
             if request.httpMethod != "GET" { writes += 1 }
             let path = request.url!.path
             if path.contains("commands"), delayedReceipts {
@@ -1642,7 +1647,11 @@ extension CloudV2Tests {
                 }
                 return V2HTTPResponse(status: status, body: Data())
             }
-            if path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            if path == "/.well-known/airsim" {
+                counts["discovery", default: 0] += 1
+                if discoveryFailures > 0 { discoveryFailures -= 1; throw V2Error.transport }
+                return V2HTTPResponse(status: 200, body: try v2Discovery())
+            }
             let lane = path == "/v2/modules" ? "directory" : (path.hasSuffix("snapshot") ? "snapshot" : "messages")
             counts[lane, default: 0] += 1; inFlight[lane, default: 0] += 1
             maxInFlight[lane] = max(maxInFlight[lane, default: 0], inFlight[lane, default: 0])
@@ -1662,7 +1671,7 @@ extension CloudV2Tests {
         } else if lane == "snapshot" { var value = try JSONSerialization.jsonObject(with: v2SnapshotData(module: module, age: -currentNow.timeIntervalSince(v2Now), calls: snapshotCalls)) as! [String: Any]
             value["connection_epoch"] = connectionEpoch
             body = try v2Data(value) }
-        else { body = try v2Data(["server_id": v2ID, "module_id": module, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": []]) }
+        else { body = try v2Data(["server_id": v2ID, "module_id": module, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": snapshotMessages]) }
         return V2HTTPResponse(status: 200, body: body)
     }
     func release(_ lane: String, status: Int = 200) throws {
@@ -1710,7 +1719,7 @@ extension CloudV2Tests {
         try await v2PollWait { fixture.pending.count == 3 }
         await fixture.model.sceneChanged(.inactive)
         await fixture.model.sceneChanged(.active)
-        XCTAssertEqual(fixture.counts, ["snapshot": 1, "messages": 1, "directory": 1])
+        XCTAssertEqual(fixture.counts, ["discovery": 1, "snapshot": 1, "messages": 1, "directory": 1])
         fixture.blocked.removeAll()
         for lane in ["snapshot", "messages", "directory"] { try fixture.release(lane) }
         try await v2PollWait { fixture.model.telephonyReady && fixture.model.messagesResponse != nil }
@@ -2436,6 +2445,254 @@ extension CloudV2Tests {
         catch { }
         XCTAssertFalse(fixture.model.hasUnresolvedCommand); XCTAssertTrue(fixture.model.canAct)
         XCTAssertNil(fixture.model.ownedCall); XCTAssertEqual(fixture.writes, 1)
+        await fixture.close()
+    }
+}
+
+
+extension CloudV2Tests {
+    @MainActor func testInitialConnectionRecoversWithoutUserAction() async throws {
+        let fixture = try V2PollFixture()
+        fixture.discoveryFailures = 1
+        await fixture.model.sceneChanged(.active)
+        XCTAssertFalse(fixture.model.connected)
+        try await v2PollWait { fixture.model.connected && !fixture.model.modules.isEmpty }
+        XCTAssertEqual(fixture.counts["discovery"], 2)
+        XCTAssertEqual(fixture.writes, 0)
+        await fixture.close()
+    }
+
+    @MainActor func testBackgroundStopsPendingConnectionRetry() async throws {
+        let fixture = try V2PollFixture()
+        fixture.discoveryFailures = 5
+        await fixture.model.sceneChanged(.active)
+        await fixture.model.sceneChanged(.background)
+        try await Task.sleep(for: .milliseconds(1200))
+        XCTAssertEqual(fixture.counts["discovery"], 1)
+        XCTAssertFalse(fixture.model.connected)
+        await fixture.close()
+    }
+
+    @MainActor func testModuleNamePersistsAndDoesNotChangeSelection() async throws {
+        let fixture = try V2PollFixture()
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.modules.count == 2 }
+        fixture.model.renameModule(v2OtherID, name: "  旅行卡  ")
+        XCTAssertEqual(fixture.model.moduleName(v2OtherID), "旅行卡")
+        XCTAssertEqual(fixture.model.selectedModuleID, v2ID)
+        let restored = CloudV2Model(defaults: fixture.defaults, root: fixture.root, tokens: fixture.tokens, now: { v2Now })
+        XCTAssertEqual(restored.moduleName(v2OtherID), "旅行卡")
+        XCTAssertEqual(restored.moduleName(v2ID), "模块 · \(v2ID.prefix(8))")
+        await restored.stop()
+        await fixture.close()
+    }
+}
+
+
+extension CloudV2Tests {
+    @MainActor func testRefreshNetworkFailureKeepsSessionAvailableForAutomaticRetry() async throws {
+        let config = V2Configuration(identity: v2Config().identity, mediaOrigin: v2Config().mediaOrigin,
+                                     expiresAt: v2Now.addingTimeInterval(3600), moduleID: v2ID,
+                                     refreshExpiresAt: v2Now.addingTimeInterval(86400))
+        let tokens = V2TestTokens()
+        try tokens.save(String(repeating: "a", count: 64), account: config.identity.account)
+        var reads = 0
+        let client = V2Client(transport: V2TestTransport { request in
+            if request.url?.path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            reads += 1
+            if reads == 1 { return V2HTTPResponse(status: 401, body: Data()) }
+            return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "modules": []]))
+        }, tokens: tokens, now: { v2Now })
+        client.onRefreshConfiguration = { _ in throw V2Error.transport }
+        var invalidated = false
+        client.onAuthenticationInvalidated = { invalidated = true }
+        _ = try await client.connect(config)
+        do { _ = try await client.modules(); XCTFail("Expected temporary refresh failure") }
+        catch { XCTAssertEqual(error as? V2Error, .transport) }
+        XCTAssertFalse(invalidated)
+        _ = try await client.modules()
+        XCTAssertEqual(reads, 2)
+        XCTAssertEqual(client.configuration, config)
+    }
+}
+
+final class V2USBTests: XCTestCase {
+    func testHMACBindsTimestampNonceMethodPathAndBody() throws {
+        let grant = V2USBAuthorization(server_id: v2ID, module_id: v2ID, client_installation_id: v2ID,
+            api_origin: "https://192.168.225.1:8577", certificate_der_base64: "", token: String(repeating: "01", count: 32), expires_at: "")
+        var request = URLRequest(url: URL(string: grant.api_origin + "/v2/modules/test/commands")!)
+        request.httpMethod = "POST"; request.httpBody = Data("{\"value\":1}".utf8)
+        let signed = try grant.sign(request, now: v2Now, nonce: String(repeating: "ab", count: 32))
+        XCTAssertEqual(signed.value(forHTTPHeaderField: "X-AirSIM-Signature"), "c31baee46a469fdee52c93010458572b19f5499b85fab95c5efe921864ccfa5d")
+        request.httpBody = Data("{\"value\":2}".utf8)
+        XCTAssertNotEqual(try grant.sign(request, now: v2Now, nonce: String(repeating: "ab", count: 32)).value(forHTTPHeaderField: "X-AirSIM-Signature"), signed.value(forHTTPHeaderField: "X-AirSIM-Signature"))
+        request.url = URL(string: "https://example.invalid/v2/modules/test/commands")
+        XCTAssertThrowsError(try grant.sign(request))
+    }
+    func testUSBInterfaceRejectsWiFiAndVPN() {
+        XCTAssertTrue(ModuleUSBInterfaceResolver.isUSBInterface(type: .wiredEthernet, name: "en7"))
+        XCTAssertTrue(ModuleUSBInterfaceResolver.isUSBInterface(type: .other, name: "en7"))
+        XCTAssertFalse(ModuleUSBInterfaceResolver.isUSBInterface(type: .wifi, name: "en0"))
+        XCTAssertFalse(ModuleUSBInterfaceResolver.isUSBInterface(type: .other, name: "utun3"))
+        XCTAssertFalse(ModuleUSBInterfaceResolver.isUSBInterface(type: .cellular, name: "pdp_ip0"))
+    }
+    @MainActor func testPersistedUSBCommandCannotSubmitOrRecoverOverCloud() async throws {
+        let transport = V2TestTransport { _ in V2HTTPResponse(status: 200, body: try v2Discovery()) }
+        let client = V2Client(transport: transport, tokens: V2TestTokens(), now: { v2Now })
+        _ = try await client.connect(v2Config())
+        var binding = v2Binding(); binding.usbLocal = true
+        let encoded = try JSONEncoder().encode(binding)
+        let restored = try JSONDecoder().decode(V2ControlBinding.self, from: encoded)
+        XCTAssertEqual(restored.usbLocal, true)
+        let command = try V2Command(binding: restored, action: "sms.send", args: ["number": "+15550000000", "text": "test"], now: v2Now)
+        do { _ = try await client.submit(command, binding: restored); XCTFail("changed route") } catch {}
+        do { _ = try await client.receipt(binding: restored, commandID: command.command_id); XCTFail("changed receipt route") } catch {}
+        XCTAssertEqual(transport.requests.count, 1)
+    }
+}
+
+
+extension CloudV2Tests {
+    @MainActor func testAccountSMSSwitchesModuleWithoutChangingDefault() async throws {
+        let fixture = try V2PollFixture()
+        fixture.commandHTTPStatus = 200
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.messagingReady }
+        let app = AppModel(cloudV2: fixture.model)
+        let conversation = try XCTUnwrap(app.smsConversation(to: "00000000001", moduleID: v2OtherID))
+        app.setSMSDraft("切卡测试", for: conversation)
+        let outcome = await app.sendSMS(in: conversation, content: "切卡测试")
+        XCTAssertEqual(outcome, .sent)
+        XCTAssertEqual(fixture.writes, 1)
+        XCTAssertEqual(fixture.model.selectedModuleID, v2OtherID)
+        XCTAssertEqual(app.defaultOutgoingModuleID, v2ID)
+        XCTAssertEqual(app.smsDraft(for: conversation), "")
+        await fixture.model.selectModule(v2OtherID)
+        XCTAssertEqual(app.defaultOutgoingModuleID, v2OtherID)
+        await fixture.close()
+    }
+
+    @MainActor func testUnknownSMSUsesResolvedReceiptToRestoreDraftActions() async throws {
+        for failed in [false, true] {
+            let fixture = try V2PollFixture()
+            fixture.delayedReceipts = true
+            fixture.receiptCompletionAfter = 1000
+            fixture.receiptFails = failed
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { fixture.model.messagingReady }
+            let app = AppModel(cloudV2: fixture.model)
+            let conversation = try XCTUnwrap(app.smsConversation(to: "00000000001"))
+            app.setSMSDraft("待核对测试", for: conversation)
+            let outcome = await app.sendSMS(in: conversation, content: "待核对测试")
+            XCTAssertEqual(outcome, .unknown)
+            XCTAssertFalse(app.canSendSMS(in: conversation))
+            fixture.receiptCompletionAfter = 0
+            await fixture.model.recoverPending()
+            app.projectCloudState()
+            XCTAssertEqual(app.smsSendOutcome(for: conversation), failed ? .notSent : .sent)
+            XCTAssertEqual(app.smsDraft(for: conversation), failed ? "待核对测试" : "")
+            XCTAssertTrue(app.canSendSMS(in: conversation))
+            XCTAssertEqual(fixture.writes, 1)
+            await fixture.close()
+        }
+    }
+
+    @MainActor func testSuccessfulSMSRetryCannotResubmitOriginalFailedRecord() async throws {
+        let fixture = try V2PollFixture()
+        fixture.commandHTTPStatus = 200
+        fixture.snapshotMessages = [["message_id": v2ID, "direction": "outgoing", "sender": "",
+            "recipient": "00000000001", "text": "失败重试测试", "state": "failed", "delivery": "unknown",
+            "observed_at": V2Validation.timestamp(v2Now)]]
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.messagingReady && !fixture.model.visibleMessages.isEmpty }
+        let app = AppModel(cloudV2: fixture.model)
+        app.projectCloudState()
+        let original = try XCTUnwrap(app.accountSMSThreads.first?.lastMessage)
+        let outcome = await app.retrySMS(original)
+        XCTAssertEqual(outcome, .sent)
+        XCTAssertEqual(app.accountSMSThreads.first?.messages.count, 1)
+        XCTAssertEqual(app.accountSMSThreads.first?.lastMessage.canRetry, false)
+        let reloadedCloud = CloudV2Model(defaults: fixture.defaults, root: fixture.root, tokens: fixture.tokens, now: { v2Now })
+        let reloadedApp = AppModel(cloudV2: reloadedCloud)
+        reloadedApp.projectCloudState()
+        XCTAssertEqual(reloadedApp.accountSMSThreads.first?.lastMessage.canRetry, false)
+        XCTAssertEqual(reloadedCloud.history.retriedMessageIDs, [original.id])
+        let repeated = await app.retrySMS(original)
+        XCTAssertEqual(repeated, .unknown)
+        XCTAssertEqual(fixture.writes, 1)
+        await fixture.close()
+    }
+}
+
+
+extension CloudV2Tests {
+    @MainActor func testUnknownSMSRetryRestoresOriginalMessageAssociation() async throws {
+        for failed in [false, true] {
+            let fixture = try V2PollFixture()
+            fixture.delayedReceipts = true
+            fixture.receiptCompletionAfter = 1000
+            fixture.receiptFails = failed
+            fixture.snapshotMessages = [["message_id": v2ID, "direction": "outgoing", "sender": "",
+                "recipient": "00000000001", "text": "重启重试测试", "state": "failed", "delivery": "unknown",
+                "observed_at": V2Validation.timestamp(v2Now)]]
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { fixture.model.messagingReady && !fixture.model.visibleMessages.isEmpty }
+            let app = AppModel(cloudV2: fixture.model)
+            app.projectCloudState()
+            let original = try XCTUnwrap(app.accountSMSThreads.first?.lastMessage)
+            let outcome = await app.retrySMS(original)
+            XCTAssertEqual(outcome, .unknown)
+            XCTAssertNotNil(fixture.model.history.pendingMessageRetry)
+            await fixture.model.stop()
+            fixture.receiptCompletionAfter = 0
+            let restored = CloudV2Model(client: V2Client(transport: fixture.transport, tokens: fixture.tokens,
+                now: { fixture.currentNow }), defaults: fixture.defaults, root: fixture.root,
+                tokens: fixture.tokens, now: { fixture.currentNow })
+            fixture.model = restored
+            let restoredApp = AppModel(cloudV2: restored)
+            restoredApp.projectCloudState()
+            XCTAssertEqual(restoredApp.accountSMSThreads.first?.lastMessage.canRetry, false)
+            await restored.sceneChanged(.active)
+            try await v2PollWait { !restored.hasUnresolvedCommand }
+            restoredApp.projectCloudState()
+            XCTAssertNil(restored.history.pendingMessageRetry)
+            XCTAssertEqual(restoredApp.accountSMSThreads.first?.lastMessage.canRetry, failed)
+            XCTAssertEqual(restored.history.retriedMessageIDs?.contains(original.id) == true, !failed)
+            XCTAssertEqual(fixture.writes, 1)
+            await fixture.close()
+        }
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testSMSPresentationSelectionSurvivesModuleSwitchAndRejectsOtherIdentity() async throws {
+        let fixture = try V2PollFixture()
+        addTeardownBlock { await fixture.close() }
+        fixture.snapshotMessages = [["message_id": v2ID, "direction": "incoming", "sender": "00000000001",
+            "recipient": "", "text": "会话选择测试", "state": "received", "delivery": "unknown",
+            "observed_at": V2Validation.timestamp(v2Now)]]
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.messagingReady && !fixture.model.visibleMessages.isEmpty }
+        let app = AppModel(cloudV2: fixture.model)
+        let conversation = try XCTUnwrap(app.accountSMSThreads.first?.id)
+        app.selectedSMSConversation = conversation
+        let originalScope = app.messageScope
+
+        await fixture.model.selectModule(v2OtherID)
+        app.reloadMessagesFromLocalStore()
+        XCTAssertNotEqual(app.messageScope, originalScope)
+        XCTAssertEqual(app.selectedSMSConversation, conversation)
+
+        app.selectedSMSConversation = SMSConversationID(identity: v2Config(client: v2OtherID).identity,
+            moduleID: conversation.moduleID, peer: conversation.peer)
+        app.reloadMessagesFromLocalStore()
+        XCTAssertNil(app.selectedSMSConversation)
+
+        app.selectedSMSConversation = SMSConversationID(identity: conversation.identity,
+            moduleID: conversation.moduleID, peer: "00000000002")
+        app.reloadMessagesFromLocalStore()
+        XCTAssertNil(app.selectedSMSConversation)
+        XCTAssertEqual(fixture.writes, 0)
         await fixture.close()
     }
 }

@@ -4,9 +4,17 @@
 
 EG25 QDC507 v2 使用 `eg25-qdc507`、ARMv7、`/usrdata/airsim-v2` 与 init respawn。精确固件、DATA11、校准、网页安装及验收边界见 [EG25 说明](module/eg25/README.md) 和 [实机记录](module/eg25/TESTING.md)。ECS 配对按认证连接的 platform 显示型号，iOS 仍使用公共 v2 协议。
 
-用户已确定新 Agent 在 `module/airsim-agent/` 独立建设，ECS 服务在 `service/airsim/`，首版 Docker Compose 在 `service/airsim/deploy/compose/`，Worker v2 在 `service/airsim-worker/`。先读 [系统架构](docs/SYSTEM_ARCHITECTURE.md)、[Agent/HAL 架构](module/ARCHITECTURE.md) 和对应新目录 README。App 云端明确选择 v1/v2，两个 v2 后端共用对外协议。RM500 新 Agent 的 R1–R3 已完成限定范围实机验收，见 [主控决策](docs/RM500_AGENT_EXECUTION.md) 和 [R3 记录](module/airsim-agent/R3_TESTING.md)。R4 Agent/ECS 接入按 [公共契约](protocol/v2/R4.md) 实施；App 已有 v1/v2 选择及原界面设备配对，当前平台实测范围以对应验收记录为准。
+用户已确定新 Agent 在 `module/airsim-agent/` 独立建设，ECS 服务在 `service/airsim/`，首版 Docker Compose 在 `service/airsim/deploy/compose/`，Worker v2 在 `service/airsim-worker/`。先读 [系统架构](docs/SYSTEM_ARCHITECTURE.md)、[Agent/HAL 架构](module/ARCHITECTURE.md) 和对应新目录 README。App 固定使用 v2，旧版／仅本地偏好不再决定启动路由，两个 v2 后端共用对外协议。RM500 新 Agent 的 R1–R3 已完成限定范围实机验收，见 [主控决策](docs/RM500_AGENT_EXECUTION.md) 和 [R3 记录](module/airsim-agent/R3_TESTING.md)。R4 Agent/ECS 接入按 [公共契约](protocol/v2/R4.md) 实施；App 使用 v2 唯一入口及设备配对，当前平台实测范围以对应验收记录为准。
+
+v2 USB 本地通话与短信使用现有配对身份。EG25 可通过 USB 直接接入 iPad / iPhone；首次使用须让 App 与模块在线连接 ECS 取得授权。App 缓存签发后 24 小时有效的授权，期限内 ECS 不可达仍可本地使用，剩余不足一小时时联网自动续期。空闲时自动优先 USB，掉线自动恢复；通话、媒体与待确认命令固定原路由，不向另一传输重发副作用。设置继续使用现有设备、模块命名和外观入口。用户步骤见 [iOS USB 本地接入](iOS/README.md#usb-本地通话与短信)，协议见 [USB_LOCAL](protocol/v2/USB_LOCAL.md)。本次 USB 真机通话、短信、双向音频与拔线恢复尚待验收；完全离线不承诺唤醒被系统挂起或终止的 App。
 
 RM500U 通过 BusyBox init 的 `respawn` 启动 `/mnt/data/airsim-v2/run-agent.sh`。启动器等待 `/dev/smd1`，并由 `airsim-agent --wait-random` 阻塞到内核随机源初始化后再启动服务；不要改为轮询 `entropy_avail`。安装、验证和回滚见 [RM500U 开机启动](module/airsim-agent/RM500U_AUTOSTART.md)。配置完成后网页配对使用 Chrome WebUSB，不依赖主机 `adb server`。
+
+当前 iOS 界面采用 Figma `QN34vy88ViWu1s45pE97BO` 页面 `25:1146`，覆盖通话与联系人、拨号键盘、短信、号卡与连接、呼入／呼出／接通状态及空状态。iPad 和 iPhone Duo 展开后的宽窗口采用通话、联系人、短信及号卡的列表与详情双栏，窄窗口使用单栏导航；五标签使用原生 `TabView`，随系统和窗口形态适配。导航为“通话／联系人／短信／拨号键盘／号卡”五标签，短信位于第三个主标签，联系人发短信与短信通知也路由至该标签；号卡页保留设备、模块和外观设置。本次呼出选择不更改默认号卡；短信回复锁定原号卡，不同模块上的同一号码保持独立会话。收藏与联系人首选号卡本机持久化，新增和编辑写入本机系统通讯录；历史按时间展示同一客户端身份下各模块记录，回拨使用原模块，原模块不可用时拒绝回拨。
+
+界面已按 Apple HIG 调整动态字号、44 pt 点击区域、明暗及高对比度配色、减少动态效果与透明度。联系人、短信和号卡详情采用原生返回导航；辅助字号支持纵向重排，短窗口内容可滚动。详见 [界面审查](docs/IOS_UI_REVIEW.md)。
+
+iPhone 模拟器已验证五标签导航、联系人与通话记录的短信跳转、跨标签草稿保留，以及呼出、来电和通话中界面。iPad 与 iPhone Duo 模拟器已验证双栏操作和三种通话状态，并核对展开屏截图。`com.eric3u.airsim2` 签名版本已更新安装到 iPad mini。本轮未执行真实通话、短信收发或 USB 验收。
 
 下文已发布功能、三星 Android、旧 AVF 包/端口和 Worker 规则继续适用于 v1，不限制用户已确认的 RM500/EG25/Android AVF v2。保留旧 `module/module-agent/`、`push-relay-worker/` 与已有改动，不用旧脚本直接覆盖新旧安装。先实施 ECS；执行会话统一 GPT-6-Astra / medium，只执行主控已确定任务，需要技术决策则交回主控，未明确调度则待命。
 

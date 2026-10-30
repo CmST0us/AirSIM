@@ -1,8 +1,16 @@
 # AirSIM — Android 与 iPhone / Apple Watch 跨设备通话、短信和 VoWLAN
 
-> **v2 架构（2026-10-27）**：新 [airsim-agent](module/airsim-agent/README.md) 位于 `module/airsim-agent/`；[ECS 服务](service/airsim/README.md) 位于 `service/airsim/`，使用 [Docker Compose](service/airsim/deploy/compose/README.md)；[Worker v2](service/airsim-worker/README.md) 保留独立目录。RM500 已完成 Agent 本地与 ECS 云端通话、短信及音频限定范围验收，并已配置 BusyBox init 开机拉起和崩溃恢复；网页配对不依赖主机 ADB，部署与回滚见 [RM500U 开机启动](module/airsim-agent/RM500U_AUTOSTART.md)。App 保留 v1/v2 选择，原五标签适配与 CallKit 接入已完成；[设备配对](docs/IOS_AIRSIM_PAIRING.md) 将“添加设备”接入真实 WebUSB、模块证明和可续期云端会话，完整原界面 UI 流程、真实 ECS claim 和模块范围绑定已验证。实体双向音频已连通，通话质量优化暂缓。旧 Agent 与旧 Worker 保留；架构边界见 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)。下文发布基线与旧安装说明仍属于 v1。
+> **v2 架构（2026-10-27）**：新 [airsim-agent](module/airsim-agent/README.md) 位于 `module/airsim-agent/`；[ECS 服务](service/airsim/README.md) 位于 `service/airsim/`，使用 [Docker Compose](service/airsim/deploy/compose/README.md)；[Worker v2](service/airsim-worker/README.md) 保留独立目录。RM500 已完成 Agent 本地与 ECS 云端通话、短信及音频限定范围验收，并已配置 BusyBox init 开机拉起和崩溃恢复；网页配对不依赖主机 ADB，部署与回滚见 [RM500U 开机启动](module/airsim-agent/RM500U_AUTOSTART.md)。App 统一使用 v2，启动与设置不再提供 v1／仅本地选择；设置仅保留设备、模块命名和外观，连接自动恢复，CallKit 接入已完成；[设备配对](docs/IOS_AIRSIM_PAIRING.md) 将“添加设备”接入真实 WebUSB、模块证明和可续期云端会话，完整原界面 UI 流程、真实 ECS claim 和模块范围绑定已验证。实体双向音频已连通，通话质量优化暂缓。旧 Agent 与旧 Worker 保留；架构边界见 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)。下文发布基线与旧安装说明仍属于 v1。
+
+当前 iOS 导航为“通话／联系人／短信／拨号键盘／号卡”五标签，[Figma 界面](iOS/README.md#当前界面)覆盖通话与联系人、拨号键盘、短信、号卡与连接、呼入／呼出／接通状态及空状态。iPad 和 iPhone Duo 展开后的宽窗口采用通话、联系人、短信及号卡的列表与详情双栏，窄窗口使用单栏导航；五标签使用原生 `TabView`，随系统和窗口形态适配。短信位于第三个主标签，联系人发短信与短信通知也路由至该标签；号卡页保留设备、模块和外观设置。回复锁定原号卡，不同模块上的同一号码分别形成独立会话。本次呼出选号不更改默认号卡。收藏和联系人首选号卡保存在本机，新增与编辑联系人写入本机系统通讯录；通话历史汇集同一客户端身份下的各模块记录，回拨始终使用原模块，原模块不可用时拒绝回拨。
+
+界面已按 Apple HIG 调整动态字号、44 pt 点击区域、明暗及高对比度配色、减少动态效果与透明度。联系人、短信和号卡详情采用原生返回导航；辅助字号支持纵向重排，短窗口内容可滚动。详见 [界面审查](docs/IOS_UI_REVIEW.md)。
+
+iPhone 模拟器已验证五标签导航、联系人与通话记录的短信跳转、跨标签草稿保留，以及呼出、来电和通话中界面。iPad 与 iPhone Duo 模拟器已验证双栏操作和三种通话状态，并核对展开屏截图。`com.eric3u.airsim2` 签名版本已更新安装到 iPad mini。本轮未执行真实通话、短信收发或 USB 验收。
 
 > **EG25 QDC507（2026-10-29）**：新增 `eg25-qdc507` ARMv7 平台、AT 通话/短信后端、原生音频路由和网页安装资源。当前固件与安装路径见 [EG25 说明](module/eg25/README.md)，实机验证范围见 [验收记录](module/eg25/TESTING.md)。ECS 与 iOS 继续使用同一套 v2 配对和控制协议。
+
+**v2 USB 本地通话与短信**：已配对的 EG25 可通过 USB 直接连接 iPad / iPhone。先在 App 与模块均能访问 ECS 时取得本地授权，App 随后自动优先使用空闲的 USB 链路；授权保存在 Keychain，在签发后的 24 小时有效期内可脱离 ECS 使用，联网时自动续期。掉线后自动恢复连接，进行中的通话或待确认操作固定原路由，不跨 USB／云端重发。使用步骤与限制见 [iOS USB 本地接入](iOS/README.md#usb-本地通话与短信)。本次 USB 真机通话、短信与双向音频尚待验收；完全离线时不承诺唤醒被系统挂起或终止的 App。
 
 [![Android Standalone](https://img.shields.io/badge/Android-Standalone%20APK-3DDC84?logo=android&logoColor=white)](android-standalone/README.md)
 [![iOS](https://img.shields.io/badge/iOS-16.3%2B-000000?logo=apple&logoColor=white)](iOS/README.md)

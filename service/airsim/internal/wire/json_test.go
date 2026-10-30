@@ -42,3 +42,24 @@ func TestNestedExactAndNull(t *testing.T) {
 		t.Fatal("explicit null receipt rejected")
 	}
 }
+
+func TestNullableRequiredFields(t *testing.T) {
+	var receipt struct {
+		ID      string          `json:"command_id"`
+		Status  int             `json:"status_code"`
+		Receipt json.RawMessage `json:"receipt"`
+	}
+	for _, input := range []string{`{"status_code":503,"receipt":null}`, `{"command_id":"x","receipt":null}`, `{"command_id":"x","status_code":503}`} {
+		if DecodeNullable([]byte(input), &receipt, "receipt") == nil {
+			t.Fatal("accepted missing receipt field")
+		}
+	}
+	var authorization struct {
+		Request       string          `json:"request_id"`
+		Status        int             `json:"status_code"`
+		Authorization json.RawMessage `json:"authorization"`
+	}
+	if DecodeNullable([]byte(`{"request_id":"x","status_code":503,"authorization":null}`), &authorization, "authorization") != nil {
+		t.Fatal("valid nullable authorization rejected")
+	}
+}

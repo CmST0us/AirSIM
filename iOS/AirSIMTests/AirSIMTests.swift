@@ -1,4 +1,5 @@
 import XCTest
+import Contacts
 @testable import AirSIM
 
 private actor OutgoingCallServiceProbe: OutgoingCallServicing {
@@ -729,5 +730,146 @@ final class AirSIMTests: XCTestCase {
         XCTAssertNil(payload["device_secret"])
         XCTAssertNil(payload["voip_token"])
         XCTAssertNil(payload["alert_token"])
+    }
+}
+
+@MainActor
+final class ContactPreferencesTests: XCTestCase {
+    func testFavoritesAndPreferredModuleSurviveReload() {
+        let suite = "ContactPreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = ContactStore(defaults: defaults)
+        store.toggleFavorite(id: "test-contact")
+        store.setPreferredModuleID("test-module", for: "test-contact")
+        let restored = ContactStore(defaults: defaults)
+        XCTAssertTrue(restored.isFavorite(id: "test-contact"))
+        XCTAssertEqual(restored.preferredModuleID(for: "test-contact"), "test-module")
+        restored.toggleFavorite(id: "test-contact")
+        restored.setPreferredModuleID(nil, for: "test-contact")
+        let cleared = ContactStore(defaults: defaults)
+        XCTAssertFalse(cleared.isFavorite(id: "test-contact"))
+        XCTAssertNil(cleared.preferredModuleID(for: "test-contact"))
+    }
+
+    func testUnchangedContactEditPreservesSystemFields() {
+        let contact = CNMutableContact()
+        contact.givenName = "明"
+        contact.familyName = "陈"
+        let phone = CNLabeledValue(label: CNLabelHome, value: CNPhoneNumber(stringValue: "+86 000 0000 0001"))
+        contact.phoneNumbers = [phone]
+        let changed = ContactFetcher.applyEdits(to: contact, name: "陈明", phones: ["00000000001"])
+        XCTAssertFalse(changed)
+        XCTAssertEqual(contact.givenName, "明")
+        XCTAssertEqual(contact.familyName, "陈")
+        XCTAssertEqual(contact.phoneNumbers.first?.identifier, phone.identifier)
+        XCTAssertEqual(contact.phoneNumbers.first?.label, CNLabelHome)
+        XCTAssertEqual(contact.phoneNumbers.first?.value.stringValue, "+86 000 0000 0001")
+    }
+
+    func testChangedPhonePreservesLabelAndEnteredCountryCode() {
+        let contact = CNMutableContact()
+        contact.givenName = "Test"
+        let home = CNLabeledValue(label: CNLabelHome, value: CNPhoneNumber(stringValue: "+86 00000000001"))
+        let work = CNLabeledValue(label: CNLabelWork, value: CNPhoneNumber(stringValue: "+86 00000000002"))
+        contact.phoneNumbers = [home, work]
+        let changed = ContactFetcher.applyEdits(to: contact, name: "Test",
+                                               phones: ["+86 000 0000 0003", "00000000002"])
+        XCTAssertTrue(changed)
+        XCTAssertEqual(contact.phoneNumbers[0].label, CNLabelHome)
+        XCTAssertEqual(contact.phoneNumbers[0].identifier, home.identifier)
+        XCTAssertEqual(contact.phoneNumbers[0].value.stringValue, "+86 000 0000 0003")
+        XCTAssertEqual(contact.phoneNumbers[1].identifier, work.identifier)
+        XCTAssertEqual(contact.phoneNumbers[1].value.stringValue, "+86 00000000002")
+    }
+
+    func testContactInitialUsesPinyin() {
+        let contact = ContactStore.Contact(id: "test", name: "张三", phones: [], emails: [], photoData: nil)
+        XCTAssertEqual(contact.groupInitial, "Z")
+    }
+
+    func testAccountCallHistoryIncludesAllModulesAndSeparatesIdentities() throws {
+        let identity = V2Identity(apiOrigin: "https://example.invalid", serverID: "server", clientInstallationID: "client")
+        let otherIdentity = V2Identity(apiOrigin: "https://example.invalid", serverID: "server", clientInstallationID: "other-client")
+        func stored(module: String, identity: V2Identity, date: String) throws -> V2StoredCall {
+            let payload: [String: String] = [
+                "call_id": UUID().uuidString.lowercased(), "state": "disconnected", "ownership": "none",
+                "direction": "outgoing", "number": "00000000001", "observed_at": date, "disconnect_reason": "normal"
+            ]
+            let call = try JSONDecoder().decode(V2Call.self, from: JSONSerialization.data(withJSONObject: payload))
+            return V2StoredCall(domain: V2HistoryDomain(identity: identity, moduleID: module, bootID: "boot", backendEpoch: "epoch"), call: call)
+        }
+        let earlier = try stored(module: "first-module", identity: identity, date: "2026-10-29T01:00:00Z")
+        let later = try stored(module: "second-module", identity: identity, date: "2026-10-30T01:00:00Z")
+        let foreign = try stored(module: "first-module", identity: otherIdentity, date: "2026-10-30T02:00:00Z")
+        let records = [earlier, foreign, later]
+        let visible = AppModel.accountCallHistory(records, identity: identity)
+        XCTAssertEqual(visible.map(\.id), [later.id, earlier.id])
+        XCTAssertEqual(visible.map(\.domain.moduleID), ["second-module", "first-module"])
+        XCTAssertTrue(AppModel.accountCallHistory(records, identity: nil).isEmpty)
+    }
+
+    func testMissingOriginalModuleDoesNotChangeDialInput() async {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cloud = CloudV2Model(root: root)
+        let model = AppModel(cloudV2: cloud)
+        model.numberInput = "existing"
+        let call = CallRecord(id: "unknown", index: 0, direction: "outgoing", state: "ended",
+                              number: "00000000001", startedAt: Date(), updatedAt: Date(), endedAt: Date(), missed: false)
+        await model.redial(call)
+        XCTAssertEqual(model.numberInput, "existing")
+        XCTAssertNotNil(model.errorMessage)
+        let selected = await model.selectLine(moduleID: "missing-module")
+        XCTAssertFalse(selected)
+        XCTAssertNil(cloud.selectedModuleID)
+    }
+}
+
+
+@MainActor
+final class AccountSMSTests: XCTestCase {
+    func testThreadsSeparateModuleAndFullClientIdentity() throws {
+        let identity = V2Identity(apiOrigin: "https://example.invalid", serverID: "server", clientInstallationID: "client")
+        let foreign = V2Identity(apiOrigin: "https://example.invalid", serverID: "server", clientInstallationID: "other")
+        func stored(module: String, owner: V2Identity, state: String, direction: String, minute: Int) throws -> V2StoredMessage {
+            let wire: [String: String] = [
+                "message_id": UUID().uuidString.lowercased(), "direction": direction,
+                "sender": direction == "incoming" ? "00000000001" : "",
+                "recipient": direction == "outgoing" ? "00000000001" : "", "text": "测试短信",
+                "state": state, "delivery": "unknown", "observed_at": String(format: "2026-10-30T01:%02d:00Z", minute)
+            ]
+            let message = try JSONDecoder().decode(V2Message.self, from: JSONSerialization.data(withJSONObject: wire))
+            return V2StoredMessage(domain: V2HistoryDomain(identity: owner, moduleID: module, bootID: "boot", backendEpoch: "epoch"),
+                                  message: message, inboxGap: false, inboxDropped: 0)
+        }
+        let received = try stored(module: "work", owner: identity, state: "received", direction: "incoming", minute: 1)
+        let failed = try stored(module: "work", owner: identity, state: "failed", direction: "outgoing", minute: 2)
+        let unknown = try stored(module: "personal", owner: identity, state: "outcome_unknown", direction: "outgoing", minute: 3)
+        let other = try stored(module: "work", owner: foreign, state: "received", direction: "incoming", minute: 4)
+        let threads = AppModel.accountMessageThreads([other, failed, unknown, received], identity: identity)
+        XCTAssertEqual(threads.map(\.id.moduleID), ["personal", "work"])
+        XCTAssertEqual(threads[1].messages.map(\.id), [received.id, failed.id])
+        XCTAssertFalse(threads[0].lastMessage.canRetry)
+        XCTAssertTrue(threads[1].lastMessage.canRetry)
+        XCTAssertEqual(threads[1].lastMessage.statusText, "未发送")
+        XCTAssertTrue(AppModel.accountMessageThreads([received], identity: nil).isEmpty)
+    }
+
+    func testDraftsStayWithOriginalModuleAndForeignIdentityCannotSend() async {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = AppModel(cloudV2: CloudV2Model(root: root))
+        let identity = V2Identity(apiOrigin: "https://example.invalid", serverID: "server", clientInstallationID: "client")
+        let work = SMSConversationID(identity: identity, moduleID: "work", peer: "00000000001")
+        let personal = SMSConversationID(identity: identity, moduleID: "personal", peer: "00000000001")
+        model.setSMSDraft("工作草稿", for: work)
+        model.setSMSDraft("生活草稿", for: personal)
+        XCTAssertEqual(model.smsDraft(for: work), "工作草稿")
+        XCTAssertEqual(model.smsDraft(for: personal), "生活草稿")
+        XCTAssertFalse(model.canSendSMS(in: work))
+        let outcome = await model.sendSMS(in: work, content: "工作草稿")
+        XCTAssertEqual(outcome, .notSent)
+        XCTAssertEqual(model.smsDraft(for: work), "工作草稿")
     }
 }

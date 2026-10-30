@@ -692,5 +692,8 @@ func (s *Server) pairingClaim(w http.ResponseWriter, r *http.Request) {
 		wire.Error(w, http.StatusServiceUnavailable, "database_unavailable")
 		return
 	}
+	if alreadyPaired {
+		s.syncUSBRevocations(ctx)
+	}
 	wire.JSON(w, http.StatusCreated, response)
 }

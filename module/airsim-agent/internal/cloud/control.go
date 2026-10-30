@@ -25,6 +25,10 @@ type Media interface {
 	Stop(string) int
 }
 type Agent struct {
+	USB            *USB
+	ownerMu        sync.Mutex
+	claim          *callClaim
+	entries        map[string]commandEntry
 	P              *Provisioner
 	Control        Controller
 	Media          Media
@@ -89,7 +93,12 @@ func (a *Agent) status(connected bool, epoch, code string) {
 	}
 }
 func (a *Agent) Run(ctx context.Context) {
+	a.ownerMu.Lock()
 	a.owners = map[string]owner{}
+	a.ownerMu.Unlock()
+	if a.USB != nil {
+		go a.USB.Serve(ctx)
+	}
 	a.bindings = map[string]string{}
 	delays := []time.Duration{250 * time.Millisecond, 500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second, 5 * time.Second}
 	attempt := 0
@@ -241,7 +250,7 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 		return "control_unavailable"
 	}
 	hello := envelope{Type: "hello", Protocol: 2, Module: a.P.id.ModuleID, Sequence: 1}
-	hello.Payload, _ = json.Marshal(map[string]any{"agent_boot_id": a.Boot, "backend_epoch": status.Epoch, "agent_version": a.Version, "platform": a.P.profile})
+	hello.Payload, _ = json.Marshal(map[string]any{"agent_boot_id": a.Boot, "backend_epoch": status.Epoch, "agent_version": a.Version, "platform": a.P.profile, "usb_local": a.USB != nil})
 	b, _ := json.Marshal(hello)
 	if ws.Write(handshake, websocket.MessageText, b) != nil {
 		return "control_write"
@@ -448,6 +457,7 @@ func (c *connection) sync(lastSnap, lastMessages *string, lastSent *time.Time) b
 		*lastSent = time.Now()
 	}
 	// Ownership expires on observed disconnect or boot/backend replacement.
+	a.ownerMu.Lock()
 	for id, o := range c.owners {
 		valid := false
 		for _, call := range calls2.Calls {
@@ -459,6 +469,7 @@ func (c *connection) sync(lastSnap, lastMessages *string, lastSent *time.Time) b
 			delete(c.owners, id)
 		}
 	}
+	a.ownerMu.Unlock()
 	raw, code = a.view(c.ctx, "cloud_messages", "")
 	messages, ok := raw.(control.MessagesView)
 	if code != 200 || !ok {
@@ -513,8 +524,11 @@ func (c *connection) receiptAt(p *pendingReceipt, v any, code int, now time.Time
 		p.last = key
 	}
 	if p.authorized && (state.State == "accepted" || state.State == "observed") && control.ValidID(state.Call) && (p.request.Action == "call.dial" || p.request.Action == "call.answer") {
+		c.agent.ownerMu.Lock()
 		c.owners[state.Call] = owner{state.Call, p.client, p.generation, p.request.BootID, p.request.Epoch}
+		c.agent.ownerMu.Unlock()
 	}
+	c.agent.updateClaim(p.request, state.State, state.Call)
 	keep := state.State == "prepared" || state.State == "dispatched"
 	if state.State == "accepted" && (p.request.Action == "call.answer" || p.request.Action == "call.hangup") {
 		if p.acceptedUntil.IsZero() {
@@ -535,6 +549,36 @@ func (c *connection) handle(f envelope) bool {
 	case "heartbeat":
 		var v struct{}
 		return exact(f.Payload, "", &v) == nil
+	case "usb_revoke":
+		var v struct {
+			Client string `json:"client_installation_id"`
+		}
+		if exact(f.Payload, "client_installation_id", &v) != nil || !control.ValidID(v.Client) {
+			return false
+		}
+		return c.agent.USB == nil || c.agent.USB.revoke(v.Client) == nil
+	case "usb_authorize":
+		var v struct {
+			Request string `json:"request_id"`
+			Client  string `json:"client_installation_id"`
+			Expires string `json:"expires_at"`
+		}
+		if exact(f.Payload, "request_id,client_installation_id,expires_at", &v) != nil || !control.ValidID(v.Request) || !control.ValidID(v.Client) {
+			return false
+		}
+		expiry, e := utc(v.Expires)
+		if e != nil || !expiry.After(time.Now()) || time.Until(expiry) > 24*time.Hour+5*time.Second {
+			return false
+		}
+		var grant *USBAuthorization
+		code := 503
+		if c.agent.USB != nil {
+			grant, e = c.agent.USB.authorize(v.Client, v.Expires)
+			if e == nil {
+				code = 200
+			}
+		}
+		return c.send("usb_authorization", map[string]any{"request_id": v.Request, "status_code": code, "authorization": grant})
 	case "command":
 		var v struct {
 			Client     string          `json:"client_installation_id"`
@@ -559,7 +603,13 @@ func (c *connection) handle(f envelope) bool {
 		p := &pendingReceipt{request: r, client: v.Client, generation: v.Generation, authorized: known}
 		c.pending[r.CommandID] = p
 		ctx, cancel := context.WithTimeout(c.ctx, time.Second)
+		if !c.agent.reserveCommand(ctx, r, v.Client, "cloud") {
+			cancel()
+			delete(c.pending, r.CommandID)
+			return c.send("receipt", map[string]any{"command_id": r.CommandID, "status_code": 409, "receipt": nil})
+		}
 		value, code := c.agent.Control.Submit(ctx, r)
+		c.agent.rejectClaim(r, code)
 		cancel()
 		if code == 202 {
 			p.authorized = true

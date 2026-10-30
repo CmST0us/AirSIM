@@ -82,6 +82,8 @@ final class CloudV2Model: ObservableObject {
     private var pollFailures = Set<PollLane>()
     private var pollingInvalidated = true
     private var connectionTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
+    private var connectionBackoff = V2PollBackoff()
     private var connectionEpoch: UInt64 = 0
     private var actionInFlight = false
     private var generation: UInt64 = 0
@@ -110,7 +112,7 @@ final class CloudV2Model: ObservableObject {
         self.tokens = tokens
         self.pairingClient = activePairingClient
         self.client = client
-        self.media = media ?? V2MediaCoordinator(create: { context, request in try await client.createMedia(context: context, requestID: request) }, delete: { context, session in try? await client.deleteMedia(context: context, sessionID: session) })
+        self.media = media ?? V2MediaCoordinator(socketFactory: { client.makeMediaSocket() }, create: { context, request in try await client.createMedia(context: context, requestID: request) }, delete: { context, session in try? await client.deleteMedia(context: context, sessionID: session) })
         configurationStore = V2ConfigurationStore(tokens: tokens, defaults: defaults, pairings: activePairings)
         historyFile = V2ProtectedFile(url: root.appendingPathComponent("history.json"))
         do {
@@ -119,7 +121,7 @@ final class CloudV2Model: ObservableObject {
             machine = try V2CommandMachine(client: client, store: V2FilePendingStore(url: root.appendingPathComponent("pending.json")), ownedStore: V2FileOwnedCallStore(file: V2ProtectedFile(url: root.appendingPathComponent("owned-call.json"))))
             if let configuration { selectedModuleID = configuration.moduleID ?? defaults.string(forKey: V2LocalPaths.selectionKey(configuration.identity)) }
         } catch { persistenceFailed = true; self.error = "本地状态读取失败，已禁止控制。" }
-        experimentalAudio = defaults.object(forKey: "airsim.v2.experimental-audio") as? Bool ?? true
+        experimentalAudio = true
         client.onRefreshConfiguration = { [weak self] configuration in
             guard let self, let activePairingClient = self.pairingClient else { return nil }
             let renewed = try await activePairingClient.refresh(configuration, store: self.configurationStore)
@@ -129,7 +131,7 @@ final class CloudV2Model: ObservableObject {
         client.onAuthenticationInvalidated = { [weak self] in
             self?.connected = false
             self?.invalidatePolling()
-            self?.syncStatus = "设备连接凭据已失效，请重新添加设备或导入配置。"
+            self?.syncStatus = "设备连接凭据已失效，请重新添加设备。"
             self?.media.requestStop()
             self?.systemCalls?.endSystemCall()
         }
@@ -183,7 +185,6 @@ final class CloudV2Model: ObservableObject {
     func requestInitialPermissions() async {
         if UITestScenario.active {
             initialPermissionsRequested = true
-            await refreshPermissionPresentation()
             return
         }
         if let permissionTask {
@@ -284,6 +285,8 @@ final class CloudV2Model: ObservableObject {
     var ownedCall: V2CallContext? { machine?.ownedCall }
     var currentTime: Date { now() }
     var hasUnresolvedCommand: Bool { machine?.pending != nil }
+    var pendingSMSCommandID: String? { machine?.pending?.action == "sms.send" ? machine?.pending?.commandID : nil }
+    private(set) var lastSMSResolution: (commandID: String, succeeded: Bool)?
     var activeCall: V2Call? {
         if let ownedCall { return snapshot?.snapshot?.calls.calls.first { $0.call_id == ownedCall.callID } }
         return snapshot?.snapshot?.calls.calls.first { $0.state != "disconnected" }
@@ -292,10 +295,29 @@ final class CloudV2Model: ObservableObject {
         systemCalls?.hasSystemCall == true || media.active || busy || persistenceFailed || hasUnresolvedCommand || ownedCall != nil || snapshot?.snapshot?.calls.calls.contains(where: { $0.state != "disconnected" }) == true
     }
     var selectedModule: V2Module? { modules.first { $0.module_id == selectedModuleID } }
+    var defaultOutgoingModuleID: String? {
+        guard let identity = configuration?.identity else { return selectedModuleID }
+        return defaults.string(forKey: V2LocalPaths.selectionKey(identity)) ?? selectedModuleID
+    }
+    private func moduleNameKey(_ moduleID: String) -> String? {
+        guard let identity = configuration?.identity else { return nil }
+        return "airsim.v2.module-name.\(identity.serverID).\(moduleID)"
+    }
+    func moduleName(_ moduleID: String) -> String {
+        if let key = moduleNameKey(moduleID), let name = defaults.string(forKey: key), !name.isEmpty { return name }
+        return "模块 · \(moduleID.prefix(8))"
+    }
+    func renameModule(_ moduleID: String, name: String) {
+        guard let key = moduleNameKey(moduleID), modules.contains(where: { $0.module_id == moduleID }) else { return }
+        let value = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))
+        objectWillChange.send()
+        if value.isEmpty { defaults.removeObject(forKey: key) }
+        else { defaults.set(value, forKey: key) }
+    }
     var freshBinding: V2ControlBinding? {
         guard connected, (foreground || systemCalls?.hasSystemCall == true), !persistenceFailed,
               let configuration, let selectedModule, let snapshot,
-              let binding = try? snapshot.controlBinding(configuration: configuration, module: selectedModule, now: now()) else { return nil }
+              let binding = try? snapshot.controlBinding(configuration: configuration, module: selectedModule, now: now(), usbLocal: client.usingUSB) else { return nil }
         return binding
     }
     var telephonyReady: Bool { freshBinding != nil && snapshot?.snapshot?.control.ready == true && snapshot?.snapshot?.control.telephony_ready == true }
@@ -324,21 +346,28 @@ final class CloudV2Model: ObservableObject {
         if !connected { return "连接未建立，显示本机短信副本" }
         if selectedModuleID == nil { return "请选择短信使用的模块" }
         if selectedModule?.online != true { return "模块离线，显示本机短信副本" }
-        if syncStatus != nil { return "同步暂时中断，请刷新重试" }
+        if syncStatus != nil { return "正在恢复同步，显示本机短信副本" }
         if messagesResponse == nil { return "正在同步短信…" }
         return nil
     }
     func isCurrentInbox(_ item: V2StoredMessage) -> Bool {
         item.domain.bootID == messagesResponse?.agent_boot_id && item.domain.backendEpoch == messagesResponse?.backend_epoch && messagesResponse?.online == true
     }
-    func selectModule(_ moduleID: String) async {
-        guard modules.contains(where: { $0.module_id == moduleID }), moduleID != selectedModuleID else { return }
+    func selectModule(_ moduleID: String, persistSelection: Bool = true) async {
+        guard modules.contains(where: { $0.module_id == moduleID }) else { return }
+        if moduleID == selectedModuleID {
+            if persistSelection, let configuration {
+                objectWillChange.send()
+                defaults.set(moduleID, forKey: V2LocalPaths.selectionKey(configuration.identity))
+            }
+            return
+        }
         let recoveryTarget = ownedCall?.binding.moduleID ?? machine?.pending?.binding.moduleID
         guard !busy, (!blocksSwitch || (selectedModuleID == nil && moduleID == recoveryTarget)) else { error = "请先结束通话并确认未完成操作，再切换模块。"; return }
         await cancelPolling()
         selectedModuleID = moduleID; snapshot = nil; messagesResponse = nil
         number = ""; smsNumber = ""; smsText = ""; tones = ""
-        if let configuration { defaults.set(moduleID, forKey: V2LocalPaths.selectionKey(configuration.identity)) }
+        if persistSelection, let configuration { defaults.set(moduleID, forKey: V2LocalPaths.selectionKey(configuration.identity)) }
         V2PushController.shared.requestRegistrationSync()
         if foreground && connected { startPolling() }
     }
@@ -380,6 +409,9 @@ final class CloudV2Model: ObservableObject {
             await stop()
             configuration = session.configuration
             selectedModuleID = device.module_id
+            if let key = moduleNameKey(device.module_id), defaults.string(forKey: key) == nil {
+                defaults.set(device.name, forKey: key)
+            }
             modules = []; snapshot = nil; messagesResponse = nil
             number = ""; smsNumber = ""; smsText = ""; tones = ""
             error = nil
@@ -416,7 +448,25 @@ final class CloudV2Model: ObservableObject {
         await connect(allowBackground: false)
     }
 
-    func prepareForIncomingPush() async {
+    var usingUSB: Bool { client.usingUSB }
+    private var verifiedUSBPush: V2PushEnvelope?
+    func pushConnectionMatches(_ push: V2PushEnvelope, response: V2SnapshotResponse) -> Bool {
+        if !usingUSB { return response.connection_epoch == push.domain.connectionEpoch }
+        return verifiedUSBPush?.callID == push.callID && verifiedUSBPush?.domain == push.domain
+    }
+    func verifyUSBPush(_ push: V2PushEnvelope?) async {
+        verifiedUSBPush = nil
+        guard usingUSB, let push else { return }
+        guard let response = try? await client.cloudSnapshot(moduleID: push.domain.moduleID),
+              response.server_id == push.domain.serverID, response.module_id == push.domain.moduleID,
+              response.connection_epoch == push.domain.connectionEpoch, response.online,
+              let value = response.snapshot, value.agent_boot_id == push.domain.agentBootID,
+              value.backend_epoch == push.domain.backendEpoch,
+              (-3...8).contains(now().timeIntervalSince(value.observedAt)),
+              value.calls.calls.contains(where: { $0.call_id == push.callID && $0.state != "disconnected" }) else { return }
+        verifiedUSBPush = push
+    }
+    func prepareForIncomingPush(_ push: V2PushEnvelope? = nil) async {
         if connected && !busy {
             await cancelPolling()
             let stamp = generation, module = selectedModuleID
@@ -425,6 +475,7 @@ final class CloudV2Model: ObservableObject {
                 let directory = try await client.modules()
                 guard generation == stamp, selectedModuleID == module else { return }
                 modules = directory.modules
+                await verifyUSBPush(push)
                 startPolling()
             } catch {
                 guard generation == stamp, selectedModuleID == module else { return }
@@ -434,6 +485,7 @@ final class CloudV2Model: ObservableObject {
             return
         }
         await connect(allowBackground: true)
+        await verifyUSBPush(push)
     }
 
     private func connect(allowBackground: Bool) async {
@@ -449,7 +501,7 @@ final class CloudV2Model: ObservableObject {
             do {
                 await self.cancelPolling()
                 guard self.connectionEpoch == stamp, allowBackground || self.foreground, !Task.isCancelled else { return }
-                let result = try await self.client.connect(configuration)
+                let result = try await self.client.connect(configuration, requiredUSB: self.machine?.pending.map { $0.binding.usbLocal == true } ?? self.ownedCall.map { $0.binding.usbLocal == true })
                 guard self.connectionEpoch == stamp, allowBackground || self.foreground, !Task.isCancelled else { return }
                 if allowBackground {
                     let directory = try await self.client.modules()
@@ -457,6 +509,7 @@ final class CloudV2Model: ObservableObject {
                     self.modules = directory.modules
                 }
                 self.discovery = result; self.connected = true; self.syncStatus = nil
+                _ = self.connectionBackoff.succeeded()
                 self.debugLog("connected profile=\(result.profile)")
                 V2PushController.shared.attach(self)
                 V2PushController.shared.start(model: self)
@@ -464,12 +517,32 @@ final class CloudV2Model: ObservableObject {
                 self.startPolling()
             } catch {
                 guard self.connectionEpoch == stamp, !Task.isCancelled else { return }
-                self.connected = false; self.syncStatus = "v2 连接未建立：\((error as? V2Error)?.rawValue ?? "request_failed")。不会回退 v1。"
+                self.connected = false
+                if V2Client.isTransientConnectionError(error) {
+                    self.syncStatus = "正在恢复连接…"
+                    self.scheduleReconnect()
+                } else {
+                    self.syncStatus = "设备连接不可用，请重新添加设备。"
+                }
                 self.debugLog("connect failed error=\(error)")
             }
         }
         connectionTask = task
         await task.value
+    }
+    private func scheduleReconnect() {
+        guard reconnectTask == nil, foreground || systemCalls?.hasSystemCall == true else { return }
+        let delay = connectionBackoff.failed()
+        reconnectTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            guard let self else { return }
+            self.reconnectTask = nil
+            guard !self.connected else { return }
+            await self.connect(allowBackground: self.systemCalls?.hasSystemCall == true)
+        }
+    }
+    private func cancelReconnect() {
+        reconnectTask?.cancel(); reconnectTask = nil
     }
     private func cancelConnection() async {
         connectionEpoch &+= 1
@@ -483,6 +556,7 @@ final class CloudV2Model: ObservableObject {
         await stop()
     }
     func stop() async {
+        cancelReconnect()
         invalidatePolling()
         localAudioTask?.cancel(); await localAudioTask?.value; localAudioTask = nil
         await media.stop()
@@ -518,6 +592,7 @@ final class CloudV2Model: ObservableObject {
         case .inactive: break
         case .background:
             foreground = false
+            cancelReconnect()
             await cancelConnection(); await cancelPolling()
             if systemCalls?.hasSystemCall == true { startPolling() }
             else { await media.stop() }
@@ -538,6 +613,11 @@ final class CloudV2Model: ObservableObject {
                     do {
                         switch lane {
                         case .directory:
+                            if !self.busy, !self.hasUnresolvedCommand, self.ownedCall == nil, !self.media.active,
+                               self.systemCalls?.hasSystemCall != true,
+                               self.snapshot?.snapshot?.calls.calls.contains(where: { $0.state != "disconnected" }) != true {
+                                await self.client.refreshUSBRouteWhenIdle()
+                            }
                             let directory = try await self.client.modules()
                             guard self.acceptsPoll(stamp, module: module) else { return }
                             self.modules = directory.modules
@@ -625,6 +705,26 @@ final class CloudV2Model: ObservableObject {
         }
         try saveDirtyHistory()
     }
+    func recordPendingMessageRetry(commandID: String, originalMessageID: String) {
+        guard pendingSMSCommandID == commandID,
+              history.messages.contains(where: { $0.id == originalMessageID && $0.domain.identity == configuration?.identity }) else { return }
+        history.pendingMessageRetry = V2PendingMessageRetry(commandID: commandID, originalMessageID: originalMessageID)
+        historyDirty = true
+        do { try saveDirtyHistory() }
+        catch { self.error = "重试结果待核对，本机记录保存失败，请等待同步恢复" }
+    }
+
+    func markMessageRetried(_ messageID: String) {
+        guard history.messages.contains(where: { $0.id == messageID && $0.domain.identity == configuration?.identity }),
+              history.retriedMessageIDs?.contains(messageID) != true else { return }
+        var ids = history.retriedMessageIDs ?? []
+        ids.append(messageID)
+        history.retriedMessageIDs = Array(ids.suffix(2000))
+        historyDirty = true
+        do { try saveDirtyHistory() }
+        catch { self.error = "短信已重试，本机记录保存失败，请等待同步恢复" }
+    }
+
     private func saveDirtyHistory() throws {
         guard historyDirty else { return }
         try historyFile.save(history)
@@ -639,13 +739,13 @@ final class CloudV2Model: ObservableObject {
     func sendSMS() async -> Bool { await perform(action: "sms.send", args: ["number": smsNumber, "text": smsText]) }
     var userStatus: String {
         if configuration == nil { return "尚未连接设备，请在设置中添加设备。" }
-        if let configuration, !configuration.accessIsValid(at: now()) { return configuration.canRenew(at: now()) ? "设备连接正在续期，请稍候。" : "连接凭据已过期，请重新添加设备。" }
+        if !usingUSB, let configuration, !configuration.accessIsValid(at: now()) { return configuration.canRenew(at: now()) ? "设备连接正在续期，请稍候。" : "连接凭据已过期，请重新添加设备。" }
         if hasUnresolvedCommand { return "正在确认上一步操作，请稍候。" }
-        if !connected { return "连接未建立，请在设置中重连或重新导入配置。" }
+        if !connected { return syncStatus ?? "正在连接设备…" }
         if selectedModuleID == nil { return "请选择要使用的模块。" }
-        if selectedModule?.online != true { return "模块离线，请检查模块网络后重试。" }
-        if freshBinding == nil { return "正在核对模块状态，请稍候或刷新连接。" }
-        return "模块已连接 · 空闲来电需保持 App 在前台"
+        if selectedModule?.online != true { return "模块离线，联网后会自动恢复。" }
+        if freshBinding == nil { return "正在同步模块状态…" }
+        return "\(selectedModuleID.map(moduleName) ?? "模块")已连接 · \(usingUSB ? "USB 本地" : "云端")"
     }
     func refreshReadOnly() async {
         await cancelPolling()
@@ -705,6 +805,28 @@ final class CloudV2Model: ObservableObject {
     private func finishResolvedCommand() throws {
         refreshCommandStatus()
         guard let machine else { return }
+        if let pending = machine.pending, pending.action == "sms.send" {
+            switch machine.phase {
+            case let .receipt(server, state) where server == "completed" && ["accepted", "observed"].contains(state):
+                lastSMSResolution = (pending.commandID, true)
+            case let .receipt(_, state) where ["failed", "expired"].contains(state):
+                lastSMSResolution = (pending.commandID, false)
+            case .rejected:
+                lastSMSResolution = (pending.commandID, false)
+            default: break
+            }
+            if let retry = history.pendingMessageRetry, let resolution = lastSMSResolution,
+               retry.commandID == resolution.commandID {
+                if resolution.succeeded {
+                    var ids = history.retriedMessageIDs ?? []
+                    if !ids.contains(retry.originalMessageID) { ids.append(retry.originalMessageID) }
+                    history.retriedMessageIDs = Array(ids.suffix(2000))
+                }
+                history.pendingMessageRetry = nil
+                historyDirty = true
+            }
+            try saveDirtyHistory()
+        }
         if let commandID = machine.pending?.commandID, commandID == runtimeCallCommandID, let owned = machine.ownedCall { newlyOwnedCall = owned }
         if let ticket = systemSubmission, ticket.commandID == machine.pending?.commandID {
             switch machine.phase {

@@ -102,6 +102,21 @@ final class WiredHTTPTransport: @unchecked Sendable {
         }
     }
 
+    #if os(iOS)
+    func sendPinned(_ request: URLRequest, tlsOptions: NWProtocolTLS.Options, limit: Int) async throws -> WiredHTTPResponse {
+        guard let url = request.url, url.scheme == "https", let host = url.host,
+              let port = NWEndpoint.Port(rawValue: UInt16(url.port ?? 443)),
+              let interface = ModuleUSBInterfaceResolver.resolve(usbOnly: true) else { throw WiredHTTPError.wiredPathUnavailable }
+        return try await withCheckedThrowingContinuation { continuation in
+            let operation = WiredHTTPRequestOperation(request: request, host: NWEndpoint.Host(host), port: port,
+                body: request.httpBody.map { .data($0) } ?? .none, route: .exact(interface), queue: queue,
+                continuation: continuation, tls: tlsOptions, responseLimit: limit)
+            operation.start()
+        }
+    }
+
+    #endif
+
     private func sendOnce(
         _ request: URLRequest,
         host: NWEndpoint.Host,
@@ -157,7 +172,7 @@ enum ModuleUSBInterfaceResolver {
         })
     }
 
-    static func resolve(timeout: TimeInterval = 0.35) -> NWInterface? {
+    static func resolve(timeout: TimeInterval = 0.35, usbOnly: Bool = false) -> NWInterface? {
         let names = moduleInterfaceNames(from: systemInterfaceAddresses())
         guard !names.isEmpty else { return nil }
 
@@ -167,7 +182,7 @@ enum ModuleUSBInterfaceResolver {
         var resolved: NWInterface?
         monitor.pathUpdateHandler = { path in
             lock.lock()
-            resolved = path.availableInterfaces.first { names.contains($0.name) }
+            resolved = path.availableInterfaces.first { names.contains($0.name) && (!usbOnly || isUSBInterface(type: $0.type, name: $0.name)) }
             lock.unlock()
             semaphore.signal()
         }
@@ -177,6 +192,10 @@ enum ModuleUSBInterfaceResolver {
         lock.lock()
         defer { lock.unlock() }
         return resolved
+    }
+
+    static func isUSBInterface(type: NWInterface.InterfaceType, name: String) -> Bool {
+        type == .wiredEthernet || (type == .other && !name.hasPrefix("utun") && !name.hasPrefix("ipsec") && name != "lo0")
     }
 
     private static func systemInterfaceAddresses() -> [NetworkInterfaceAddress] {
@@ -243,7 +262,7 @@ private enum WiredHTTPBody {
 
 /// 单次请求使用独立 TCP 连接和 `Connection: close`，避免熄屏恢复后复用已失效的 Wi-Fi 路径。
 private final class WiredHTTPRequestOperation: @unchecked Sendable {
-    private static let maximumResponseBytes = 32 * 1_024 * 1_024
+    private let maximumResponseBytes: Int
     private static let uploadChunkBytes = 64 * 1_024
 
     private let request: URLRequest
@@ -267,7 +286,8 @@ private final class WiredHTTPRequestOperation: @unchecked Sendable {
         body: WiredHTTPBody,
         route: WiredInterfaceRoute,
         queue: DispatchQueue,
-        continuation: CheckedContinuation<WiredHTTPResponse, Error>
+        continuation: CheckedContinuation<WiredHTTPResponse, Error>,
+        tls: NWProtocolTLS.Options? = nil, responseLimit: Int = 32 * 1_024 * 1_024
     ) {
         self.request = request
         self.host = host
@@ -276,12 +296,13 @@ private final class WiredHTTPRequestOperation: @unchecked Sendable {
         self.route = route
         self.queue = queue
         self.continuation = continuation
+        maximumResponseBytes = responseLimit
 
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
         tcp.enableKeepalive = true
         tcp.keepaliveIdle = 5
-        let parameters = NWParameters(tls: nil, tcp: tcp)
+        let parameters = NWParameters(tls: tls, tcp: tcp)
         // 优先绑定实际 USB ECM 接口；找不到接口名时才按接口类型约束。
         switch route {
         case let .exact(interface): parameters.requiredInterface = interface
@@ -456,7 +477,7 @@ private final class WiredHTTPRequestOperation: @unchecked Sendable {
             [weak self] data, _, isComplete, error in
             guard let self else { return }
             if let data, !data.isEmpty {
-                guard self.responseData.count + data.count <= Self.maximumResponseBytes else {
+                guard self.responseData.count + data.count <= maximumResponseBytes else {
                     self.finish(.failure(WiredHTTPError.responseTooLarge))
                     return
                 }

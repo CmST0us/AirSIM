@@ -4,6 +4,8 @@
 
 DATA11 是 USB AT 使用的 SMD 通道。启动器移除 USB serial 功能、释放 DATA11，并通过 `airsim_data11` 内核模块提供应用专用字符设备。ADB 和 ECM 保留。`smd7/8/9` 继续由厂商服务持有。
 
+USB 本地 v2 使用 ECM 的 `bridge0=192.168.225.1/24`。启动器在桥地址就绪后提供 DHCP，范围为 `192.168.225.10–30`；已有厂商 DHCP 服务时不接管。DHCP 不提供 DNS，也不下发 IPv4 默认路由，厂商 IPv6 行为保持不变。授权后的控制、短信和媒体访问 `https://192.168.225.1:8577`，使用方式见 [iOS USB 本地接入](../../iOS/README.md#usb-本地通话与短信)。
+
 ## 构建
 
 Go 固定使用 1.24.13，`CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7`。进程设置 6 MiB Go 内存软限制；它不等于 RSS 上限。
@@ -30,7 +32,7 @@ Go 固定使用 1.24.13，`CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7`。进程
 
 ## 恢复
 
-安装前的 inittab 保存在 `/etc/inittab.airsim-backup`。Agent 正常退出后由 init respawn 恢复；平台驱动和音频校准在开机启动器中准备。维护期间先确认无活动通话。需要停用时，在根分区临时可写状态下仅移除 `asm:` 项并通知 init，正常停止 Agent，再恢复根分区原挂载模式；不要删除 `config/` 或 `state/`。下次重启恢复固件的原 USB composition。若活动版本仍可用，优先保留并检查 `/run/airsim-v2/agent.log`、`/run/airsim-calibration.log`，不要用删除身份或在途命令标记的方法掩盖故障。
+安装前的 inittab 保存在 `/etc/inittab.airsim-backup`。Agent 正常退出后由 init respawn 恢复；平台驱动和音频校准在开机启动器中准备。维护期间先确认无活动通话。需要停用时，在根分区临时可写状态下仅移除 `asm:` 项并通知 init，正常停止 Agent；启用了 USB DHCP 时，还需核对并停止 `/run/airsim-v2/usb-dhcp-watch.pid` 与 `usb-dhcp.pid` 对应的 AirSIM DHCP 进程，再恢复根分区原挂载模式；不要删除 `config/` 或 `state/`。下次重启恢复固件的原 USB composition。若活动版本仍可用，优先保留并检查 `/run/airsim-v2/agent.log`、`/run/airsim-calibration.log`，不要用删除身份或在途命令标记的方法掩盖故障。
 
 真实测试结果和剩余边界见 [验证记录](TESTING.md)。
 

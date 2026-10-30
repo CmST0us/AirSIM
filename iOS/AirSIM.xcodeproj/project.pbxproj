@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+ A5B000000000000000000001 /* V2USB.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5B000000000000000000001 /* V2USB.swift */; };
 		A90000000000000000000001 /* V2Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90000000000000000000001; };
 		A10000000000000000000001 /* AirSIMIPadApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* AirSIMIPadApp.swift */; };
 		A10000000000000000000002 /* APIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* APIModels.swift */; };
@@ -70,6 +71,16 @@
 		A500000000000000000000CB /* V2DiagnosticAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CB /* V2DiagnosticAudio.swift */; };
 		A70000000000000000000002 /* MessagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000003 /* MessagingTests.swift */; };
 		A80000000000000000000001 /* V2SystemCalls.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000001 /* V2SystemCalls.swift */; };
+		A91000000000000000000001 /* A1DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000001 /* A1DesignSystem.swift */; };
+		A91000000000000000000002 /* A1CallsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000002 /* A1CallsView.swift */; };
+		A91000000000000000000003 /* A1ContactsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000003 /* A1ContactsViews.swift */; };
+		A91000000000000000000008 /* A1MessagesViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000008 /* A1MessagesViews.swift */; };
+		A91000000000000000000007 /* A1DialPadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000007 /* A1DialPadView.swift */; };
+		A91000000000000000000004 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000004 /* Assets.xcassets */; };
+		A91000000000000000000005 /* NotoSansSC-VF.ttf in Resources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000005 /* NotoSansSC-VF.ttf */; };
+		A91000000000000000000006 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000006 /* OFL.txt */; };
+		A91000000000000000000009 /* A1CardsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000009 /* A1CardsView.swift */; };
+		A91000000000000000000010 /* A1CallStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000010 /* A1CallStateTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -129,6 +140,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+ B5B000000000000000000001 /* V2USB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2USB.swift; sourceTree = "<group>"; };
 		B90000000000000000000001 /* V2Pairing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Pairing.swift; sourceTree = "<group>"; };
 		B10000000000000000000001 /* AirSIMIPadApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirSIMIPadApp.swift; sourceTree = "<group>"; };
 		B10000000000000000000002 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIModels.swift; sourceTree = "<group>"; };
@@ -195,6 +207,16 @@
 		B500000000000000000000CB /* V2DiagnosticAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2DiagnosticAudio.swift; sourceTree = "<group>"; };
 		B70000000000000000000003 /* MessagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingTests.swift; sourceTree = "<group>"; };
 		B80000000000000000000001 /* V2SystemCalls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2SystemCalls.swift; sourceTree = "<group>"; };
+		B91000000000000000000001 /* A1DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1DesignSystem.swift"; sourceTree = "<group>"; };
+		B91000000000000000000002 /* A1CallsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1CallsView.swift"; sourceTree = "<group>"; };
+		B91000000000000000000003 /* A1ContactsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1ContactsViews.swift"; sourceTree = "<group>"; };
+		B91000000000000000000008 /* A1MessagesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1MessagesViews.swift"; sourceTree = "<group>"; };
+		B91000000000000000000007 /* A1DialPadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1DialPadView.swift"; sourceTree = "<group>"; };
+		B91000000000000000000004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
+		B91000000000000000000005 /* NotoSansSC-VF.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Fonts/NotoSansSC-VF.ttf"; sourceTree = "<group>"; };
+		B91000000000000000000006 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/OFL.txt"; sourceTree = "<group>"; };
+		B91000000000000000000009 /* A1CardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1CardsView.swift"; sourceTree = "<group>"; };
+		B91000000000000000000010 /* A1CallStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1CallStateTests.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -253,6 +275,7 @@
 			isa = PBXGroup;
 			children = (
 				B50000000000000000000001 /* V2Client.swift */,
+ B5B000000000000000000001 /* V2USB.swift */,
 				B50000000000000000000002 /* V2Commands.swift */,
 				B50000000000000000000003 /* V2Configuration.swift */,
 				B90000000000000000000001 /* V2Pairing.swift */,
@@ -295,6 +318,15 @@
 				B10000000000000000000030 /* VoWLANController.swift */,
 				B1000000000000000000001D /* WatchCallCoordinator.swift */,
 				B10000000000000000000008 /* RootView.swift */,
+				B91000000000000000000001 /* A1DesignSystem.swift */,
+				B91000000000000000000002 /* A1CallsView.swift */,
+				B91000000000000000000003 /* A1ContactsViews.swift */,
+				B91000000000000000000008 /* A1MessagesViews.swift */,
+				B91000000000000000000009 /* A1CardsView.swift */,
+				B91000000000000000000007 /* A1DialPadView.swift */,
+				B91000000000000000000004 /* Assets.xcassets */,
+				B91000000000000000000005 /* NotoSansSC-VF.ttf */,
+				B91000000000000000000006 /* OFL.txt */,
 				B10000000000000000000009 /* PhoneViews.swift */,
 				B1000000000000000000000A /* AirSIMSetupView.swift */,
 				B10000000000000000000018 /* LocalHistoryStore.swift */,
@@ -349,6 +381,7 @@
 			children = (
 				B70000000000000000000001 /* NavigationTests.swift */,
 				B70000000000000000000003 /* MessagingTests.swift */,
+				B91000000000000000000010 /* A1CallStateTests.swift */,
 			);
 			path = "AirSIMUITests";
 			sourceTree = "<group>";
@@ -507,6 +540,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A91000000000000000000004 /* Assets.xcassets in Resources */,
+				A91000000000000000000005 /* NotoSansSC-VF.ttf in Resources */,
+				A91000000000000000000006 /* OFL.txt in Resources */,
 				A10000000000000000000018 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -548,6 +584,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A50000000000000000000001 /* V2Client.swift in Sources */,
+ A5B000000000000000000001 /* V2USB.swift in Sources */,
 				A50000000000000000000002 /* V2Commands.swift in Sources */,
 				A50000000000000000000003 /* V2Configuration.swift in Sources */,
 				A90000000000000000000001 /* V2Pairing.swift in Sources */,
@@ -578,6 +615,12 @@
 				A10000000000000000000006 /* AudioSessionController.swift in Sources */,
 				A10000000000000000000007 /* AppModel.swift in Sources */,
 				A10000000000000000000008 /* RootView.swift in Sources */,
+				A91000000000000000000001 /* A1DesignSystem.swift in Sources */,
+				A91000000000000000000002 /* A1CallsView.swift in Sources */,
+				A91000000000000000000003 /* A1ContactsViews.swift in Sources */,
+				A91000000000000000000008 /* A1MessagesViews.swift in Sources */,
+				A91000000000000000000009 /* A1CardsView.swift in Sources */,
+				A91000000000000000000007 /* A1DialPadView.swift in Sources */,
 				A10000000000000000000009 /* PhoneViews.swift in Sources */,
 				A1000000000000000000000A /* AirSIMSetupView.swift in Sources */,
 				A1000000000000000000000E /* CallKitController.swift in Sources */,
@@ -622,6 +665,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A70000000000000000000002 /* MessagingTests.swift in Sources */,
+				A91000000000000000000010 /* A1CallStateTests.swift in Sources */,
 				A70000000000000000000001 /* NavigationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

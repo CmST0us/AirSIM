@@ -53,6 +53,7 @@ func main() {
 		cfg.PushBundle = os.Getenv("APNS_BUNDLE_ID")
 	}
 	s := control.New(db, cfg)
+	go s.RunUSBRevocations(ctx)
 	go s.RunPush(ctx)
 	go s.Run(ctx)
 	rt.Exit(rt.Serve(ctx, s.Handler()))
