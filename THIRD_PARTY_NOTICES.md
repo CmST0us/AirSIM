@@ -2,6 +2,10 @@
 
 AirSIM includes or depends on third-party software. Those components remain governed by their own licenses; the AirSIM project license does not replace them.
 
+## liblc3 v1.1.3
+
+The v2 iOS App and native module audio helpers include [Google liblc3](https://github.com/google/liblc3), commit `96a3af0beb5487aca3b98a4b992a539a1f6d80d1`, under Apache-2.0. The full license is in `third_party/liblc3/LICENSE`; source provenance and the local exponent-arithmetic change are recorded in `third_party/liblc3/UPSTREAM.md`. Module distributions include `LC3-LICENSE.txt`, and the iOS App bundles the same notice.
+
 ## euicc-go v1.1.2
 
 Repository: <https://github.com/damonto/euicc-go>
