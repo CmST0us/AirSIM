@@ -46,20 +46,23 @@ void asmp_header(uint8_t f[ASMP_SIZE], const uint8_t id[16], uint8_t dir,
                  uint64_t seq) {
   memset(f, 0, 40);
   memcpy(f, "ASMP", 4);
-  f[4] = 1;
+  f[4] = 2;
   f[5] = dir;
   put(f + 6, 40, 2);
   memcpy(f + 8, id, 16);
   put(f + 24, seq, 8);
-  put(f + 32, 320, 4);
+  put(f + 32, ASMP_PAYLOAD, 4);
 }
 int asmp_check(const uint8_t f[ASMP_SIZE], const uint8_t id[16], uint8_t dir,
                uint64_t *last, uint64_t *gaps) {
   uint64_t seq = get(f + 24, 8);
-  if (memcmp(f, "ASMP", 4) || f[4] != 1 || f[5] != dir || get(f + 6, 2) != 40 ||
-      memcmp(f + 8, id, 16) || get(f + 32, 4) != 320 || get(f + 36, 4) ||
+  if (memcmp(f, "ASMP", 4) || f[4] != 2 || f[5] != dir || get(f + 6, 2) != 40 ||
+      memcmp(f + 8, id, 16) || get(f + 32, 4) != ASMP_PAYLOAD || get(f + 36, 4) > 1 ||
       seq == 0 || seq <= *last)
     return -1;
+  if (f[36] == 1) {
+    for (unsigned i = 40; i < ASMP_SIZE; i++) if (f[i]) return -1;
+  }
   *gaps += seq - *last - 1;
   *last = seq;
   return 0;

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "audio_format.h"
+#include "airsim_lc3.h"
 #include "protocol.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -28,6 +29,7 @@
 #define PLAYBACK_PARAMS "/proc/asound/card0/pcm5p/sub0/hw_params"
 #define PERIOD_SIZE 256
 #define PERIOD_COUNT 8
+#define CAPTURE_RATE 16000
 #else
 #define PLATFORM_PROFILE "rm500u-embedded"
 #define PCM_ACCESS 0
@@ -38,13 +40,15 @@
 #define PLAYBACK_PARAMS "/proc/asound/card0/pcm55p/sub0/hw_params"
 #define PERIOD_SIZE 320
 #define PERIOD_COUNT 2
+#define CAPTURE_RATE 8000
 #endif
 #define BUFFER_FRAMES (PERIOD_SIZE * PERIOD_COUNT)
 #define PLAYBACK_START (2 * PERIOD_SIZE)
 
-/* Two queued frames + receiver, playback and Agent relay working frames = five.
+/* Four queued frames absorb relay phase jitter against the PCM period clock.
  * No audio is written to stdout, stderr, a log, or a filesystem object. */
-#define QUEUE 2
+#define QUEUE 4
+#define PACKET_WAIT_NS 15000000L
 static volatile sig_atomic_t interrupted;
 static atomic_int stopping;
 static atomic_int failure;
@@ -67,14 +71,17 @@ static struct counters capture_stats, playback_stats;
 static atomic_uint_fast64_t drops, capture_drops, playback_drops, gaps, silence,
     peak;
 static pthread_mutex_t qlock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t qready = PTHREAD_COND_INITIALIZER;
 static uint8_t queue[QUEUE][ASMP_PAYLOAD];
 static uint64_t queued_at[QUEUE];
+static uint8_t queue_erasure[QUEUE];
+static uint64_t queue_sequence[QUEUE];
 static unsigned qhead, qcount;
 static uint8_t session[16];
 static uint64_t started;
 static struct pcm *capture, *playback;
 static unsigned playback_rate = 8000;
-static int16_t playback_previous;
+static int16_t playback_previous, capture_previous;
 static const char *voice_params = VOICE_PARAMS;
 static int stopped(void) { return interrupted || atomic_load(&stopping); }
 static void fail(int code) {
@@ -177,7 +184,7 @@ static int wait_pcm(struct pcm *p, int input) {
 static int transfer(struct pcm *p, uint8_t *data, int input,
                     struct counters *stats, int zero_fill, uint64_t recovery[3],
                     unsigned *recoveries) {
-  unsigned rate = input ? 8000 : playback_rate;
+  unsigned rate = input ? CAPTURE_RATE : playback_rate;
   unsigned frames = rate / 50;
   unsigned offset = 0;
   uint64_t last = asmp_now_ms();
@@ -218,7 +225,9 @@ static int transfer(struct pcm *p, uint8_t *data, int input,
         fail(6);
         return -1;
       }
-      if (!input)
+      if (input)
+        capture_previous = 0;
+      else
         playback_previous = 0;
       if (prepare_direction(p, input)) {
         return -1;
@@ -235,9 +244,14 @@ static void *capture_worker(void *unused) {
   (void)unused;
   uint64_t seq = 0, recovery[3] = {0};
   unsigned recoveries = 0;
-  uint8_t frame[ASMP_SIZE];
+  uint8_t frame[ASMP_SIZE], pcm[AIRSIM_LC3_PCM_BYTES];
+  airsim_lc3_encoder *encoder = airsim_lc3_encoder_create();
+  if (!encoder) {
+    fail(1);
+    return NULL;
+  }
   while (!stopped()) {
-    int r = transfer(capture, frame + 40, 1, &capture_stats, 0, recovery,
+    int r = transfer(capture, pcm, 1, &capture_stats, 0, recovery,
                      &recoveries);
     if (r < 0)
       break;
@@ -245,42 +259,84 @@ static void *capture_worker(void *unused) {
       atomic_fetch_add(&capture_drops, 1);
       continue;
     }
+#if CAPTURE_RATE == 8000
+    /* The external format is 16 kHz; an 8 kHz capture is interpolated. */
+    audio_expand(pcm, 16000, &capture_previous);
+#endif
     if (++seq == 0) {
       fail(7);
       break;
     }
     asmp_header(frame, session, 2, seq);
+    if (airsim_lc3_encode(encoder, pcm, frame + 40) < 0) {
+      fail(7);
+      break;
+    }
     if (asmp_write(4, frame, sizeof(frame), 100)) {
       if (!stopped()) fail(1);
       break;
     }
   }
+  airsim_lc3_encoder_destroy(encoder);
   return NULL;
+}
+static int take_packet(uint8_t payload[ASMP_PAYLOAD], uint64_t *source_sequence) {
+  int erasure = 1;
+  *source_sequence = 0;
+  pthread_mutex_lock(&qlock);
+  uint64_t now = asmp_now_ms();
+  while (qcount && now - queued_at[qhead] > 100) {
+    qhead = (qhead + 1) % QUEUE;
+    qcount--;
+    atomic_fetch_add(&drops, 1);
+  }
+  if (!qcount && !stopped()) {
+    /* The PCM buffer still holds several periods; a packet arriving a few
+     * milliseconds behind this pull is played instead of concealed. */
+    struct timespec until;
+    clock_gettime(CLOCK_REALTIME, &until);
+    until.tv_nsec += PACKET_WAIT_NS;
+    if (until.tv_nsec >= 1000000000L) {
+      until.tv_sec++;
+      until.tv_nsec -= 1000000000L;
+    }
+    pthread_cond_timedwait(&qready, &qlock, &until);
+  }
+  if (qcount) {
+    memcpy(payload, queue[qhead], ASMP_PAYLOAD);
+    erasure = queue_erasure[qhead];
+    *source_sequence = queue_sequence[qhead];
+    qhead = (qhead + 1) % QUEUE;
+    qcount--;
+  }
+  pthread_mutex_unlock(&qlock);
+  return erasure;
 }
 static void *playback_worker(void *unused) {
   (void)unused;
   uint64_t recovery[3] = {0};
   unsigned recoveries = 0;
-  uint8_t data[640];
+  uint8_t data[640], payload[ASMP_PAYLOAD];
+  airsim_lc3_decoder *decoder = airsim_lc3_decoder_create();
+  if (!decoder) {
+    fail(1);
+    return NULL;
+  }
   while (!stopped()) {
-    int zero_fill = 0;
-    pthread_mutex_lock(&qlock);
-    uint64_t now = asmp_now_ms();
-    while (qcount && now - queued_at[qhead] > 100) {
-      qhead = (qhead + 1) % QUEUE;
-      qcount--;
-      atomic_fetch_add(&drops, 1);
+    uint64_t source_sequence;
+    int zero_fill = take_packet(payload, &source_sequence);
+    if (airsim_lc3_decode_packet(decoder, zero_fill ? NULL : payload, source_sequence, data) < 0) {
+      fail(7);
+      break;
     }
-    if (qcount) {
-      memcpy(data, queue[qhead], ASMP_PAYLOAD);
-      qhead = (qhead + 1) % QUEUE;
-      qcount--;
-    } else {
-      memset(data, 0, sizeof(data));
-      zero_fill = 1;
+    size_t native_samples = audio_reduce(data, playback_rate, &playback_previous);
+    zero_fill = 1;
+    for (size_t i = 0; i < native_samples * 2; i++) {
+      if (data[i]) {
+        zero_fill = 0;
+        break;
+      }
     }
-    pthread_mutex_unlock(&qlock);
-    (void)audio_expand(data, playback_rate, &playback_previous);
     int r = transfer(playback, data, 0, &playback_stats, zero_fill, recovery,
                      &recoveries);
     if (r < 0)
@@ -288,6 +344,7 @@ static void *playback_worker(void *unused) {
     if (r > 0)
       atomic_fetch_add(&playback_drops, 1);
   }
+  airsim_lc3_decoder_destroy(decoder);
   return NULL;
 }
 static void *input_worker(void *unused) {
@@ -337,10 +394,13 @@ static void *input_worker(void *unused) {
     }
     unsigned tail = (qhead + qcount) % QUEUE;
     memcpy(queue[tail], frame + 40, ASMP_PAYLOAD);
+    queue_erasure[tail] = frame[36];
+    queue_sequence[tail] = last;
     queued_at[tail] = asmp_now_ms();
     qcount++;
     if (qcount > atomic_load(&peak))
       atomic_store(&peak, qcount);
+    pthread_cond_signal(&qready);
     pthread_mutex_unlock(&qlock);
   }
   return NULL;
@@ -387,7 +447,7 @@ int main(int argc, char **argv) {
     return eg25_audio_reset() ? 1 : 0;
 #endif
   if (argc == 2 && !strcmp(argv[1], "--version")) {
-    puts("airsim-audiod 0.3.0 "
+    puts("airsim-audiod 0.5.0-lc3-wb liblc3-1.1.3 "
          "tinyalsa-1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d");
     return 0;
   }
@@ -416,7 +476,7 @@ int main(int argc, char **argv) {
   int ready_sent = 0;
   started = asmp_now_ms();
   struct pcm_config config = {.channels = 1,
-                              .rate = 8000,
+                              .rate = CAPTURE_RATE,
                               .period_size = PERIOD_SIZE,
                               .period_count = PERIOD_COUNT,
                               .format = PCM_FORMAT_S16_LE,
@@ -431,6 +491,7 @@ int main(int argc, char **argv) {
     goto cleanup;
   }
   playback_previous = 0;
+  capture_previous = 0;
   capture = pcm_open(0, CAPTURE_DEVICE, PCM_IN | PCM_ACCESS | PCM_NONBLOCK | PCM_NORESTART, &config);
   if (!capture || !pcm_is_ready(capture)) {
     fail(2);
@@ -445,7 +506,7 @@ int main(int argc, char **argv) {
   }
   struct actual_config actual_capture = {0}, actual_playback = {0};
   if (hw_verify(CAPTURE_PARAMS, capture,
-                &actual_capture, PERIOD_SIZE, 8000) ||
+                &actual_capture, PERIOD_SIZE, CAPTURE_RATE) ||
       hw_verify(PLAYBACK_PARAMS, playback,
                 &actual_playback, PLAYBACK_START, playback_rate)) {
     fail(3);
@@ -459,15 +520,15 @@ int main(int argc, char **argv) {
   }
   char ready[512];
   snprintf(ready, sizeof(ready),
-           "{\"type\":\"ready\",\"sample_rate\":8000,\"channels\":1,\"sample_"
-           "format\":\"s16le\",\"frame_samples\":160,"
-           "\"capture\":{\"sample_rate\":8000,\"period_size\":%u,\"period_"
+           "{\"type\":\"ready\",\"codec\":\"lc3\",\"codec_frame_us\":10000,\"codec_frame_bytes\":40,\"sample_rate\":16000,\"channels\":1,\"sample_"
+           "format\":\"s16le\",\"frame_samples\":320,"
+           "\"capture\":{\"sample_rate\":%u,\"period_size\":%u,\"period_"
            "count\":%u,\"buffer_"
            "frames\":%u},"
            "\"playback\":{\"sample_rate\":%u,\"period_size\":%u,\"period_"
            "count\":%u,\"buffer_"
            "frames\":%u}}",
-           actual_capture.period, actual_capture.count, actual_capture.buffer,
+           CAPTURE_RATE, actual_capture.period, actual_capture.count, actual_capture.buffer,
            playback_rate, actual_playback.period, actual_playback.count,
            actual_playback.buffer);
   if (send_control(ready)) {

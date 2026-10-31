@@ -49,6 +49,18 @@ int main(void) {
   audio_expand(buf, 16000, &previous);
   for (unsigned i = 0; i < sizeof(buf); i++)
     assert(buf[i] == 0);
+  /* 16 kHz to 8 kHz: [1 2 1]/4 low-pass, then every second sample. */
+  uint8_t wide[640];
+  for (int i = 0; i < 320; i++)
+    put(wide + 2 * i, (int16_t)(i % 2 ? 400 : 800));
+  memcpy(original, wide, 320);
+  int16_t tail = 100;
+  assert(audio_reduce(wide, 16000, &tail) == 320 && !memcmp(wide, original, 320) && tail == 100);
+  assert(audio_reduce(wide, 8000, &tail) == 160);
+  assert(get(wide) == (100 + 2 * 800 + 400) / 4 && get(wide + 2) == (400 + 1600 + 400) / 4);
+  for (int i = 1; i < 160; i++)
+    assert(get(wide + 2 * i) == 600);
+  assert(tail == 400);
   char path[] = "/tmp/airsim-clock-test-XXXXXX";
   int fd = mkstemp(path);
   assert(fd >= 0);

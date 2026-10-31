@@ -29,6 +29,15 @@ int main(void) {
     last = 0;
     assert(asmp_check(bad, id, 1, &last, &gaps));
   }
+  asmp_header(frame, id, 1, 5);
+  frame[36] = 1;
+  assert(!asmp_check(frame, id, 1, &last, &gaps));
+  last = 0; frame[40] = 1;
+  assert(asmp_check(frame, id, 1, &last, &gaps));
+  frame[40] = 0; frame[36] = 2;
+  assert(asmp_check(frame, id, 1, &last, &gaps));
+  frame[36] = 0; frame[4] = 1;
+  assert(asmp_check(frame, id, 1, &last, &gaps));
   uint64_t times[3] = {0};
   unsigned count = 0;
   assert(!asmp_recover_budget(times, &count, 100));

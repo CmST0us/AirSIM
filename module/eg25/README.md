@@ -12,7 +12,9 @@ Go 固定使用 1.24.13，`CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7`。进程
 
 `kmod/airsim_data11.c` 使用 GPL-2.0-only。内核基线为 [quectel_eg25_kernel 82ed009](https://github.com/the-modem-distro/quectel_eg25_kernel/tree/82ed00908b3e8efc3ff0de27d2b5a7c0524ecd7f)，使用设备 `/proc/config.gz` 准备，运行 `make ARCH=arm ... olddefconfig modules_prepare` 后执行 `kmod/build.sh`。目标 vermagic 为 `3.18.44 preempt mod_unload ARMv7 p2v8`，CONFIG_MODVERSIONS 关闭。
 
-原生 helper：`ZIG=/path/to/zig-0.15.2 sh audio/scripts/build.sh`。共用现有 TinyALSA 与媒体 IPC，增加 EG25 的 AFE 路由、D4 hostless PCM、D5 播放与 D6 采集。DSP 映射缓冲区为 4096 字节；原生配置为 8 kHz、单声道 S16_LE、256 帧 × 8 周期。mmap 路径负责硬件周期，外部媒体继续使用 160 样本的 20 ms 帧。
+原生 helper：`ZIG=/path/to/zig-0.15.2 sh audio/scripts/build.sh`。共用现有 TinyALSA 与媒体 IPC，增加 EG25 的 AFE 路由、D4 hostless PCM、D5 播放与 D6 采集。DSP 映射缓冲区为 4096 字节；VoLTE 前端、D5 与 D6 均以 16 kHz 打开，单声道 S16_LE、256 帧 × 8 周期。mmap 路径负责硬件周期，外部媒体使用 320 样本的 20 ms 帧。
+
+LC3 版 helper 在原生采集后编码、播放前解码或补偿丢帧，网络与 Unix 媒体均采用 120-byte ASMP v2 包；驱动、路由和硬件周期不变。Agent 与 helper 必须成对更新／回滚，App 与 ECS control／media 同步使用 LC3。配置和资源实测见 [LC3 音频](../../docs/LC3_AUDIO.md)。
 
 音频驱动 `qdc507_aprv3.ko` 和 `qdc507_voice.ko` 使用 [MaVo 0443dfd 的 ModuleVoice](https://github.com/moluncn/mavo/tree/0443dfdaf8aec086fd76ba2ee9152fd908114524/Resources/ModuleVoice)。对应 GPL 许可与来源说明随运行时保留。启动器通过厂商 `alsaucm_test` 完成 VoLTE ACDB 校准，原生 helper 通过 `voc_svr` 启停媒体时钟。
 

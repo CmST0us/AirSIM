@@ -89,3 +89,14 @@ unsigned audio_expand(uint8_t data[640], unsigned rate, int16_t *previous) {
   *previous = last;
   return 320;
 }
+unsigned audio_reduce(uint8_t data[640], unsigned rate, int16_t *previous) {
+  if (rate == 16000)
+    return 320;
+  int16_t last = get(data + 638);
+  for (int i = 0; i < 160; i++) {
+    int32_t before = i ? get(data + (i * 4 - 2)) : *previous;
+    put(data + i * 2, (before + 2 * get(data + i * 4) + get(data + i * 4 + 2)) / 4);
+  }
+  *previous = last;
+  return 160;
+}

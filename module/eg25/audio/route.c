@@ -54,9 +54,11 @@ done:
   return rc;
 }
 
-int eg25_audio_start(void) {
+int eg25_audio_start(void) { return eg25_audio_start_rate(16000); }
+
+int eg25_audio_start_rate(unsigned rate) {
   if (mixer_routes()) return -1;
-  struct pcm_config config = {.channels=1, .rate=8000,
+  struct pcm_config config = {.channels=1, .rate=rate,
       .period_size=1024, .period_count=2, .format=PCM_FORMAT_S16_LE,
       .start_threshold=1, .stop_threshold=2048, .avail_min=1024};
   voice_capture = pcm_open(0, 4, PCM_IN | PCM_NONBLOCK, &config);

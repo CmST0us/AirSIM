@@ -2,8 +2,8 @@
 #define AIRSIM_PROTOCOL_H
 #include <stddef.h>
 #include <stdint.h>
-#define ASMP_SIZE 360
-#define ASMP_PAYLOAD 320
+#define ASMP_SIZE 120
+#define ASMP_PAYLOAD 80
 #define ASMP_SAMPLES 160
 int asmp_uuid(const char *, uint8_t[16]);
 void asmp_header(uint8_t[ASMP_SIZE], const uint8_t[16], uint8_t, uint64_t);
