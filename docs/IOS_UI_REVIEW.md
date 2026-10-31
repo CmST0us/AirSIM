@@ -1,80 +1,82 @@
-# AirSIM iOS 界面审查
+# AirSIM iOS 界面设计与验证
 
-## 结论
+## 随身通信器
 
-当前界面评级：Good。保留五个主入口和熟人联系优先的布局，以号卡名称明确每次通信使用的线路。浅色留白、深色纯净表面、中文标题和克制的蓝绿操作色形成统一识别。
+AirSIM 以“随身通信器”为界面方向：与 iOS 电话 App 一致的系统配色，号卡作为通信身份的核心。系统分组表面的号卡承载真实模块名称、在线状态和默认呼出标记；号码未由模块提供时显示“未提供号码”。通话、联系人、短信、拨号键盘与号卡保持五个平级入口。
 
-范围覆盖当前 v2 App 的通话首页、搜索与记录详情、联系人列表与详情、联系人编辑、短信列表与会话、新信息与收件人选择、拨号与号卡选择、号卡列表与详情、命名与配对、呼入／呼出／通话中、DTMF、空状态、不可用状态及错误提示。
+覆盖通话记录与详情、联系人列表与编辑、短信会话与新信息、拨号与选号、号卡与命名、添加设备、呼入／呼出／通话中、DTMF，以及空、加载、失败和不可用状态。导航、菜单、表单确认和弹层沿用系统控件。
 
-## 色彩、字体与布局
+## 色彩与排版
 
-对比度由资源中的 sRGB 值计算。数字表示文字或图标对所在表面的亮度比。
+界面采用 UIKit 动态系统色，随系统明暗外观调整。普通操作使用蓝色，呼叫与接听使用绿色，结束通话与错误使用红色。
 
-| 角色 | 浅色 | 深色 | 对比度 |
-| --- | --- | --- | --- |
-| 主表面 | `#FFFFFF` | `#000000` | — |
-| 分组表面 | `#F2F2F7` | `#2C2C2E` | — |
-| 正文 | `#000000` | `#F2F2F7` | 主表面 21.00 / 18.82 |
-| 次要文字 | `#626268` | `#A5A5AD` | 分组表面 5.43 / 5.70 |
-| 文字操作 | `#0066CC` | `#69ACFF` | 分组表面 4.99 / 5.94 |
-| 蓝色实心操作／发出短信 | `#0066CC` | `#0066CC` | 白字 5.57 |
+| 角色 | 系统颜色 |
+| --- | --- |
+| 页面背景 | `systemGroupedBackground` |
+| 分组表面 | `secondarySystemGroupedBackground` |
+| 柔和表面 | `tertiarySystemGroupedBackground` |
+| 主文字／次要文字 | `label`／`secondaryLabel` |
+| 分隔线 | `separator` |
+| 普通操作 | `systemBlue` |
+| 呼叫与接听 | `systemGreen` |
+| 结束通话与错误 | `systemRed` |
+| 选中浅底 | `tertiarySystemFill` |
+| 通话背景 | 深色外观下的 `systemGray6` |
+| 数字键 | `systemGray5` |
+| 号卡与首次连接卡片 | 分组表面配 `label` |
 
-绿色实心呼叫操作 `#197B3B` 配白字为 5.33；状态文字使用独立的浅色 `#137B36`／深色 `#78D995`。错误文字为 `#B92320`／`#FF938A`，在分组表面为 5.66／6.50。前景颜色提供 Increase Contrast 变体。连接、失败和选中状态同时使用文字、符号或轮廓表达。
+状态同时以文字、SF Symbols 或轮廓表达。号卡与首次连接页沿用系统表面和文字颜色，明暗模式保留相同信息层级。
 
-中文内容沿用 Noto Sans SC，标题 30–32 pt、正文与短信 17 pt、辅助信息 12–15 pt；全部按语义文本样式缩放。系统导航、表单和菜单使用系统字体。装饰头像字母限制缩放，完整姓名仍由正文呈现。
+标题、正文和辅助信息统一使用系统语义字体与 Dynamic Type。电话号码以等宽数字增强可读性；头像使用圆形与细环，图标统一为 SF Symbols。字号增大时，信息允许换行、纵排和滚动。
 
-窄窗口按列表进入详情；宽窗口以原生双栏并列列表和详情。辅助功能字号下减少横排信息，内容可增高、换行和滚动。主要点击区域至少 44 pt。五标签位置随系统适配，详情保留标签栏。
+间距以 4／8 pt 为基础，页面边距 20 pt。号卡与主要内容卡片采用 24 pt 连续圆角，输入框 12 pt，短信气泡 20 pt，短信输入区 24 pt；主操作为胶囊，拨号键和头像为圆形。主要触控区域至少 44 pt。
 
-```text
-窄窗口                     宽窗口
-[标题／搜索／操作]          [列表／搜索] | [所选详情]
-[列表或所选详情]            [列表项目]   | [通信操作]
-[五个主标签]                [系统标签栏随窗口排列]
-```
+## 页面与交互
 
-动效只承担状态变化：通话呈现与错误提示使用短过渡，减少动态效果时改为淡入淡出；短信滚动与 DTMF 按压遵守减少动态效果。减少透明度时，错误提示使用不透明系统表面。
+| 页面 | 信息组织与行为 |
+| --- | --- |
+| 通话 | 记录正文使用两层布局：姓名位于首行，方向与原号卡位于下一行；时间独立位于右侧，与整块正文垂直居中。未接姓名与状态为系统红色。头像、正文和分隔线在宽窄列表中保持一致，长线路名与辅助字号自动换行，详情触控区至少 44 pt。回拨始终使用记录的原模块。 |
+| 联系人 | 姓名分组与收藏便于快速寻找，详情集中呈现通话和短信操作。读取失败保留缓存并可重试；新增与编辑保存到系统通讯录。 |
+| 短信 | 会话突出联系人与最近消息，连续同方向消息间隔 8 pt，方向变化为 16 pt；跨日或相隔五分钟显示时间。发送线路集中在输入区，失败与重试紧邻对应消息。 |
+| 拨号键盘 | 系统字体、圆形数字键和系统绿色呼叫操作，线路选择独立清晰。保留长按 `0` 输入 `+`、连续删除与预填号码新增联系人。临时选号不更改默认号卡。 |
+| 号卡 | 号卡卡面优先展示真实模块名称与状态；详情复用卡面，命名、默认呼出和连接信息置于下方分组。 |
+| 添加设备 | 连接码输入、设备确认与单个主操作构成短流程；进度显示在操作内，错误保留输入，待完成添加保留原设备信息。 |
+| 通话中 | 对端身份和通话状态居中，控制区清楚区分静音、扬声器、键盘与挂断；辅助字号和短窗口可重排、滚动。DTMF 使用大弹层。 |
+| 搜索与编辑 | 搜索清除保留布局，收起后筛选状态一致；名称和联系人更改在放弃前确认，发送中与保存中显示进度。 |
 
-## 已修复的问题
+窄窗口使用原生导航进入详情，宽窗口使用 `NavigationSplitView` 并列列表和详情。iPad 与 iPhone Duo 展开窗口沿用相同信息层级，当前选择在列表中可见，详情保留主标签入口。短信草稿按身份、模块与对端号码隔离，回复固定原号卡；提交结果未确认时不跨号卡或传输路径重复发送。号卡不可用时不自动切换，连接由现有机制自动恢复。
 
-| 等级 | 问题与调整 | 实现 |
+独立按钮使用 120 ms 按压反馈，列表行使用背景高亮；减少动态效果时取消按钮缩放。标签切换、系统返回、菜单和弹层采用原生转场。错误提示支持手动关闭，减少透明度时采用不透明表面。
+
+## 设计参考
+
+- Apple 电话官方界面：采用联系人身份、最近联系和通话操作的层级。[Apple Newsroom](https://www.apple.com/newsroom/2025/06/apple-elevates-the-iphone-experience-with-ios-26/)
+- Signal 官方深色会话与群通话界面：采用克制的会话底色、连续消息分组和明确的通信控制。[Signal](https://signal.org/)
+- Apple Wallet 官方卡片界面：采用实体卡身份层次与清晰的添加入口。[Wallet](https://www.apple.com/wallet/)
+- 系统交互遵循 Apple [辅助功能](https://developer.apple.com/design/human-interface-guidelines/accessibility)、[字体](https://developer.apple.com/design/human-interface-guidelines/typography)、[颜色](https://developer.apple.com/design/human-interface-guidelines/color)和[分栏视图](https://developer.apple.com/design/human-interface-guidelines/split-views)规范。
+
+[原 Figma 稿](https://www.figma.com/design/QN34vy88ViWu1s45pE97BO?node-id=25-1146)保留为历史设计来源。当前视觉规范与实现以本报告和源码为准。
+
+## 验证记录
+
+2026-10-31 整体布局回归的 23 个不同 UI 场景全部通过：iPhone 19 项、iPad 3 项、iPhone Duo 1 项。测试使用离线夹具，截图已核对实际界面。
+
+| 环境／项目 | 验证范围 | 结果 |
 | --- | --- | --- |
-| Critical | 小字号链接原有浅色对比度 3.52，短信气泡白字 4.02；调整为合格前景与独立实心背景。固定黑色图标改为语义模板渲染。 | `A1DesignSystem.swift`、颜色资源、`RootView.swift` |
-| Critical | 固定行高和横排信息在辅助字号下挤压；标题、联系人、时间戳、号卡设置与操作区允许增高、换行或纵排。 | `A1CallsView.swift`、`A1ContactsViews.swift`、`A1CardsView.swift`、`A1MessagesViews.swift` |
-| Critical | 拨号号卡浮层固定高度，新增联系人触控高度仅 22 pt；改用原生列表弹层并扩大点击区域。 | `A1DialPadView.swift` |
-| Critical | 短窗口通话和 DTMF 内容缺乏滚动空间；允许滚动，并在辅助字号下重排通话控制。短信短窗口输入保留一行，说明进入滚动内容。 | `PhoneViews.swift`、`A1MessagesViews.swift` |
-| High | 联系人和短信详情隐藏主标签，自定义返回缺少原生导航行为；联系人、短信、号卡详情改用系统返回，保留五个主标签。 | 三类详情视图 |
-| High | 宽屏号卡使用手工并排布局；改为 `NavigationSplitView`，保持所选项目轮廓和辅助功能选中状态。 | `A1CardsView.swift` |
-| High | 短信内容与导航容器的宽窄规则不一致，iPad 竖屏切换标签可能出现空白；统一窗口规则，窄窗口使用单栏返回，宽窗口并列显示，折叠前后保留会话与草稿。 | `A1MessagesViews.swift` |
-| Medium | 错误提示限三行、五秒自动消失、关闭区域 28 pt；改为完整文字、手动关闭和 44 pt 控件，并支持减少透明度。 | `RootView.swift` |
-| Medium | 配对查询和添加共用进度描述，请求时仍可修改输入；区分进度并冻结当次输入，名称表单保留字段标签。 | `CloudV2View.swift` |
-| Medium | 新信息重复出现两个发送入口；保留输入框旁的发送按钮。搜索增加清除操作。 | 短信与联系人视图 |
-| Medium | iPad 竖屏系统标签栏占用标题区域；短信内容区显示联系人名称，保持会话身份可见。 | `A1MessagesViews.swift` |
+| iPhone 模拟器 | 明暗五标签、搜索与历史详情、编辑取消、配对码过期、命名放弃确认、短信草稿与失败状态、呼入／呼出／通话中、最大辅助字号与 DTMF、首次连接 | 19 项通过 |
+| iPad 模拟器 | 横竖屏搜索、列表与详情双栏 | 3 项通过 |
+| iPhone Duo 模拟器 | 实际执行 Open → Closed，核对折叠前后布局与会话状态 | 1 项通过 |
+| iOS 签名构建 | 最终签名版本 | 通过 |
+| 流程录屏 | 界面与交互录像 | 已录制并保留；Release 帧率未测 |
 
-## 设计依据
+整体布局回归对应的签名版本 `com.eric3u.airsim2` 已更新安装并启动于 iPad mini，保留现有配对数据和旧版 App。
 
-审查读取了 apple-design 的本地 HIG 文档及代码审查指南。对应原文：
+本轮系统配色回归通过 iPhone 8 项、iPad 1 项，系统配色版本已在 iPad mini 更新安装并启动。
 
-- `accessibility.md › Mobility`：“Offer sufficiently sized controls.” iOS／iPadOS 默认 44×44 pt。[Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)
-- `typography.md › Supporting Dynamic Type`：“Consider adjusting your layout at large font sizes.” [Typography](https://developer.apple.com/design/human-interface-guidelines/typography)
-- `color.md › Inclusive color`：“Avoid relying solely on color”。[Color](https://developer.apple.com/design/human-interface-guidelines/color)
-- `dark-mode.md › Dark Mode colors`：“Embrace colors that adapt to the current appearance.” [Dark Mode](https://developer.apple.com/design/human-interface-guidelines/dark-mode)
-- `tab-bars.md › Best practices`：“Make sure the tab bar is visible when people navigate to different sections of your app.” [Tab bars](https://developer.apple.com/design/human-interface-guidelines/tab-bars)
-- `toolbars.md › Navigation`：“Use the standard Back and Close buttons.” [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars)
-- `designing-for-iphone-duo.md › Dynamic layouts`：“Prefer a layout container that adapts automatically”。[Designing for iPhone Duo](https://developer.apple.com/design/human-interface-guidelines/designing-for-iphone-duo)
-- `split-views.md › Best practices`：“persistently highlight the current selection”。[Split views](https://developer.apple.com/design/human-interface-guidelines/split-views)
-- `motion.md › Best practices`：“Make motion optional.” [Motion](https://developer.apple.com/design/human-interface-guidelines/motion)
+通话列表布局回归通过 iPhone 搜索与历史详情、五标签导航，以及 iPad 分栏共 3 项；已核对浅色、深色与最大辅助字号下的记录布局和分隔线。
 
-外观偏好保留用户已有设置；默认跟随系统。该取舍保留既有个性化能力，明暗模式仍共享相同导航和操作。
+## 已知边界
 
-## 验证与边界
+本轮参考来自官方公开页面，未接入 Appllama 素材服务，参考数量未达到每类页面 10 张。VoiceOver 朗读顺序、Switch Control、全部辅助功能组合，以及最慢受支持设备的 Release 动画帧率尚待专项验收。
 
-采用虚构联系人、号码和短信进行界面自动化与截图核对。覆盖五标签、普通和辅助字号、明暗配色、联系人编辑与短信跳转、拨号临时号卡选择、三种通话状态、DTMF、iPad 横竖屏双栏，以及 Duo 内外屏。
-
-| 环境 | 验证内容 | 结果 |
-| --- | --- | --- |
-| iPhone 18 Pro 模拟器 | 最大辅助字号与深色页面、表单、拨号长按与选号、跨标签草稿 | 通过 |
-| iPad mini 模拟器 | 横竖屏、五标签、详情与命名、返回原会话后的草稿 | 通过 |
-| iPhone Duo 模拟器 | 展开与合屏、会话选择、系统返回与草稿保留 | 通过 |
-| iPad mini 真机 | `com.eric3u.airsim2` 签名构建、更新安装与启动 | 通过 |
-
-Watch v2 与 v2 Live Activity 当前未启用；旧版不可达界面不计入本次 App 审查。界面验证不代表真实运营商通话、短信收发或 USB 链路验收。VoiceOver 朗读顺序、Switch Control 和全部系统辅助功能组合尚未逐项真机验收。
+Watch v2 与 v2 Live Activity 当前未启用。界面构建与模拟器交互不替代真实运营商通话、短信收发、后台推送或 USB 链路验收；对应范围见 [设备配对](IOS_AIRSIM_PAIRING.md)、[R6 音频记录](IOS_AIRSIM_R6.md)及 [iOS USB 本地接入](../iOS/README.md#usb-本地通话与短信)。

@@ -22,9 +22,8 @@ struct A1CallsView: View {
         model.callHistory.sorted { $0.startedAt > $1.startedAt }
     }
 
-    private var recentCalls: [CallRecord] {
-        let highlightedID = history.first(where: \.missed)?.id
-        return history.filter { $0.id != highlightedID }
+    private var filteredWideCalls: [CallRecord] {
+        history.filter { A1CallPresentation.matches($0, query: wideSearch, contacts: contacts) }
     }
 
     private var compactBody: some View {
@@ -39,7 +38,16 @@ struct A1CallsView: View {
             .frame(maxWidth: 600)
             .frame(maxWidth: .infinity)
             .background(A1Palette.background)
-            .toolbar(.hidden, for: .navigationBar)
+            .navigationTitle("通话")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button { showingSearch = true } label: { Image(systemName: "magnifyingglass") }
+                        .accessibilityLabel("搜索通话和联系人")
+                    Menu { Button("设置", action: onSettings) } label: { Image(systemName: "ellipsis") }
+                        .accessibilityLabel("更多")
+                }
+            }
             .navigationDestination(isPresented: $showingHistory) {
                 A1CallHistoryView(onMessage: onMessage)
             }
@@ -118,66 +126,48 @@ struct A1CallsView: View {
 
     private var homeList: some View {
         List {
-            header
-                .listRowInsets(EdgeInsets(top: 8, leading: 24, bottom: 4, trailing: 24))
-                .listRowSeparator(.hidden)
-            if recentCalls.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeading("常用联系人", action: onContacts)
+                favorites
+                sectionHeading("最近通话") { showingHistory = true }
+            }
+            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 8, trailing: 20))
+            .listRowSeparator(.hidden)
+            .listRowBackground(A1Palette.background)
+            if history.isEmpty {
                 Text("暂无通话记录")
-                    .font(A1Typography.font(14))
                     .foregroundStyle(A1Palette.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 100)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
-            } else {
-                ForEach(Array(recentCalls.prefix(3))) { call in
-                    A1RecentCallRow(call: call, onDetails: { presentedCall = call })
-                        .padding(.bottom, 8.5)
-                        .overlay(alignment: .bottomLeading) {
-                            A1Palette.separator
-                                .frame(height: 0.5)
-                                .padding(.trailing, 56)
-                                .offset(y: -4)
-                        }
-                        .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
-                        .listRowSeparator(.hidden)
+                    .listRowBackground(A1Palette.background)
+            }
+            ForEach(A1CallPresentation.days(history), id: \.self) { day in
+                Section {
+                    ForEach(history.filter { Calendar.current.isDate($0.startedAt, inSameDayAs: day) }) { call in
+                        A1RecentCallRow(call: call, onDetails: { presentedCall = call })
+                            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                    }
+                } header: {
+                    Text(A1CallPresentation.dayTitle(day)).font(.subheadline.weight(.semibold))
+                        .foregroundStyle(A1Palette.secondary).textCase(nil)
+                        .padding(.top, 8).padding(.bottom, 4)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                 }
             }
         }
         .listStyle(.plain)
+        .environment(\.defaultMinListHeaderHeight, 0)
         .environment(\.defaultMinListRowHeight, 0)
         .scrollContentBackground(.hidden)
     }
 
     private var emptyCalls: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("通话").font(A1Typography.font(32, weight: .bold))
-                Spacer()
-                Menu { Button("设置", action: onSettings) } label: {
-                    A1CallsCircleIcon(name: "a1-calls-more")
-                }
-                .accessibilityLabel("更多")
-            }
-            .frame(minHeight: 45).padding(.horizontal, 24).padding(.top, 8)
-            A1EmptyContent(icon: "a1-empty-clock", title: "还没有通话记录",
-                           subtitle: "拨打电话后，记录会显示在这里。",
-                           actionTitle: "拨打第一个电话", actionIcon: "a1-empty-phone", tint: A1Palette.green,
-                           action: onDial)
-        }
-        .foregroundStyle(A1Palette.ink)
+        A1EmptyContent(icon: "a1-empty-clock", title: "还没有通话记录",
+                       subtitle: "拨打电话后，记录会显示在这里。",
+                       actionTitle: "拨打第一个电话", actionIcon: "a1-empty-phone", tint: A1Palette.green,
+                       action: onDial)
     }
 
     private var wideCallList: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("通话").font(A1Typography.font(32, weight: .bold))
-                Spacer()
-                Menu { Button("设置", action: onSettings) } label: {
-                    A1CallsCircleIcon(name: "a1-wide-more")
-                }
-                .accessibilityLabel("更多")
-            }
-            .frame(minHeight: 45).padding(.horizontal, 24).padding(.top, 8)
             if history.isEmpty {
                 A1EmptyContent(icon: "a1-empty-clock", title: "还没有通话记录",
                                subtitle: "拨打电话后，记录会显示在这里。",
@@ -196,48 +186,71 @@ struct A1CallsView: View {
                         }
                         .foregroundStyle(A1Palette.secondary)
                         .accessibilityLabel("清除搜索")
+                    } else {
+                        Color.clear.frame(width: 44, height: 44)
+                            .accessibilityHidden(true)
                     }
                 }
-                .padding(.horizontal, 13).padding(.vertical, 8).frame(minHeight: 44)
+                .padding(.horizontal, 12).frame(minHeight: 44)
                 .background(A1Palette.soft, in: RoundedRectangle(cornerRadius: 12))
-                .padding(.horizontal, 24).padding(.top, 17)
+                .padding(.horizontal, 20).padding(.top, 16)
                 Text("最近通话")
                     .font(A1Typography.font(13, weight: .medium)).foregroundStyle(A1Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 24).padding(.top, 17).padding(.bottom, 7)
+                    .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 8)
                 List {
-                    ForEach(history.filter { A1CallPresentation.matches($0, query: wideSearch, contacts: contacts) }) { call in
+                    if filteredWideCalls.isEmpty {
+                        Text("没有匹配的通话")
+                            .font(.body)
+                            .foregroundStyle(A1Palette.secondary)
+                            .frame(maxWidth: .infinity, minHeight: 100)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(A1Palette.background)
+                    }
+                    ForEach(A1CallPresentation.days(filteredWideCalls), id: \.self) { day in
+                        Section {
+                    ForEach(filteredWideCalls.filter { Calendar.current.isDate($0.startedAt, inSameDayAs: day) }) { call in
                         Button { selectedCall = call } label: {
-                            HStack(spacing: 12) {
-                                A1Avatar(name: contacts.displayName(for: call.number),
-                                         photoData: call.number.flatMap { contacts.contact(for: $0)?.photoData }, size: 44, fontSize: 17)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(contacts.displayName(for: call.number))
-                                        .font(A1Typography.font(17, weight: .medium)).fixedSize(horizontal: false, vertical: true)
-                                    Text("\(A1CallPresentation.direction(call)) · \(A1CallPresentation.line(call, model: model)) · \(A1CallPresentation.time(call.startedAt))")
-                                        .font(A1Typography.font(13)).foregroundStyle(A1Palette.secondary).fixedSize(horizontal: false, vertical: true)
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                                A1AssetIcon("a1-wide-chevron")
+                            HStack(spacing: 8) {
+                                A1CallRowContent(call: call)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(A1Palette.secondary)
                             }
-                            .frame(minHeight: 70).contentShape(Rectangle())
+                            .padding(.vertical, 12)
+                            .frame(minHeight: 72).contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(A1RowButtonStyle())
                         .accessibilityLabel("\(contacts.displayName(for: call.number))的通话详情")
                         .accessibilityIdentifier("a1-wide-call-row-\(call.id)")
                         .listRowBackground(selectedCall?.id == call.id ? A1Palette.soft : A1Palette.background)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
+                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                         .listRowSeparatorTint(A1Palette.separator)
-                        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                        .alignmentGuide(.listRowSeparatorLeading) { _ in 56 }
                         .alignmentGuide(.listRowSeparatorTrailing) { $0.width }
                     }
+                        } header: {
+                            Text(A1CallPresentation.dayTitle(day)).font(.subheadline.weight(.semibold)).textCase(nil)
+                                .padding(.top, 8).padding(.bottom, 4)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                        }
+                    }
                 }
-                .listStyle(.plain).scrollContentBackground(.hidden)
+                .listStyle(.plain)
+                .environment(\.defaultMinListHeaderHeight, 0)
+                .scrollContentBackground(.hidden)
                 .environment(\.defaultMinListRowHeight, 0)
                 .scrollDismissesKeyboard(.interactively)
                     }
         }
         .foregroundStyle(A1Palette.ink).background(A1Palette.background)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("通话")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar { ToolbarItem(placement: .primaryAction) {
+            Menu { Button("设置", action: onSettings) } label: { Image(systemName: "ellipsis") }
+                .accessibilityLabel("更多")
+        } }
     }
 
     private func deliverPendingMessage() {
@@ -246,56 +259,14 @@ struct A1CallsView: View {
         onMessage(request.number, request.moduleID)
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout())) {
-                Text("通话")
-                    .font(A1Typography.font(32, weight: .bold))
-                    .foregroundStyle(A1Palette.ink)
-                Spacer()
-                HStack(spacing: 8) {
-                    Button { showingSearch = true } label: {
-                        A1CallsCircleIcon(name: "a1-calls-search")
-                    }
-                    .accessibilityLabel("搜索通话和联系人")
-                    Menu {
-                        Button("设置", action: onSettings)
-                    } label: {
-                        A1CallsCircleIcon(name: "a1-calls-more")
-                    }
-                    .accessibilityLabel("更多")
-                }
-            }
-            .frame(minHeight: 45)
-            .padding(.bottom, 28)
-
-            sectionHeading("常用联系人", action: onContacts)
-                .padding(.bottom, 14)
-            favorites
-                .padding(.bottom, 31)
-
-            if let missed = history.first(where: \.missed) {
-                Text("未接来电")
-                    .font(A1Typography.font(18, weight: .bold))
-                    .foregroundStyle(A1Palette.ink)
-                    .frame(minHeight: 25, alignment: .leading)
-                    .padding(.bottom, 10)
-                missedCard(missed)
-                    .padding(.bottom, 20)
-            }
-            sectionHeading("最近通话") { showingHistory = true }
-        }
-        .buttonStyle(.plain)
-        .listRowBackground(A1Palette.background)
-    }
-
     private func sectionHeading(_ title: String, action: @escaping () -> Void) -> some View {
         (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout())) {
             Text(title)
                 .font(A1Typography.font(18, weight: .bold))
                 .foregroundStyle(A1Palette.ink)
-            Spacer()
+            if !dynamicTypeSize.isAccessibilitySize { Spacer() }
             Button("全部", action: action)
+                .buttonStyle(.plain)
                 .font(A1Typography.font(14, weight: .medium))
                 .foregroundStyle(A1Palette.linkBlue)
                 .frame(minWidth: 44, minHeight: 44)
@@ -307,147 +278,149 @@ struct A1CallsView: View {
     @ViewBuilder private var favorites: some View {
         if contacts.favoriteContacts.isEmpty {
             Button(action: onContacts) {
-                VStack(spacing: 8) {
-                    Text("还没有常用联系人")
-                        .font(A1Typography.font(15, weight: .medium))
-                        .foregroundStyle(A1Palette.ink)
-                    Text("前往联系人添加收藏")
-                        .font(A1Typography.font(13))
-                        .foregroundStyle(A1Palette.secondary)
+                HStack(spacing: 12) {
+                    Image(systemName: "star").font(.title2).foregroundStyle(A1Palette.accent)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("让常联系的人更近一点").font(.subheadline.weight(.semibold))
+                        Text("从联系人添加收藏").font(.footnote).foregroundStyle(A1Palette.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
                 }
-                .frame(maxWidth: .infinity, minHeight: 113)
-                .background(A1Palette.soft, in: RoundedRectangle(cornerRadius: 20))
+                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 24))
             }
+            .buttonStyle(A1PressButtonStyle())
         } else {
-            (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 20)) : AnyLayout(HStackLayout(alignment: .top, spacing: 21))) {
+            (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(alignment: .top, spacing: 8))) {
                 ForEach(Array(contacts.favoriteContacts.prefix(3))) { contact in
                     Button {
                         if contact.phones.count == 1, let number = contact.phones.first {
                             onCall(number, contacts.preferredModuleID(for: contact.id))
-                        } else {
-                            selectedFavorite = contact
-                        }
+                        } else { selectedFavorite = contact }
                     } label: {
-                        VStack(spacing: 3) {
-                            A1Avatar(name: contact.name, photoData: contact.photoData, size: 70)
-                            Text(contact.name)
-                                .font(A1Typography.font(16, weight: .medium))
-                                .foregroundStyle(A1Palette.ink)
-                                .frame(minHeight: 22)
-                                .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 8) {
+                            A1Avatar(name: contact.name, photoData: contact.photoData, size: 40, fontSize: 17)
+                            Text(contact.name).font(.subheadline.weight(.semibold))
+                                .foregroundStyle(A1Palette.ink).fixedSize(horizontal: false, vertical: true)
                             Text(model.lineTitle(moduleID: contacts.preferredModuleID(for: contact.id)))
-                                .font(A1Typography.font(11))
-                                .foregroundStyle(A1Palette.secondary)
+                                .font(.caption).foregroundStyle(A1Palette.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .frame(minHeight: 15)
+                            Label("呼叫", systemImage: "phone.fill")
+                                .font(.caption.weight(.semibold)).foregroundStyle(A1Palette.accent)
                         }
-                        .frame(maxWidth: .infinity)
+                        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 24))
                     }
+                    .buttonStyle(A1PressButtonStyle())
                     .disabled(contact.phones.isEmpty)
                 }
-                ForEach(0..<(dynamicTypeSize.isAccessibilitySize ? 0 : max(0, 3 - contacts.favoriteContacts.count)), id: \.self) { _ in
-                    Color.clear.frame(maxWidth: .infinity).frame(minHeight: 113)
-                }
             }
-            .frame(minHeight: 113)
         }
     }
 
-    private func missedCard(_ call: CallRecord) -> some View {
-        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
-            Button { presentedCall = call } label: {
-                HStack(spacing: 12) {
-                    A1Avatar(name: contacts.displayName(for: call.number),
-                             photoData: call.number.flatMap { contacts.contact(for: $0)?.photoData }, size: 48)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(contacts.displayName(for: call.number))
-                            .font(A1Typography.font(17, weight: .medium))
-                            .foregroundStyle(A1Palette.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text("\(A1CallPresentation.line(call, model: model)) · \(A1CallPresentation.time(call.startedAt))")
-                            .font(A1Typography.font(12))
-                            .foregroundStyle(A1Palette.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            Button { Task { await model.redial(call) } } label: {
-                HStack(spacing: 5) {
-                    A1AssetIcon("a1-calls-phone")
-                        .frame(width: 16, height: 16)
-                    Text("回拨").font(A1Typography.font(14, weight: .medium))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16).padding(.vertical, 8)
-                .frame(minWidth: 98, minHeight: 44)
-                .background(A1Palette.green, in: Capsule())
-            }
-            .disabled(RecentCallDialPolicy.numberToDial(call.number) == nil)
-            .accessibilityHint("使用此次来电的原线路回拨")
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-        .frame(minHeight: 88)
-        .background(A1Palette.soft, in: RoundedRectangle(cornerRadius: 20))
-    }
-}
-
-private struct A1CallsCircleIcon: View {
-    @ScaledMetric(relativeTo: .body) private var iconSize = 21
-    @ScaledMetric(relativeTo: .body) private var controlSize = 44
-    let name: String
-    var body: some View {
-        A1AssetIcon(name)
-            .frame(width: iconSize, height: iconSize)
-            .frame(width: min(64, max(44, controlSize)), height: min(64, max(44, controlSize)))
-            .background(A1Palette.soft, in: Circle())
-    }
 }
 
 private struct A1RecentCallRow: View {
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var contacts: ContactStore
     let call: CallRecord
     let onDetails: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 8) {
             Button { Task { await model.redial(call) } } label: {
-                (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))) {
-                    A1Avatar(name: contacts.displayName(for: call.number),
-                             photoData: call.number.flatMap { contacts.contact(for: $0)?.photoData }, size: 44)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(contacts.displayName(for: call.number))
-                            .font(A1Typography.font(17, weight: .medium))
-                            .foregroundStyle(A1Palette.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text("\(A1CallPresentation.direction(call)) · \(A1CallPresentation.line(call, model: model))")
-                            .font(A1Typography.font(13))
-                            .foregroundStyle(A1Palette.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(A1CallPresentation.time(call.startedAt))
-                        .font(.caption)
-                        .foregroundStyle(A1Palette.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(minWidth: 40, alignment: .trailing)
-                }
-                .contentShape(Rectangle())
+                A1CallRowContent(call: call)
+                    .contentShape(Rectangle())
             }
             .disabled(RecentCallDialPolicy.numberToDial(call.number) == nil)
             Button(action: onDetails) {
-                A1CallsCircleIcon(name: "a1-calls-info")
+                Image(systemName: "info.circle")
+                    .font(.title3)
+                    .foregroundStyle(A1Palette.accent)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel("\(contacts.displayName(for: call.number))的通话详情")
         }
-        .buttonStyle(.plain)
-        .padding(.vertical, 10)
+        .buttonStyle(A1RowButtonStyle())
+        .padding(.vertical, 12)
         .frame(minHeight: 72)
         .listRowBackground(A1Palette.background)
         .listRowSeparatorTint(A1Palette.separator)
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 56 }
+        .alignmentGuide(.listRowSeparatorTrailing) { $0.width }
+    }
+}
+
+private struct A1CallRowContent: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var contacts: ContactStore
+    let call: CallRecord
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            A1Avatar(name: contacts.displayName(for: call.number),
+                     photoData: call.number.flatMap { contacts.contact(for: $0)?.photoData }, size: 44)
+            VStack(alignment: .leading, spacing: 4) {
+                name
+                if dynamicTypeSize.isAccessibilitySize {
+                    stackedMetadata
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 6) {
+                            direction
+                            Text("·").accessibilityHidden(true)
+                            line
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                        stackedMetadata
+                    }
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(A1Palette.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            timestamp
+                .font(.footnote)
+                .foregroundStyle(A1Palette.secondary)
+                .fixedSize()
+        }
+    }
+
+    private var name: some View {
+        Text(contacts.displayName(for: call.number))
+            .font(.body.weight(.semibold))
+            .foregroundStyle(call.missed ? A1Palette.negative : A1Palette.ink)
+            .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var timestamp: some View {
+        Text(call.startedAt, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+            .monospacedDigit()
+    }
+
+    private var direction: some View {
+        HStack(spacing: 4) {
+            Image(systemName: call.missed ? "phone.down" : call.direction == "incoming" ? "arrow.down.left" : "arrow.up.right")
+                .accessibilityHidden(true)
+            Text(A1CallPresentation.direction(call))
+        }
+        .foregroundStyle(call.missed ? A1Palette.negative : A1Palette.secondary)
+    }
+
+    private var line: some View {
+        Text(A1CallPresentation.line(call, model: model))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var stackedMetadata: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            direction
+            line
+        }
     }
 }
 
@@ -479,12 +452,21 @@ private struct A1CallHistoryView: View {
                     .foregroundStyle(A1Palette.secondary)
                     .listRowSeparator(.hidden)
             }
-            ForEach(calls) { call in
-                A1RecentCallRow(call: call, onDetails: { selectedCall = call })
-                    .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
+            ForEach(A1CallPresentation.days(calls), id: \.self) { day in
+                Section {
+                    ForEach(calls.filter { Calendar.current.isDate($0.startedAt, inSameDayAs: day) }) { call in
+                        A1RecentCallRow(call: call, onDetails: { selectedCall = call })
+                            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                    }
+                } header: {
+                    Text(A1CallPresentation.dayTitle(day)).font(.subheadline.weight(.semibold)).textCase(nil)
+                        .padding(.top, 8).padding(.bottom, 4)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                }
             }
         }
         .listStyle(.plain)
+        .environment(\.defaultMinListHeaderHeight, 0)
         .scrollContentBackground(.hidden)
         .background(A1Palette.background)
         .navigationTitle("最近通话")
@@ -557,8 +539,12 @@ private struct A1CallDetailsView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(A1Palette.background)
+            .tint(A1Palette.accent)
             .navigationTitle("通话详情")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
@@ -579,9 +565,11 @@ private struct A1CallSearchView: View {
     @State private var pendingMessage: A1CallMessageRequest?
 
     private var matchingContacts: [ContactStore.Contact] {
-        contacts.contacts.filter {
-            search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)
-                || $0.phones.contains { $0.localizedCaseInsensitiveContains(search) }
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let numberQuery = ContactStore.normalized(query)
+        return contacts.contacts.filter {
+            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
+                || (!numberQuery.isEmpty && $0.phones.contains { ContactStore.normalized($0).contains(numberQuery) })
         }
     }
     private var matchingCalls: [CallRecord] {
@@ -605,12 +593,14 @@ private struct A1CallSearchView: View {
                                 } label: {
                                     HStack(spacing: 12) {
                                         A1Avatar(name: contact.name, photoData: contact.photoData, size: 44)
-                                        VStack(alignment: .leading, spacing: 2) {
+                                        VStack(alignment: .leading, spacing: 4) {
                                             Text(contact.name).foregroundStyle(A1Palette.ink)
                                             Text(number).font(.subheadline).foregroundStyle(A1Palette.secondary)
                                         }
                                     }
                                 }
+                                .buttonStyle(A1RowButtonStyle())
+                                .listRowBackground(A1Palette.background)
                             }
                         }
                     }
@@ -624,10 +614,14 @@ private struct A1CallSearchView: View {
                 }
             }
             .listStyle(.plain)
+            .environment(\.defaultMinListHeaderHeight, 0)
+            .scrollContentBackground(.hidden)
+            .background(A1Palette.background)
             .accessibilityIdentifier("a1-call-search-results")
             .searchable(text: $search, prompt: "搜索姓名或号码")
             .navigationTitle("搜索")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") { dismiss() }
@@ -656,6 +650,16 @@ private struct A1CallMessageRequest {
 }
 
 private enum A1CallPresentation {
+    static func days(_ calls: [CallRecord]) -> [Date] {
+        Array(Set(calls.map { Calendar.current.startOfDay(for: $0.startedAt) })).sorted(by: >)
+    }
+
+    static func dayTitle(_ day: Date) -> String {
+        if Calendar.current.isDateInToday(day) { return "今天" }
+        if Calendar.current.isDateInYesterday(day) { return "昨天" }
+        return day.formatted(date: .abbreviated, time: .omitted)
+    }
+
     @MainActor static func line(_ call: CallRecord, model: AppModel) -> String {
         guard !model.isV2 || model.moduleID(for: call) != nil else { return "原线路不可用" }
         return model.lineTitle(moduleID: model.moduleID(for: call))
@@ -666,17 +670,11 @@ private enum A1CallPresentation {
         return call.direction == "incoming" ? "呼入" : "呼出"
     }
 
-    static func time(_ date: Date) -> String {
-        if Calendar.current.isDateInToday(date) {
-            return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
-        }
-        if Calendar.current.isDateInYesterday(date) { return "昨天" }
-        return date.formatted(.dateTime.month().day())
-    }
-
     @MainActor static func matches(_ call: CallRecord, query: String, contacts: ContactStore) -> Bool {
-        query.isEmpty || contacts.displayName(for: call.number).localizedCaseInsensitiveContains(query)
-            || (call.number?.localizedCaseInsensitiveContains(query) ?? false)
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let numberQuery = ContactStore.normalized(query)
+        return query.isEmpty || contacts.displayName(for: call.number).localizedCaseInsensitiveContains(query)
+            || (!numberQuery.isEmpty && ContactStore.normalized(call.number ?? "").contains(numberQuery))
     }
 
     static func state(_ state: String) -> String {
@@ -710,18 +708,14 @@ private struct A1WideCallDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("通话详情")
-                .font(A1Typography.font(17, weight: .medium))
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .padding(.top, 8)
             ScrollView {
                 VStack(spacing: 0) {
                     A1Avatar(name: contacts.displayName(for: call.number),
-                             photoData: call.number.flatMap { contacts.contact(for: $0)?.photoData }, size: 100, fontSize: 38)
-                        .padding(.top, 36)
+                             photoData: call.number.flatMap { contacts.contact(for: $0)?.photoData }, size: 88, fontSize: 34)
+                        .padding(.top, 24)
                     Text(contacts.displayName(for: call.number))
                         .font(A1Typography.font(29, weight: .medium))
-                        .frame(minHeight: 41).padding(.top, 22)
+                        .frame(minHeight: 41).padding(.top, 16)
                     Text(A1PhonePresentation.display(call.number ?? "未知号码"))
                         .font(.body).foregroundStyle(A1Palette.secondary)
                         .frame(minHeight: 24).padding(.top, 4)
@@ -744,7 +738,7 @@ private struct A1WideCallDetailView: View {
                                 A1AssetIcon("a1-wide-phone")
                                 Text("呼叫").font(A1Typography.font(15, weight: .medium))
                             }
-                            .foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 10).frame(maxWidth: .infinity, minHeight: 50)
+                            .foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: .infinity, minHeight: 50)
                             .background(A1Palette.green, in: Capsule())
                         }
                         .accessibilityLabel("使用原线路回拨")
@@ -752,17 +746,17 @@ private struct A1WideCallDetailView: View {
                             if let number = callableNumber { onMessage(number, model.moduleID(for: call)) }
                         } label: {
                             HStack(spacing: 8) {
-                                A1AssetIcon("a1-wide-message")
+                                A1AssetIcon("a1-wide-message", tint: A1Palette.accent)
                                 Text("短信").font(A1Typography.font(15, weight: .medium))
                             }
-                            .foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 10).frame(maxWidth: .infinity, minHeight: 50)
-                            .background(A1Palette.blue, in: Capsule())
+                            .foregroundStyle(A1Palette.accent).padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: .infinity, minHeight: 50)
+                            .background(A1Palette.accentSoft, in: Capsule())
                         }
                         .accessibilityIdentifier("a1-wide-call-message")
                     }
                     .buttonStyle(.plain)
                     .disabled(callableNumber == nil || !originalLineAvailable)
-                    .frame(maxWidth: 394).padding(.top, 23)
+                    .frame(maxWidth: 394).padding(.top, 16)
                     VStack(spacing: 0) {
                         Button { showingInformation = true } label: {
                             detailRow(call.startedAt.formatted(date: .abbreviated, time: .shortened),
@@ -774,14 +768,19 @@ private struct A1WideCallDetailView: View {
                                       value: A1CallPresentation.line(call, model: model))
                         }
                     }
-                    .buttonStyle(.plain).padding(.top, 36)
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 24))
+                    .padding(.top, 24)
                 }
-                .padding(.horizontal, 24).padding(.bottom, 32)
+                .padding(.horizontal, 20).padding(.bottom, 32)
                 .frame(maxWidth: 600).frame(maxWidth: .infinity)
             }
         }
         .foregroundStyle(A1Palette.ink).background(A1Palette.background)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("通话详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .sheet(isPresented: $showingInformation) {
             NavigationStack {
                 Form {
@@ -791,6 +790,8 @@ private struct A1WideCallDetailView: View {
                     LabeledContent("状态", value: A1CallPresentation.state(call.state))
                     LabeledContent("时长", value: duration)
                 }
+                .scrollContentBackground(.hidden)
+                .background(A1Palette.background)
                 .navigationTitle("通话信息").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingInformation = false } } }
             }
@@ -804,7 +805,7 @@ private struct A1WideCallDetailView: View {
             Text(value).font(A1Typography.font(13)).foregroundStyle(A1Palette.secondary).fixedSize(horizontal: false, vertical: true)
             A1AssetIcon("a1-wide-chevron")
         }
-        .padding(.vertical, 10).frame(minHeight: 56).contentShape(Rectangle())
+        .padding(.vertical, 12).frame(minHeight: 56).contentShape(Rectangle())
     }
 }
 
@@ -825,22 +826,23 @@ struct A1EmptyContent: View {
                     A1AssetIcon(icon).frame(width: 88, height: 88)
                         .background(A1Palette.soft, in: Circle())
                     Text(title).font(A1Typography.font(23, weight: .medium))
-                        .foregroundStyle(A1Palette.ink).frame(minHeight: 33).padding(.top, 39)
+                        .foregroundStyle(A1Palette.ink).frame(minHeight: 33).padding(.top, 24)
                     Text(subtitle).font(A1Typography.font(14))
-                        .foregroundStyle(A1Palette.secondary).frame(minHeight: 20).padding(.top, 15)
+                        .foregroundStyle(A1Palette.secondary).frame(minHeight: 20).padding(.top, 12)
                     Button(action: action) {
                         HStack(spacing: 8) {
                             A1AssetIcon(actionIcon)
                             Text(actionTitle).font(A1Typography.font(15, weight: .medium))
                         }
-                        .foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 10).frame(maxWidth: 264, minHeight: 50)
+                        .foregroundStyle(.white).padding(.horizontal, 16).padding(.vertical, 12).frame(maxWidth: 264, minHeight: 50)
                         .background(tint, in: Capsule())
                     }
-                    .buttonStyle(.plain).padding(.top, dynamicTypeSize.isAccessibilitySize ? 24 : 56)
+                    .buttonStyle(A1PressButtonStyle())
+                    .padding(.top, 24)
                 }
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 20)
                 .padding(.top, dynamicTypeSize.isAccessibilitySize ? 24 : max(24, (geometry.size.height - 324) / 2))
                 .padding(.bottom, 24)
             }

@@ -3,7 +3,6 @@ import UIKit
 
 struct A1DialPadView: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var onSettings: () -> Void = {}
     @State private var selectedModuleID: String?
@@ -11,6 +10,7 @@ struct A1DialPadView: View {
     @State private var showingContactEditor = false
     @State private var zeroWasLongPressed = false
     @State private var deleteRepeatTask: Task<Void, Never>?
+    @GestureState private var deletePressed = false
     @State private var startingCall = false
 
     private let rows = [
@@ -43,27 +43,26 @@ struct A1DialPadView: View {
         return !cloud.connected && cloud.error != nil
     }
 
-    private var keyColor: Color {
-        colorScheme == .dark ? A1Palette.gray : Color(red: 229 / 255, green: 229 / 255, blue: 231 / 255)
-    }
-
     var body: some View {
         GeometryReader { geometry in
-            let spacingScale = min(1, max(0, (geometry.size.height - 24 - 547) / 152))
+            let spacingScale = min(1, max(0, (geometry.size.height - 600) / 160))
             ScrollView {
                 if lineUnavailable {
                     unavailableContent(height: geometry.size.height)
                 } else {
                     VStack(spacing: 0) {
-                        lineSelector
-                            .padding(.top, 44 * spacingScale)
-                            .zIndex(2)
-                        numberDisplay
-                            .padding(.top, 51 * spacingScale)
+                        VStack(spacing: 8) {
+                            lineSelector
+                            numberDisplay
+                        }
+                        .padding(.vertical, 12)
+                        .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12 + 12 * spacingScale)
                         keypad
-                            .padding(.top, 34 * spacingScale)
+                            .padding(.top, 24 + 8 * spacingScale)
                         actions
-                            .padding(.top, 23 * spacingScale)
+                            .padding(.top, 20)
                             .padding(.bottom, 24)
                     }
                     .frame(maxWidth: 600)
@@ -98,12 +97,12 @@ struct A1DialPadView: View {
                 Text("拨号键盘").font(A1Typography.font(32, weight: .bold))
                 Spacer()
                 Button(action: onSettings) {
-                    A1AssetIcon("a1-calls-more").frame(width: 44, height: 44)
+                    Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44)
                         .background(A1Palette.soft, in: Circle())
                 }.accessibilityLabel("号卡设置")
             }.padding(.top, 8)
             lineSelector.padding(.top, 33).zIndex(2)
-            A1AssetIcon("a1-card-network")
+            Image(systemName: "antenna.radiowaves.left.and.right.slash").font(.system(size: 32, weight: .light))
                 .frame(width: 88, height: 88).background(A1Palette.soft, in: Circle())
                 .padding(.top, max(32, min(105, height * 0.15)))
             Text(model.cloudV2?.connected == true ? "号卡暂不可用" : "网络不可用")
@@ -118,7 +117,7 @@ struct A1DialPadView: View {
                 Text("当前选择仍为\(model.lineTitle(moduleID: outgoingModuleID))")
                     .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary).padding(.top, 25)
             }
-        }.padding(.horizontal, 24).padding(.bottom, 32)
+        }.padding(.horizontal, 20).padding(.bottom, 32)
             .frame(maxWidth: 600).frame(maxWidth: .infinity)
             .accessibilityIdentifier("a1-dial-unavailable")
     }
@@ -126,6 +125,8 @@ struct A1DialPadView: View {
     private var lineSelector: some View {
         Button { showingLines = true } label: {
             HStack(spacing: 12) {
+                Image(systemName: "simcard")
+                    .accessibilityHidden(true)
                 Text("呼出")
                     .foregroundStyle(A1Palette.secondary)
                 Text(outgoingModuleID == nil ? "选择号卡" : model.lineTitle(moduleID: outgoingModuleID))
@@ -139,10 +140,10 @@ struct A1DialPadView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .frame(minHeight: 44)
-            .background(A1Palette.soft, in: RoundedRectangle(cornerRadius: 24))
+            .background(A1Palette.accentSoft, in: Capsule())
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 24)
+        .buttonStyle(A1PressButtonStyle())
+        .padding(.horizontal, 20)
         .accessibilityLabel("选择本次呼出号卡")
         .accessibilityValue(outgoingModuleID.map { model.lineTitle(moduleID: $0) } ?? "未选择")
         .accessibilityIdentifier("module-selector")
@@ -195,9 +196,10 @@ struct A1DialPadView: View {
     }
 
     private var numberDisplay: some View {
-        VStack(spacing: 3) {
-            Text(model.numberInput.isEmpty ? " " : A1PhonePresentation.display(model.numberInput))
-                .font(.largeTitle)
+        VStack(spacing: 0) {
+            Text(model.numberInput.isEmpty ? "准备通话" : A1PhonePresentation.display(model.numberInput))
+                .font(.largeTitle.weight(.medium))
+                .monospacedDigit()
                 .foregroundStyle(A1Palette.ink)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                 .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 1 : 0.45)
@@ -221,19 +223,19 @@ struct A1DialPadView: View {
                         .foregroundStyle(A1Palette.linkBlue)
                         .frame(minHeight: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(A1PressButtonStyle())
                 .accessibilityIdentifier("a1-dial-add-contact")
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 20)
     }
 
-    private var keyDiameter: CGFloat { dynamicTypeSize.isAccessibilitySize ? 90 : 78 }
+    private var keyDiameter: CGFloat { dynamicTypeSize.isAccessibilitySize ? 88 : 76 }
 
     private var keypad: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: dynamicTypeSize.isAccessibilitySize ? 10 : 28) {
+                HStack(spacing: dynamicTypeSize.isAccessibilitySize ? 8 : 28) {
                     ForEach(row, id: \.0) { digit, letters in
                         key(digit, letters: letters)
                     }
@@ -265,10 +267,11 @@ struct A1DialPadView: View {
                 }
             }
             .frame(width: keyDiameter, height: keyDiameter)
-            .background(keyColor, in: Circle())
+            .background(A1Palette.keypadFill, in: Circle())
+            .overlay(Circle().strokeBorder(A1Palette.separator, lineWidth: 1))
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(A1PressButtonStyle())
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.45).onEnded { _ in
                 if digit == "0" {
@@ -305,18 +308,29 @@ struct A1DialPadView: View {
                     startingCall = false
                 }
             } label: {
-                A1AssetIcon(canCall ? "a1-dial-call" : "a1-dial-call-disabled")
+                Group {
+                    if startingCall {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "phone.fill")
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(canCall ? Color.white : A1Palette.secondary)
+                    }
+                }
                     .frame(width: 78, height: 78)
-                    .background(canCall ? A1Palette.green : A1Palette.gray, in: Circle())
+                    .background(canCall || startingCall ? A1Palette.green : A1Palette.soft, in: Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(A1PressButtonStyle())
             .disabled(!canCall)
             .accessibilityLabel("呼叫")
             .accessibilityIdentifier("a1-dial-call")
 
-            A1AssetIcon("a1-dial-delete")
+            Image(systemName: "delete.left")
+                .font(.system(size: 24))
+                .foregroundStyle(A1Palette.secondary)
                 .frame(width: 52, height: 52)
                 .contentShape(Circle())
+                .opacity(deletePressed ? 0.55 : 1)
                 .gesture(deleteGesture)
                 .frame(width: 78, height: 78)
                 .opacity(model.numberInput.isEmpty ? 0 : 1)
@@ -363,6 +377,7 @@ struct A1DialPadView: View {
 
     private var deleteGesture: some Gesture {
         DragGesture(minimumDistance: 0)
+            .updating($deletePressed) { _, pressed, _ in pressed = true }
             .onChanged { _ in beginDeleting() }
             .onEnded { _ in stopRepeatingDelete() }
     }

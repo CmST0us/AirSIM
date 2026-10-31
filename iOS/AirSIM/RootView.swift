@@ -57,21 +57,21 @@ struct RootView: View {
                             onContacts: { selectedTab = .contacts },
                             onSettings: { selectedTab = .cards }, onDial: { selectedTab = .dial })
                     .tag(PhoneTab.calls)
-                    .tabItem { tabLabel(.calls, asset: selectedTab == .calls ? "a1-tab-calls-selected" : "a1-tab-calls") }
+                    .tabItem { Label("通话", systemImage: "phone") }
                 A1ContactsView(onCall: dial, onMessage: composeMessage)
                     .tag(PhoneTab.contacts)
-                    .tabItem { tabLabel(.contacts, asset: selectedTab == .contacts ? "a1-tab-contacts-selected" : "a1-tab-contacts") }
+                    .tabItem { Label("联系人", systemImage: "person.crop.circle") }
                 A1MessagesView(pendingRecipient: $pendingSMSRecipient,
                                pendingConversation: $pendingSMSConversation,
                                onSettings: { selectedTab = .cards })
                     .tag(PhoneTab.messages)
-                    .tabItem { Label { Text("短信") } icon: { messageTabIcon } }
+                    .tabItem { Label("短信", systemImage: "bubble.left.and.bubble.right") }
                 A1DialPadView(onSettings: { selectedTab = .cards })
                     .tag(PhoneTab.dial)
-                    .tabItem { tabLabel(.dial, asset: selectedTab == .contacts ? "a1-contacts-tab-keypad" : "a1-tab-keypad") }
+                    .tabItem { Label("拨号键盘", systemImage: "circle.grid.3x3") }
                 AirSIMSettingsView()
                     .tag(PhoneTab.cards)
-                    .tabItem { tabLabel(.cards, asset: selectedTab == .contacts ? "a1-contacts-tab-sim" : "a1-tab-sim") }
+                    .tabItem { Label("号卡", systemImage: "simcard") }
             }
             .phoneTabSelectionFeedback(selectedTab.rawValue)
             .tint(A1Palette.linkBlue)
@@ -81,7 +81,7 @@ struct RootView: View {
             }
         }
         .background(A1Palette.background)
-        .preferredColorScheme(settings.appearance.colorScheme)
+        .preferredColorScheme(model.inAppPresentedCall == nil ? settings.appearance.colorScheme : .dark)
         .onChange(of: model.messageScope) { _ in
             pendingSMSRecipient = nil; pendingSMSConversation = nil; model.numberInput = ""
         }
@@ -109,14 +109,6 @@ struct RootView: View {
         .animation(.easeOut(duration: reduceMotion ? 0.1 : 0.2), value: model.errorMessage)
     }
 
-    private func tabLabel(_ tab: PhoneTab, asset: String) -> some View {
-        Label { Text(tab.rawValue) } icon: {
-            Image(asset).renderingMode(.template)
-        }
-    }
-    private var messageTabIcon: Image {
-        Image("a1-detail-message").renderingMode(.template)
-    }
     private var selectedTabBinding: Binding<PhoneTab> {
         Binding(get: { selectedTab }, set: { selectedTab = $0 })
     }

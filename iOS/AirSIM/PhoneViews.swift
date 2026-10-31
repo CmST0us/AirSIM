@@ -320,8 +320,8 @@ struct ActiveCallView: View {
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .foregroundStyle(A1Palette.ink)
-        .background(A1Palette.soft.ignoresSafeArea())
+        .foregroundStyle(A1Palette.onCard)
+        .background(A1Palette.callBackground.ignoresSafeArea())
         .contentShape(Rectangle())
         .sheet(isPresented: $showingKeypad) { DTMFKeypadView() }
         .onAppear { updateProximityMonitoring() }
@@ -334,7 +334,7 @@ struct ActiveCallView: View {
         VStack(spacing: 0) {
             identity(compact: compact)
             if !incoming && !dialing {
-                secondaryControls.padding(.top, compact ? 34 : 66)
+                secondaryControls.padding(.top, compact ? 32 : 64)
             }
             Spacer(minLength: 28)
             primaryControls
@@ -344,26 +344,29 @@ struct ActiveCallView: View {
 
     private func identity(compact: Bool) -> some View {
         VStack(spacing: 0) {
-            Text(callLabel)
-                .font(A1Typography.font(13))
-                .foregroundStyle(A1Palette.secondary)
+            Label(callLabel, systemImage: "phone.connection.fill")
+                .font(A1Typography.font(13, weight: .medium))
+                .foregroundStyle(A1Palette.onCard.opacity(0.72))
                 .frame(minHeight: 19)
             A1Avatar(name: displayName, photoData: contactPhotoData, size: compact ? 92 : 112, fontSize: compact ? 35 : 43)
-                .padding(.top, compact ? 24 : 39)
+                .padding(.top, compact ? 24 : 40)
             Text(displayName)
-                .font(A1Typography.font(32, weight: .medium))
+                .font(A1Typography.font(32, weight: .semibold))
                 .multilineTextAlignment(.center)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                 .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 1 : 0.7)
                 .frame(minHeight: 45)
-                .padding(.top, compact ? 16 : 26)
+                .padding(.top, compact ? 16 : 24)
             Text("\(incoming ? "打入" : "使用") \(model.lineTitle(moduleID: moduleID))")
                 .font(A1Typography.font(15))
-                .foregroundStyle(A1Palette.secondary)
+                .foregroundStyle(A1Palette.onCard.opacity(0.72))
                 .multilineTextAlignment(.center)
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                 .frame(minHeight: 21)
-                .padding(.top, 8)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(A1Palette.onCard.opacity(0.10), in: Capsule())
+                .padding(.top, 12)
             status.padding(.top, 20)
             if !incoming && !dialing && audioUnavailable {
                 Text("通话音频暂不可用")
@@ -380,24 +383,23 @@ struct ActiveCallView: View {
         if incoming {
             Text(A1PhonePresentation.display(call.number ?? "未知号码"))
                 .font(.subheadline.monospacedDigit())
-                .foregroundStyle(A1Palette.secondary)
+                .foregroundStyle(A1Palette.onCard.opacity(0.72))
                 .frame(minHeight: 21)
         } else if dialing {
             Text("正在呼叫…")
                 .font(A1Typography.font(15))
-                .foregroundStyle(A1Palette.secondary)
+                .foregroundStyle(A1Palette.onCard.opacity(0.72))
                 .frame(minHeight: 21)
         } else if call.state == "ending" {
             Text("正在结束…")
                 .font(A1Typography.font(15))
-                .foregroundStyle(A1Palette.secondary)
+                .foregroundStyle(A1Palette.onCard.opacity(0.72))
                 .frame(minHeight: 35)
         } else {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(durationText(at: context.date))
-                    .font(.title2.monospacedDigit())
-                    .foregroundStyle(A1Palette.secondary)
-                    .contentTransition(.numericText())
+                    .font(.title.monospacedDigit())
+                    .foregroundStyle(A1Palette.onCard.opacity(0.72))
                     .frame(minHeight: 35)
             }
         }
@@ -408,19 +410,19 @@ struct ActiveCallView: View {
             ? AnyLayout(VStackLayout(spacing: 24))
             : AnyLayout(HStackLayout(spacing: 16))
         return layout {
-            A1CallControl(title: "静音", asset: "a1-call-state-mic", diameter: 72,
-                          fill: model.isMuted ? A1Palette.gray : A1Palette.background,
+            A1CallControl(title: "静音", symbol: "mic.slash.fill", diameter: 72,
+                          fill: A1Palette.onCard.opacity(0.12),
                           selected: model.isMuted) {
                 Task { await model.toggleMute() }
             }
             .accessibilityLabel(model.isMuted ? "取消静音" : "静音")
             .accessibilityIdentifier("a1-call-state-mute")
             .disabled(!audioControlsEnabled)
-            A1CallControl(title: "键盘", asset: "a1-call-state-keypad", diameter: 72,
-                          fill: A1Palette.background) { showingKeypad = true }
+            A1CallControl(title: "键盘", symbol: "circle.grid.3x3.fill", diameter: 72,
+                          fill: A1Palette.onCard.opacity(0.12)) { showingKeypad = true }
                 .accessibilityIdentifier("a1-call-state-keypad")
-            A1CallControl(title: "扬声器", asset: "a1-call-state-speaker", diameter: 72,
-                          fill: model.speakerEnabled ? A1Palette.gray : A1Palette.background,
+            A1CallControl(title: "扬声器", symbol: "speaker.wave.2.fill", diameter: 72,
+                          fill: A1Palette.onCard.opacity(0.12),
                           selected: model.speakerEnabled) { model.toggleSpeaker() }
                 .accessibilityIdentifier("a1-call-state-speaker")
                 .disabled(!audioControlsEnabled)
@@ -431,20 +433,20 @@ struct ActiveCallView: View {
     private var primaryControls: some View {
         if incoming {
             HStack {
-                A1CallControl(title: "拒绝", asset: "a1-call-state-incoming-hangup", diameter: 78,
-                              fill: Color("A1Red")) { Task { await model.reject() } }
+                A1CallControl(title: "拒绝", symbol: "phone.down.fill", diameter: 78,
+                              fill: A1Palette.negative) { Task { await model.reject() } }
                     .accessibilityLabel("拒接")
                     .accessibilityIdentifier("a1-call-state-decline")
                 Spacer(minLength: 40)
-                A1CallControl(title: "接听", asset: "a1-call-state-answer", diameter: 78,
+                A1CallControl(title: "接听", symbol: "phone.fill", diameter: 78,
                               fill: A1Palette.green) { Task { await model.answer() } }
                     .accessibilityIdentifier("a1-call-state-answer")
             }
             .frame(maxWidth: 270)
         } else {
             A1CallControl(title: dialing ? "取消呼叫" : "结束通话",
-                          asset: dialing ? "a1-call-state-outgoing-hangup" : "a1-call-state-active-hangup",
-                          diameter: 78, fill: Color("A1Red"), labelSpacing: 17) { Task { await model.hangup() } }
+                          symbol: "phone.down.fill",
+                          diameter: 78, fill: A1Palette.negative, labelSpacing: 16) { Task { await model.hangup() } }
                 .accessibilityLabel(dialing ? "取消呼叫" : "挂断")
                 .accessibilityIdentifier("a1-call-state-hangup")
                 .disabled(call.state == "ending")
@@ -465,26 +467,27 @@ struct ActiveCallView: View {
 }
 
 private struct A1CallControl: View {
+    @Environment(\.isEnabled) private var isEnabled
     let title: String
-    let asset: String
+    let symbol: String
     let diameter: CGFloat
     let fill: Color
     var selected = false
-    var labelSpacing: CGFloat = 15
+    var labelSpacing: CGFloat = 12
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: labelSpacing) {
-                Image(asset)
-                    .renderingMode(diameter == 72 ? .template : .original)
-                    .foregroundStyle(A1Palette.ink)
+                Image(systemName: symbol)
+                    .font(.system(size: 28, weight: .medium))
+                    .foregroundStyle(selected ? Color.black : A1Palette.onCard)
                     .accessibilityHidden(true)
                     .frame(width: diameter, height: diameter)
-                    .background(fill, in: Circle())
+                    .background(selected ? A1Palette.onCard : fill, in: Circle())
                 Text(title)
                     .font(A1Typography.font(13))
-                    .foregroundStyle(A1Palette.secondary)
+                    .foregroundStyle(A1Palette.onCard.opacity(0.72))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(minHeight: 19)
@@ -492,7 +495,8 @@ private struct A1CallControl: View {
             .frame(minWidth: 78)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(A1PressButtonStyle())
+        .opacity(isEnabled ? 1 : 0.4)
         .accessibilityLabel(title)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -501,18 +505,21 @@ private struct A1CallControl: View {
 private struct DTMFKeypadView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject private var model: AppModel
     @State private var enteredDigits = ""
     private let rows = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["*", "0", "#"]]
 
-    private var keySize: CGFloat { horizontalSizeClass == .compact ? 62 : 70 }
+    private var keySize: CGFloat {
+        dynamicTypeSize.isAccessibilitySize ? 90 : horizontalSizeClass == .compact ? 62 : 70
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
                     Text(enteredDigits.isEmpty ? " " : enteredDigits)
-                        .font(.system(.title3, design: .rounded).monospacedDigit())
+                        .font(.title3.monospacedDigit())
                         .foregroundStyle(enteredDigits.isEmpty ? .secondary : .primary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -520,9 +527,10 @@ private struct DTMFKeypadView: View {
                     keypad
                 }
                 .frame(maxWidth: .infinity)
-                .padding(24)
+                .padding(.vertical, 24)
+                .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 12 : 24)
             }
-            .background(A1Palette.soft)
+            .background(A1Palette.background)
             .navigationTitle("通话键盘")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -531,14 +539,14 @@ private struct DTMFKeypadView: View {
                 }
             }
         }
-        .presentationDetents([.height(510), .large])
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.height(510), .large])
         .presentationDragIndicator(.visible)
     }
 
     private var keypad: some View {
         VStack(spacing: 16) {
             ForEach(rows, id: \.description) { row in
-                HStack(spacing: 24) {
+                HStack(spacing: dynamicTypeSize.isAccessibilitySize ? 10 : 24) {
                     ForEach(row, id: \.self) { digit in
                         Button {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -546,27 +554,20 @@ private struct DTMFKeypadView: View {
                             Task { await model.sendDTMF(digit) }
                         } label: {
                             Text(digit)
-                                .font(.system(.title, design: .rounded).weight(.medium))
+                                .font(.title)
                                 .minimumScaleFactor(0.6)
                                 .lineLimit(1)
                                 .frame(width: keySize, height: keySize)
+                                .background(A1Palette.keypadFill, in: Circle())
+                                .overlay(Circle().strokeBorder(A1Palette.separator, lineWidth: 1))
+                                .foregroundStyle(A1Palette.ink)
                                 .contentShape(Circle())
                         }
-                        .buttonStyle(A1DTMFButtonStyle())
+                        .buttonStyle(A1PressButtonStyle())
                         .accessibilityLabel("发送 DTMF \(digit)")
                     }
                 }
             }
         }
-    }
-}
-
-private struct A1DTMFButtonStyle: ButtonStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(configuration.isPressed ? A1Palette.gray : A1Palette.background, in: Circle())
-            .foregroundStyle(A1Palette.ink)
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
     }
 }

@@ -65,6 +65,12 @@ class UITestCase: XCTestCase {
 
     }
 
+    func keepEditing(in title: String) {
+        let keep = app.buttons["继续编辑"]
+        if keep.exists { keep.tap() }
+        else { app.navigationBars[title].staticTexts[title].tap() }
+    }
+
     func capture(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
@@ -265,8 +271,8 @@ final class RealRuntimeDiagnosticTests: XCTestCase {
         let rename = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "rename-")).firstMatch
         XCTAssertTrue(rename.exists)
         rename.tap()
-        XCTAssertTrue(app.navigationBars["模块名称"].waitForExistence(timeout: 5))
-        app.navigationBars["模块名称"].buttons["取消"].tap()
+        XCTAssertTrue(app.navigationBars["号卡名称"].waitForExistence(timeout: 5))
+        app.navigationBars["号卡名称"].buttons["取消"].tap()
         print("AIRSIM_SETTINGS_VERIFIED")
     }
 
@@ -370,7 +376,7 @@ final class ModuleNamingTests: UITestCase {
         let rename = app.buttons["rename-00112233-4455-4677-8899-aabbccddeeff"]
         XCTAssertTrue(rename.waitForExistence(timeout: 10))
         rename.tap()
-        let editor = app.navigationBars["模块名称"]
+        let editor = app.navigationBars["号卡名称"]
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
         let field = app.textFields["module-name"]
         field.tap()
@@ -392,8 +398,10 @@ final class A1DesignTests: UITestCase {
     func testDesignScreenshotsAndFiveTabs() {
         openTab("通话")
         XCTAssertTrue(app.staticTexts["常用联系人"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["未接来电"].exists)
-        XCTAssertTrue(app.buttons["周宁的通话详情"].exists)
+        reveal(app.staticTexts["未接"].firstMatch)
+        reveal(app.buttons["周宁的通话详情"])
+        reveal(app.buttons["全部常用联系人"], up: false)
+        app.swipeDown()
         capture("a1-01-calls")
         openTab("联系人")
         XCTAssertTrue(app.staticTexts["陈默"].waitForExistence(timeout: 5))
@@ -423,7 +431,7 @@ final class A1DesignTests: UITestCase {
         capture("a1-contact-search")
         app.staticTexts["陈默"].firstMatch.tap()
         let removeFavorite = app.buttons["移出常用联系人"]
-        XCTAssertTrue(removeFavorite.waitForExistence(timeout: 5))
+        reveal(removeFavorite)
         removeFavorite.tap()
         let addFavorite = app.buttons["加入常用联系人"]
         XCTAssertTrue(addFavorite.waitForExistence(timeout: 5))
@@ -462,15 +470,17 @@ final class A1DesignTests: UITestCase {
         let finishSearch = app.navigationBars["搜索"].buttons["完成"]
         XCTAssertTrue(finishSearch.waitForExistence(timeout: 5))
         finishSearch.tap()
-        app.buttons["全部最近通话"].tap()
+        let allCalls = app.buttons["全部最近通话"]
+        reveal(allCalls)
+        allCalls.tap()
         XCTAssertTrue(app.navigationBars["最近通话"].waitForExistence(timeout: 5))
         capture("a1-full-call-history")
         let details = app.buttons["周宁的通话详情"]
-        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        reveal(details)
         details.tap()
         XCTAssertTrue(app.navigationBars["通话详情"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["开始时间"].exists)
-        XCTAssertTrue(app.buttons["使用原线路回拨"].exists)
+        reveal(app.buttons["使用原线路回拨"])
         capture("a1-call-detail")
         app.navigationBars.buttons["完成"].tap()
         XCTAssertTrue(app.navigationBars["最近通话"].waitForExistence(timeout: 5))
@@ -485,7 +495,7 @@ final class A1DesignTests: UITestCase {
         search.typeText("陈默")
         let results = app.descendants(matching: .any).matching(identifier: "a1-call-search-results").firstMatch
         let details = results.buttons["陈默的通话详情"]
-        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        reveal(details)
         details.tap()
         XCTAssertTrue(app.navigationBars["通话详情"].waitForExistence(timeout: 5))
         let message = app.buttons["发送短信"]
@@ -518,6 +528,15 @@ final class A1DesignTests: UITestCase {
         openTab("通话")
         XCTAssertTrue(app.buttons["更多"].waitForExistence(timeout: 5))
     }
+    private func reveal(_ element: XCUIElement, up: Bool = true,
+                        file: StaticString = #filePath, line: UInt = #line) {
+        for _ in 0..<6 where !element.exists || !element.isHittable {
+            if up { app.swipeUp() } else { app.swipeDown() }
+        }
+        XCTAssertTrue(element.exists, file: file, line: line)
+        XCTAssertTrue(element.isHittable, file: file, line: line)
+    }
+
 }
 
 
@@ -608,6 +627,11 @@ final class A1AdaptiveDesignTests: ConversationTestCase {
         XCTAssertTrue(work.waitForExistence(timeout: 5))
         work.tap()
         enterReply("宽窄窗口草稿")
+        if usesSplitView {
+            let title = app.navigationBars.staticTexts["短信"].firstMatch
+            let search = app.textFields["a1-message-search"]
+            XCTAssertLessThanOrEqual(title.frame.maxY + 8, search.frame.minY)
+        }
         capture("formal-wide-messages")
         XCUIDevice.shared.orientation = .portrait
         let draft = app.descendants(matching: .any).matching(identifier: "message-reply").firstMatch
@@ -656,7 +680,14 @@ final class A1AccessibilityDesignTests: UITestCase {
 
     func testLargestTextContentAndFormsRemainReachable() {
         openTab("通话")
+        let allFavorites = app.buttons["全部常用联系人"]
+        reveal(allFavorites)
+        let firstFavorite = app.staticTexts["陈默"].firstMatch
+        reveal(firstFavorite)
+        XCTAssertLessThanOrEqual(allFavorites.frame.maxY, firstFavorite.frame.minY)
         capture("hig-ax5-calls")
+        reveal(app.buttons["全部最近通话"])
+        reveal(app.buttons["周宁的通话详情"])
         openTab("联系人")
         let contact = app.buttons["a1-contact-row-design-contact-0"]
         reveal(contact)
@@ -710,12 +741,13 @@ final class A1AccessibilityDesignTests: UITestCase {
         app.buttons["取消"].tap()
     }
 
-    private func reveal(_ element: XCUIElement, up: Bool = true) {
-        XCTAssertTrue(element.waitForExistence(timeout: 5))
-        for _ in 0..<6 where !element.isHittable {
+    private func reveal(_ element: XCUIElement, up: Bool = true,
+                        file: StaticString = #filePath, line: UInt = #line) {
+        for _ in 0..<8 where !element.exists || !element.isHittable {
             if up { app.swipeUp() } else { app.swipeDown() }
         }
-        XCTAssertTrue(element.isHittable)
+        XCTAssertTrue(element.exists, file: file, line: line)
+        XCTAssertTrue(element.isHittable, file: file, line: line)
     }
 }
 
@@ -743,5 +775,195 @@ final class A1FoldContinuityTests: ConversationTestCase {
         XCTAssertTrue(work.waitForExistence(timeout: 5))
         work.tap()
         XCTAssertEqual(draft.value as? String, "fold-draft")
+    }
+}
+
+final class AppllamaContactInteractionTests: UITestCase {
+    override var scenario: String { "design-a1" }
+
+    func testContactSearchKeepsItsFrameWhenTypingAndClearing() {
+        openTab("联系人")
+        let search = app.textFields["搜索姓名或号码"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        let emptyFrame = search.frame
+        search.typeText("陈默")
+        let clear = app.buttons["清除搜索"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 5))
+        XCTAssertEqual(search.frame.minY, emptyFrame.minY, accuracy: 1)
+        XCTAssertEqual(search.frame.height, emptyFrame.height, accuracy: 1)
+        XCTAssertTrue(app.buttons["a1-contact-row-design-contact-0"].exists)
+        XCTAssertFalse(app.buttons["a1-contact-row-design-contact-2"].exists)
+        clear.tap()
+        XCTAssertTrue(app.buttons["a1-contact-row-design-contact-2"].waitForExistence(timeout: 5))
+        XCTAssertEqual(search.frame.minY, emptyFrame.minY, accuracy: 1)
+        XCTAssertEqual(search.frame.height, emptyFrame.height, accuracy: 1)
+        capture("appllama-contact-search-cleared")
+    }
+
+    func testDirtyContactEditorKeepsChangesUntilExplicitDiscard() {
+        openTab("联系人")
+        let row = app.buttons["a1-contact-row-design-contact-0"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.tap()
+        app.buttons["a1-contact-edit"].tap()
+        let editor = app.navigationBars["编辑联系人"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        let name = app.textFields["姓名"]
+        name.tap()
+        name.typeText("测试")
+        let editedName = name.value as? String
+        XCTAssertTrue(editedName?.contains("测试") == true)
+        editor.buttons["取消"].tap()
+        XCTAssertTrue(app.buttons["放弃更改"].waitForExistence(timeout: 5))
+        keepEditing(in: "编辑联系人")
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        XCTAssertEqual(name.value as? String, editedName)
+        editor.buttons["取消"].tap()
+        let discard = app.buttons["放弃更改"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.tap()
+        XCTAssertTrue(app.buttons["a1-contact-edit"].waitForExistence(timeout: 5))
+        XCTAssertFalse(editor.exists)
+        XCTAssertTrue(app.staticTexts["陈默"].exists)
+        capture("appllama-contact-discarded")
+    }
+}
+
+final class AppllamaCachedContactLoadTests: UITestCase {
+    override var scenario: String { "design-a1" }
+    override var presentationArguments: [String] { ["--ui-contacts-load-error"] }
+
+    func testFailedRefreshKeepsCachedContactsAndCanRetry() {
+        openTab("联系人")
+        let error = app.staticTexts["无法读取通讯录，请重试"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        let row = app.buttons["a1-contact-row-design-contact-0"]
+        XCTAssertTrue(row.isHittable)
+        capture("appllama-contacts-cached-error")
+        app.buttons["a1-contacts-retry"].tap()
+        let recovered = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: error)
+        wait(for: [recovered], timeout: 5)
+        XCTAssertTrue(row.isHittable)
+        row.tap()
+        XCTAssertTrue(app.buttons["a1-contact-edit"].waitForExistence(timeout: 5))
+    }
+}
+
+final class AppllamaEmptyContactLoadTests: UITestCase {
+    override var scenario: String { "design-empty" }
+    override var presentationArguments: [String] { ["--ui-contacts-load-error"] }
+
+    func testFailedInitialLoadIsDistinctFromSuccessfulEmptyContacts() {
+        openTab("联系人")
+        let error = app.staticTexts["无法读取通讯录，请重试"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["还没有联系人"].exists)
+        XCTAssertFalse(app.staticTexts["授权访问通讯录"].exists)
+        capture("appllama-contacts-empty-error")
+        app.buttons["a1-contacts-retry"].tap()
+        XCTAssertTrue(app.staticTexts["还没有联系人"].waitForExistence(timeout: 5))
+        XCTAssertFalse(error.exists)
+        XCTAssertTrue(app.buttons["添加联系人"].isHittable)
+    }
+}
+
+final class AppllamaCardInteractionTests: UITestCase {
+    override var scenario: String { "design-messages" }
+
+    func testRenamingKeepsEditsUntilExplicitDiscard() {
+        openTab("号卡")
+        let module = app.buttons["module-00112233-4455-4677-8899-aabbccddeeff"]
+        XCTAssertTrue(module.waitForExistence(timeout: 5))
+        module.tap()
+        let rename = app.buttons["rename-00112233-4455-4677-8899-aabbccddeeff"]
+        XCTAssertTrue(rename.waitForExistence(timeout: 5))
+        rename.tap()
+        let editor = app.navigationBars["号卡名称"]
+        let name = app.textFields["module-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        let originalName = name.value as? String ?? ""
+        name.typeText("测试")
+        let editedName = name.value as? String
+        XCTAssertTrue(editedName?.contains("测试") == true)
+        editor.buttons["取消"].tap()
+        XCTAssertTrue(app.buttons["放弃更改"].waitForExistence(timeout: 5))
+        keepEditing(in: "号卡名称")
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        XCTAssertEqual(name.value as? String, editedName)
+        editor.buttons["取消"].tap()
+        let discard = app.buttons["放弃更改"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 5))
+        discard.tap()
+        XCTAssertTrue(rename.waitForExistence(timeout: 5))
+        XCTAssertFalse(editor.exists)
+        rename.tap()
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        XCTAssertEqual(name.value as? String, originalName)
+        editor.buttons["取消"].tap()
+        XCTAssertTrue(rename.waitForExistence(timeout: 5))
+        capture("appllama-card-rename-discarded")
+    }
+
+    func testPairingCodeKeyboardAndExpiredCodeFeedback() {
+        openTab("号卡")
+        let add = app.buttons["v2-add-device"]
+        XCTAssertTrue(add.waitForExistence(timeout: 5))
+        XCTAssertTrue(add.isEnabled)
+        add.tap()
+        let field = app.textFields["v2-pairing-code"]
+        let lookup = app.buttons["v2-pairing-lookup"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertFalse(lookup.isEnabled)
+        field.tap()
+        field.typeText("1234567")
+        XCTAssertFalse(lookup.isEnabled)
+        field.typeText("8")
+        XCTAssertTrue(lookup.isEnabled)
+        let done = app.buttons["完成"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        done.tap()
+        let hiddenKeyboard = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.keyboards.firstMatch)
+        wait(for: [hiddenKeyboard], timeout: 5)
+        XCTAssertTrue(lookup.isHittable)
+        lookup.tap()
+        let error = app.staticTexts["连接码已过期，请在网页重新连接。"]
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        XCTAssertEqual(field.value as? String, "12345678")
+        XCTAssertTrue(lookup.isEnabled)
+        lookup.tap()
+        XCTAssertTrue(error.waitForExistence(timeout: 5))
+        capture("appllama-pairing-expired")
+        app.navigationBars["添加设备"].buttons["取消"].tap()
+        XCTAssertTrue(add.waitForExistence(timeout: 5))
+        XCTAssertFalse(field.exists)
+    }
+
+}
+
+final class AppllamaAdaptiveSearchTests: UITestCase {
+    override var scenario: String { "design-messages" }
+    override var presentationArguments: [String] { ["-airsim.appearance", "light"] }
+
+    func testMessageSearchRemainsVisibleWhenWindowNarrows() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        openTab("短信")
+        let search = app.textFields["a1-message-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("顺丰")
+        search.typeText("\n")
+        XCTAssertTrue(app.staticTexts["顺丰速运"].waitForExistence(timeout: 5))
+        capture("appllama-wide-search")
+        XCUIDevice.shared.orientation = .portrait
+        if messageBackButton.waitForExistence(timeout: 3) { messageBackButton.tap() }
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        XCTAssertEqual(search.value as? String, "顺丰")
+        XCTAssertTrue(app.buttons["结束搜索"].exists)
+        capture("appllama-narrow-search")
+        app.buttons["结束搜索"].tap()
+        XCTAssertTrue(app.staticTexts["林晓"].waitForExistence(timeout: 5))
     }
 }

@@ -78,29 +78,6 @@ struct A1ContactsView: View {
 
     private var contactList: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("联系人")
-                    .font(A1Typography.font(32, weight: .bold))
-                Spacer()
-                if contacts.contacts.isEmpty {
-                    Menu { Button("添加联系人") { showingEditor = true } } label: {
-                        A1AssetIcon("a1-empty-more")
-                            .frame(width: 44, height: 44)
-                            .background(A1Palette.soft, in: Circle())
-                    }
-                    .accessibilityLabel("更多")
-                } else {
-                    Button { showingEditor = true } label: {
-                        A1AssetIcon("a1-contacts-plus")
-                            .frame(width: 44, height: 44)
-                            .background(A1Palette.soft, in: Circle())
-                    }
-                    .accessibilityLabel("新增联系人")
-                }
-            }
-            .frame(minHeight: 45)
-            .padding(.top, 8)
-            .padding(.horizontal, 24)
             if !contacts.contacts.isEmpty {
                 HStack(spacing: 8) {
                     A1AssetIcon("a1-contacts-search")
@@ -115,18 +92,30 @@ struct A1ContactsView: View {
                         }
                         .foregroundStyle(A1Palette.secondary)
                         .accessibilityLabel("清除搜索")
+                    } else {
+                        Color.clear.frame(width: 44, height: 44)
+                            .accessibilityHidden(true)
                     }
             }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
             .frame(minHeight: 44)
             .background(A1Palette.soft, in: RoundedRectangle(cornerRadius: 12))
-            .padding(.horizontal, 24)
-            .padding(.top, 22)
-            .padding(.bottom, 17)
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
             }
 
-            if contacts.contacts.isEmpty && !contacts.isAuthorized {
+            if contacts.contacts.isEmpty && contacts.isLoading {
+                ProgressView("正在读取通讯录…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("a1-contacts-loading")
+            } else if contacts.contacts.isEmpty && contacts.authorizationState == .authorized,
+                      let error = contacts.loadErrorMessage {
+                ScrollView {
+                    contactLoadError(error)
+                        .padding(24)
+                }
+            } else if contacts.contacts.isEmpty && !contacts.isAuthorized {
                 authorizationView
             } else if filtered.isEmpty {
                 if search.isEmpty {
@@ -136,60 +125,72 @@ struct A1ContactsView: View {
                         showingEditor = true
                     }
                 } else {
-                    Text("未找到联系人")
-                        .font(A1Typography.font(17)).foregroundStyle(A1Palette.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: 12) {
+                        Image(systemName: "magnifyingglass").font(.largeTitle).foregroundStyle(A1Palette.accent)
+                        Text("未找到联系人").font(.headline)
+                        Text("试试其他姓名或号码").font(.subheadline).foregroundStyle(A1Palette.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
                 List {
-                    ForEach(groups, id: \.key) { group in
-                        Text(group.key)
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(A1Palette.secondary)
-                            .frame(minHeight: 19)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
+                    if let error = contacts.loadErrorMessage {
+                        contactLoadError(error)
                             .listRowSeparator(.hidden)
-                        ForEach(group.contacts) { contact in
-                            Button {
-                                selectedContact = contact
-                                compactShowsDetail = !usesWideLayout
-                            } label: {
-                                HStack(spacing: 12) {
-                                    A1Avatar(name: contact.name, photoData: contact.photoData, size: 44, fontSize: 17)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(contact.name).font(A1Typography.font(17, weight: .medium))
-                                            .foregroundStyle(A1Palette.ink)
-                                        Text(A1PhonePresentation.display(contact.phones.first ?? ""))
-                                            .font(.footnote)
-                                            .foregroundStyle(A1Palette.secondary)
+                            .listRowBackground(A1Palette.background)
+                    }
+                    ForEach(groups, id: \.key) { group in
+                        Section {
+                            ForEach(group.contacts) { contact in
+                                Button {
+                                    selectedContact = contact
+                                    compactShowsDetail = !usesWideLayout
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        A1Avatar(name: contact.name, photoData: contact.photoData, size: 44, fontSize: 17)
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(contact.name).font(A1Typography.font(17, weight: .medium))
+                                                .foregroundStyle(A1Palette.ink)
+                                            Text(A1PhonePresentation.display(contact.phones.first ?? ""))
+                                                .font(.footnote)
+                                                .foregroundStyle(A1Palette.secondary)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        A1AssetIcon("a1-chevron")
                                     }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    A1AssetIcon("a1-chevron")
+                                    .padding(.vertical, 12)
+                                    .frame(minHeight: 70)
+                                    .contentShape(Rectangle())
                                 }
-                                .padding(.vertical, 10)
-                                .frame(minHeight: 70)
-                                .contentShape(Rectangle())
+                                .buttonStyle(A1RowButtonStyle())
+                                .accessibilityIdentifier("a1-contact-row-\(contact.id)")
+                                .listRowBackground(usesWideLayout && selectedContact?.id == contact.id ? A1Palette.soft : A1Palette.background)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                                .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                                .alignmentGuide(.listRowSeparatorTrailing) { dimensions in dimensions.width }
+                                .listRowSeparatorTint(A1Palette.separator)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("a1-contact-row-\(contact.id)")
-                            .listRowBackground(usesWideLayout && selectedContact?.id == contact.id ? A1Palette.soft : A1Palette.background)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
-                            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
-                            .alignmentGuide(.listRowSeparatorTrailing) { dimensions in dimensions.width }
-                            .listRowSeparatorTint(A1Palette.separator)
+                        } header: {
+                            Text(group.key).font(.subheadline.weight(.semibold))
+                                .foregroundStyle(A1Palette.accent).textCase(nil)
+                                .padding(.top, 8).padding(.bottom, 4)
+                                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                         }
                     }
+                    Text("\(filtered.count) 位联系人")
+                        .font(.footnote)
+                        .foregroundStyle(A1Palette.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(A1Palette.background)
                 }
                 .listStyle(.plain)
                 .environment(\.defaultMinListRowHeight, 0)
+                .environment(\.defaultMinListHeaderHeight, 0)
                 .scrollContentBackground(.hidden)
                 .refreshable { await contacts.requestAccessAndLoad() }
                 .scrollDismissesKeyboard(.interactively)
-                Text("\(filtered.count) 位联系人")
-                    .font(A1Typography.font(12))
-                    .foregroundStyle(A1Palette.secondary)
-                    .padding(.top, 18)
-                    .padding(.bottom, 36)
             }
         }
         .frame(maxWidth: usesWideLayout ? .infinity : 600)
@@ -197,7 +198,36 @@ struct A1ContactsView: View {
         .foregroundStyle(A1Palette.ink)
         .background(A1Palette.background)
         .navigationTitle("联系人")
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarTitleDisplayMode(usesWideLayout ? .inline : .large)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showingEditor = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("新增联系人")
+            }
+        }
+    }
+
+    private func contactLoadError(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(message, systemImage: "exclamationmark.circle")
+                .font(.subheadline)
+                .foregroundStyle(A1Palette.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(contacts.isLoading ? "正在读取…" : contacts.authorizationState == .denied ? "前往系统设置" : "重试") {
+                if contacts.authorizationState == .denied {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                } else {
+                    Task { await contacts.requestAccessAndLoad() }
+                }
+            }
+            .frame(minHeight: 44)
+            .foregroundStyle(A1Palette.linkBlue)
+            .disabled(contacts.isLoading)
+            .accessibilityIdentifier("a1-contacts-retry")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+
     }
 
     private var authorizationView: some View {
@@ -218,6 +248,7 @@ struct A1ContactsView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(A1Palette.accentFill)
             }
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -245,27 +276,12 @@ struct A1ContactDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if embedded {
-                HStack {
-                    Color.clear.frame(width: 44, height: 44)
-                    Spacer()
-                    Text("联系人").font(A1Typography.font(17, weight: .medium))
-                    Spacer()
-                    Button("编辑") { showingEditor = true }
-                        .font(A1Typography.font(15, weight: .medium))
-                        .foregroundStyle(A1Palette.linkBlue)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .accessibilityIdentifier("a1-contact-edit")
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-            }
             ScrollView {
                 VStack(spacing: 0) {
-                    A1Avatar(name: current.name, photoData: current.photoData, size: 100, fontSize: 38)
-                        .padding(.top, 25)
+                    A1Avatar(name: current.name, photoData: current.photoData, size: 88, fontSize: 34)
+                        .padding(.top, 16)
                     Text(current.name)
-                        .font(A1Typography.font(30, weight: .medium))
+                        .font(A1Typography.font(28, weight: .bold))
                         .frame(minHeight: 42)
                         .padding(.top, 12)
                     Text("手机 \(A1PhonePresentation.display(current.phones.first ?? ""))")
@@ -274,27 +290,25 @@ struct A1ContactDetailView: View {
                         .frame(minHeight: 21)
                         .padding(.top, 3)
                     lineMenu {
-                        HStack(spacing: 9) {
-                            Text(lineTitle).font(A1Typography.font(14, weight: .medium))
-                            A1AssetIcon("a1-detail-down")
+                        HStack(spacing: 8) {
+                            A1LineBadge(title: lineTitle)
+                            Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                         }
-                        .foregroundStyle(A1Palette.linkBlue)
-                        .padding(.horizontal, 16).padding(.vertical, 8)
-                        .frame(minWidth: 190, minHeight: 44)
-                        .background(A1Palette.soft, in: Capsule())
+                        .foregroundStyle(A1Palette.accent)
+                        .frame(minHeight: 44)
                     }
-                    .padding(.top, 25)
+                    .padding(.top, 16)
                     (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
                         actionButton("呼叫", asset: "a1-detail-phone", color: A1Palette.green) {
                             if current.phones.count == 1, let phone = current.phones.first { onCall(phone, preferredModuleID) }
                             else { choosingCallNumber = true }
                         }
-                        actionButton("短信", asset: "a1-detail-message", color: A1Palette.blue) {
+                        actionButton("短信", asset: "a1-detail-message", color: A1Palette.accentFill) {
                             if current.phones.count == 1, let phone = current.phones.first { onMessage(phone, preferredModuleID) }
                             else { choosingMessageNumber = true }
                         }.accessibilityIdentifier("a1-contact-message")
                     }
-                    .padding(.top, 21)
+                    .padding(.top, 16)
                     VStack(spacing: 0) {
                         ForEach(current.phones, id: \.self) { phone in
                             Menu {
@@ -312,14 +326,11 @@ struct A1ContactDetailView: View {
                             informationRow(contacts.isFavorite(id: contact.id) ? "移出常用联系人" : "加入常用联系人")
                         }
                     }
-                    .padding(.top, 37)
-                    Text("短信通过独立会话发送，通话记录不混入短信。")
-                        .font(A1Typography.font(12))
-                        .foregroundStyle(A1Palette.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 32)
+                    .padding(.horizontal, 16)
+                    .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 24))
+                    .padding(.top, 24)
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 20)
                 .padding(.bottom, 24)
             }
         }
@@ -329,13 +340,11 @@ struct A1ContactDetailView: View {
         .foregroundStyle(A1Palette.ink)
         .navigationTitle("联系人")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(embedded ? .hidden : .visible, for: .navigationBar)
+        .toolbar(.visible, for: .navigationBar)
         .toolbar {
-            if !embedded {
-                ToolbarItem(placement: .primaryAction) {
-                    Button("编辑") { showingEditor = true }
-                        .accessibilityIdentifier("a1-contact-edit")
-                }
+            ToolbarItem(placement: .primaryAction) {
+                Button("编辑") { showingEditor = true }
+                    .accessibilityIdentifier("a1-contact-edit")
             }
         }
         .toolbar(.visible, for: .tabBar)
@@ -371,7 +380,7 @@ struct A1ContactDetailView: View {
             }
             A1AssetIcon("a1-detail-chevron")
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
         .frame(minHeight: 56)
         .contentShape(Rectangle())
     }
@@ -379,15 +388,15 @@ struct A1ContactDetailView: View {
     private func actionButton(_ title: String, asset: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                A1AssetIcon(asset)
+                A1AssetIcon(asset, tint: title == "呼叫" ? .white : A1Palette.accent)
                 Text(title).font(A1Typography.font(15, weight: .medium))
             }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .frame(maxWidth: .infinity, minHeight: 50)
-            .background(color, in: Capsule())
+            .foregroundStyle(title == "呼叫" ? Color.white : A1Palette.accent)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(title == "呼叫" ? color : A1Palette.accentSoft, in: Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(A1PressButtonStyle())
         .disabled(current.phones.isEmpty)
     }
 }
@@ -400,11 +409,20 @@ struct A1ContactEditor: View {
     @State private var phones: [String]
     @State private var saving = false
     @State private var saveError: String?
+    @State private var confirmingDiscard = false
+    private let initialName: String
+    private let initialPhoneValues: [String]
 
     init(contact: ContactStore.Contact?, initialPhones: [String] = [""]) {
         self.contact = contact
+        initialName = contact?.name ?? ""
+        initialPhoneValues = contact?.phones ?? initialPhones
         _name = State(initialValue: contact?.name ?? "")
         _phones = State(initialValue: contact?.phones ?? initialPhones)
+    }
+
+    private var hasChanges: Bool {
+        name != initialName || phones != initialPhoneValues
     }
 
     private var valid: Bool {
@@ -425,13 +443,22 @@ struct A1ContactEditor: View {
                     .onDelete { indices in phones.remove(atOffsets: indices) }
                     Button("添加号码") { phones.append("") }
                 }
+                if saving {
+                    Section { ProgressView("正在保存联系人…") }
+                }
                 if let saveError { Section { Text(saveError).foregroundStyle(A1Palette.negative) } }
             }
+            .scrollContentBackground(.hidden)
+            .background(A1Palette.background)
+            .tint(A1Palette.accent)
+            .disabled(saving)
             .navigationTitle(contact == nil ? "新增联系人" : "编辑联系人")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
+                    Button {
+                        if hasChanges { confirmingDiscard = true } else { dismiss() }
+                    } label: {
                         Label("取消", systemImage: "xmark")
                     }
                     .labelStyle(.iconOnly)
@@ -439,6 +466,7 @@ struct A1ContactEditor: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
+                        saveError = nil
                         saving = true
                         Task {
                             let saved = await contacts.saveContact(id: contact?.id, name: name, phones: phones)
@@ -450,10 +478,15 @@ struct A1ContactEditor: View {
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderedProminent)
+                    .tint(A1Palette.accentFill)
                     .disabled(!valid || saving)
                 }
             }
-            .interactiveDismissDisabled(saving)
+            .interactiveDismissDisabled(saving || hasChanges)
+            .confirmationDialog("放弃未保存的更改？", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+                Button("放弃更改", role: .destructive) { dismiss() }
+                Button("继续编辑", role: .cancel) { }
+            }
         }
     }
 }

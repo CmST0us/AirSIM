@@ -1,9 +1,30 @@
 import XCTest
 
+final class A1MessageLayoutTests: UITestCase {
+    override var scenario: String { "design-messages" }
+    override var presentationArguments: [String] { ["-airsim.appearance", "light"] }
+
+    func testMessageSearchClearsNavigationTitleInBothOrientations() {
+        defer { XCUIDevice.shared.orientation = .portrait }
+        for orientation: UIDeviceOrientation in [.landscapeLeft, .portrait] {
+            XCUIDevice.shared.orientation = orientation
+            openTab("短信")
+            let search = app.textFields["a1-message-search"]
+            if !search.exists { app.buttons["搜索短信"].tap() }
+            XCTAssertTrue(search.waitForExistence(timeout: 5))
+            let title = app.navigationBars.staticTexts["短信"].firstMatch
+            XCTAssertTrue(title.exists)
+            XCTAssertLessThanOrEqual(title.frame.maxY, search.frame.minY)
+            XCTAssertFalse(app.staticTexts["部分短信未同步，记录可能不完整"].exists)
+            capture(orientation == .portrait ? "sms-layout-portrait" : "sms-layout-landscape")
+        }
+    }
+}
+
 final class MessagingTests: UITestCase {
     func testEmptyMessageCannotBeSentAndComposerCanBeCancelled() {
         openTab("短信")
-        let recovery = app.buttons["连接设置"]
+        let recovery = app.buttons["添加设备"].firstMatch
         XCTAssertTrue(recovery.waitForExistence(timeout: 5))
         XCTAssertTrue(recovery.isHittable)
         capture("v2-unconfigured-message-recovery")
@@ -204,5 +225,97 @@ final class A1SMSFailureDesignTests: ConversationTestCase {
         XCTAssertTrue(retry.isEnabled)
         XCTAssertTrue(app.staticTexts["未发送"].exists)
         capture("a1-sms-failure")
+    }
+}
+
+class AppllamaMessageInteractionTests: ConversationTestCase {
+    override var scenario: String { "design-messages" }
+    override var presentationArguments: [String] { ["-airsim.appearance", "light"] }
+
+    func testSearchDismissalRestoresListAndStableHeight() {
+        openTab("短信")
+        app.buttons["搜索短信"].tap()
+        let search = app.textFields["a1-message-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        let initialHeight = search.frame.height
+        search.typeText("不存在的联系人")
+        XCTAssertTrue(app.staticTexts["未找到短信"].waitForExistence(timeout: 5))
+        XCTAssertEqual(search.frame.height, initialHeight, accuracy: 2)
+        capture("appllama-message-search-empty")
+        app.buttons["结束搜索"].tap()
+        XCTAssertFalse(search.exists)
+        XCTAssertTrue(app.staticTexts["顺丰速运"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        capture("appllama-message-search-restored")
+    }
+
+    func testMessageKeyboardInfoAndUnassignedDraftDismissal() {
+        openConversation("好，辛苦了。")
+        enterReply("保留在原号卡的测试草稿")
+        capture("appllama-message-keyboard")
+        app.scrollViews.firstMatch.swipeDown()
+        app.buttons["会话信息"].tap()
+        XCTAssertTrue(app.navigationBars["会话信息"].waitForExistence(timeout: 5))
+        capture("appllama-message-info")
+        app.navigationBars.buttons["完成"].tap()
+        let reply = app.descendants(matching: .any).matching(identifier: "message-reply").firstMatch
+        XCTAssertEqual(reply.value as? String, "保留在原号卡的测试草稿")
+        messageBackButton.tap()
+        app.buttons["a1-message-compose"].tap()
+        enterReply("尚未选择收件人的内容")
+        XCTAssertFalse(app.buttons["message-send"].isEnabled)
+        app.navigationBars.buttons["取消"].tap()
+        XCTAssertTrue(app.buttons["放弃短信"].waitForExistence(timeout: 5))
+        capture("appllama-message-discard")
+        keepEditing(in: "新信息")
+        XCTAssertEqual(reply.value as? String, "尚未选择收件人的内容")
+        app.navigationBars.buttons["取消"].tap()
+        app.buttons["放弃短信"].tap()
+        XCTAssertTrue(app.buttons["a1-message-compose"].waitForExistence(timeout: 5))
+    }
+}
+
+final class AppllamaDarkMessageInteractionTests: AppllamaMessageInteractionTests {
+    override var presentationArguments: [String] { ["-airsim.appearance", "dark"] }
+}
+
+final class AirSIMDarkJourneyTests: ConversationTestCase {
+    override var scenario: String { "design-messages" }
+    override var presentationArguments: [String] { ["-airsim.appearance", "dark"] }
+
+    func testDarkScreensNavigationSheetsAndKeyboard() {
+        verifyMainTabs()
+        openTab("联系人")
+        let contact = app.buttons["a1-contact-row-design-contact-0"]
+        XCTAssertTrue(contact.waitForExistence(timeout: 5))
+        contact.tap()
+        XCTAssertTrue(app.buttons["a1-contact-message"].waitForExistence(timeout: 5))
+        capture("redesign-dark-contact-detail")
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
+        XCTAssertTrue(contact.waitForExistence(timeout: 5))
+
+        openTab("短信")
+        let thread = app.buttons["sms-thread-00112233-4455-4677-8899-aabbccddeeff-00000000001"]
+        XCTAssertTrue(thread.waitForExistence(timeout: 5))
+        thread.tap()
+        enterReply("夜间保留的草稿")
+        capture("redesign-dark-message-keyboard")
+        app.buttons["会话信息"].tap()
+        let info = app.navigationBars["会话信息"]
+        XCTAssertTrue(info.waitForExistence(timeout: 5))
+        let top = info.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1))
+        top.press(forDuration: 0.05, thenDragTo: info.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)))
+        XCTAssertTrue(info.exists)
+        capture("redesign-dark-message-info")
+        app.buttons["完成"].tap()
+        messageBackButton.tap()
+        for title in ["通话", "联系人", "短信", "拨号键盘", "号卡"] { mainTab(title).tap() }
+        openTab("号卡")
+        app.buttons["module-00112233-4455-4677-8899-aabbccddeeff"].tap()
+        XCTAssertTrue(app.buttons["rename-00112233-4455-4677-8899-aabbccddeeff"].waitForExistence(timeout: 5))
+        capture("redesign-dark-card-detail")
     }
 }

@@ -129,7 +129,7 @@ final class A1AccessibleCallTests: UITestCase {
     func testLargestTextCallControlsAndKeypadRemainReachable() {
         let keypad = app.buttons["a1-call-state-keypad"]
         XCTAssertTrue(keypad.waitForExistence(timeout: 10))
-        for _ in 0..<6 where !keypad.isHittable { app.swipeUp() }
+        for _ in 0..<6 where !keypad.isHittable || !app.scrollViews.firstMatch.frame.insetBy(dx: 0, dy: 44).contains(keypad.frame) { app.swipeUp() }
         XCTAssertTrue(keypad.isHittable)
         capture("hig-ax5-active-call")
         keypad.tap()
@@ -137,10 +137,11 @@ final class A1AccessibleCallTests: UITestCase {
         let lastKey = app.buttons["发送 DTMF #"]
         for _ in 0..<4 where !lastKey.isHittable { app.swipeUp() }
         XCTAssertTrue(lastKey.isHittable)
+        XCTAssertTrue(app.scrollViews.firstMatch.frame.contains(lastKey.frame))
         capture("hig-ax5-dtmf")
         app.buttons["完成"].tap()
         let hangup = app.buttons["a1-call-state-hangup"]
-        for _ in 0..<6 where !hangup.isHittable { app.swipeUp() }
+        for _ in 0..<6 where !hangup.isHittable || !app.scrollViews.firstMatch.frame.insetBy(dx: 0, dy: 44).contains(hangup.frame) { app.swipeUp() }
         XCTAssertTrue(hangup.isHittable)
     }
 }

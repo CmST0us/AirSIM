@@ -290,11 +290,17 @@ private struct FixtureTransport: V2HTTPTransport {
                 .save(V2History(messages: messages, calls: calls))
         }
         let tokens = FixtureTokens()
-        return CloudV2Model(client: V2Client(transport: Self(), tokens: tokens), defaults: defaults, root: UITestScenario.root, tokens: tokens)
+        let pairingClient = UITestScenario.usesDesignData
+            ? V2PairingClient(origin: config.identity.apiOrigin, store: LivePairingStore(), transport: Self())
+            : nil
+        return CloudV2Model(client: V2Client(transport: Self(), tokens: tokens), defaults: defaults, root: UITestScenario.root, tokens: tokens, pairingClient: pairingClient)
     }
     func send(_ request: URLRequest, limit: Int) async throws -> V2HTTPResponse {
         let id = Self.first, second = Self.second
         let path = request.url?.path ?? ""
+        if path == "/v2/pairing/lookup" {
+            return V2HTTPResponse(status: 410, body: Data())
+        }
         let module = path.contains(second) ? second : id
         let online = UITestScenario.name != "v2-offline-fixture"
         let date = V2Validation.timestamp(Date())

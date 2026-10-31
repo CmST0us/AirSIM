@@ -7,6 +7,28 @@ enum A1Layout {
     }
 }
 
+struct A1PressButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let pressed = isEnabled && configuration.isPressed
+        return configuration.label
+            .opacity(pressed ? 0.78 : 1)
+            .scaleEffect(pressed && !reduceMotion ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.12), value: pressed)
+    }
+}
+
+struct A1RowButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(isEnabled && configuration.isPressed ? A1Palette.gray.opacity(0.5) : .clear)
+    }
+}
+
 private struct A1WideLayoutKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -19,30 +41,32 @@ extension EnvironmentValues {
 }
 
 enum A1Palette {
-    static let background = Color("A1Background")
-    static let ink = Color("A1Ink")
-    static let soft = Color("A1Soft")
-    static let gray = Color("A1Gray")
-    static let secondary = Color("A1Secondary")
-    static let separator = Color("A1Separator")
-    static let blue = Color("A1Blue")
-    static let linkBlue = Color("A1LinkBlue")
-    static let green = Color("A1Green")
-    static let positive = Color("A1Positive")
-    static let negative = Color("A1Negative")
+    static let background = Color(uiColor: .systemGroupedBackground)
+    static let ink = Color(uiColor: .label)
+    static let soft = Color(uiColor: .tertiarySystemGroupedBackground)
+    static let gray = Color(uiColor: .systemGray4)
+    static let secondary = Color(uiColor: .secondaryLabel)
+    static let separator = Color(uiColor: .separator)
+    static let blue = Color(uiColor: .systemBlue)
+    static let linkBlue = Color(uiColor: .systemBlue)
+    static let green = Color(uiColor: .systemGreen)
+    static let positive = Color(uiColor: .systemGreen)
+    static let negative = Color(uiColor: .systemRed)
+    static let surface = Color(uiColor: .secondarySystemGroupedBackground)
+    static let accent = Color(uiColor: .systemBlue)
+    static let accentFill = Color(uiColor: .systemBlue)
+    static let accentSoft = Color(uiColor: .tertiarySystemFill)
+    static let callBackground = Color(uiColor: .systemGray6)
+    static let keypadFill = Color(uiColor: .systemGray5)
+    static let onCard = Color.white
 }
 
 enum A1Typography {
     static func font(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
-        let face: String
-        switch weight {
-        case .bold, .heavy, .black: face = "NotoSansSC-Bold"
-        case .medium, .semibold: face = "NotoSansSC-Medium"
-        case .light, .thin, .ultraLight: face = "NotoSansSC-Light"
-        default: face = "NotoSansSC-Regular"
-        }
-        let style: Font.TextStyle = size >= 28 ? .largeTitle : size >= 17 ? .body : size >= 14 ? .subheadline : .caption
-        return .custom(face, size: size, relativeTo: style)
+        let style: Font.TextStyle = size >= 32 ? .largeTitle : size >= 28 ? .title
+            : size >= 22 ? .title2 : size >= 20 ? .title3 : size >= 17 ? .body
+            : size >= 15 ? .subheadline : size >= 13 ? .footnote : size >= 12 ? .caption : .caption2
+        return .system(style, design: .default).weight(weight)
     }
 }
 
@@ -82,9 +106,39 @@ struct A1AssetIcon: View {
     }
 
     var body: some View {
-        Image(name).renderingMode(.template)
+        Image(systemName: symbol)
+            .font(.system(size: symbolSize, weight: .medium))
+            .frame(width: symbolSize + 4, height: symbolSize + 4)
             .foregroundStyle(tint ?? semanticTint)
             .accessibilityHidden(true)
+    }
+
+    private var symbol: String {
+        if name.contains("hangup") { return "phone.down.fill" }
+        if name.contains("search") { return "magnifyingglass" }
+        if name.contains("plus") { return "plus" }
+        if name.contains("more") { return "ellipsis" }
+        if name.contains("chevron") { return "chevron.right" }
+        if name.contains("down") { return "chevron.down" }
+        if name.contains("back") { return "chevron.left" }
+        if name.contains("send") { return "arrow.up" }
+        if name.contains("delete") { return "delete.left" }
+        if name.contains("check") { return "checkmark" }
+        if name.contains("star") { return "star.fill" }
+        if name.contains("keypad") { return "circle.grid.3x3.fill" }
+        if name.contains("speaker") { return "speaker.wave.2.fill" }
+        if name.contains("mic") { return "mic.slash.fill" }
+        if name.contains("info") { return "info.circle" }
+        if name.contains("network") { return "antenna.radiowaves.left.and.right" }
+        if name.contains("sim") { return "simcard" }
+        if name.contains("contacts") { return "person.crop.circle" }
+        if name.contains("clock") { return "clock" }
+        if name.contains("message") { return "message.fill" }
+        return "phone.fill"
+    }
+
+    private var symbolSize: CGFloat {
+        name.contains("chevron") || name.contains("down") ? 14 : 20
     }
 }
 
@@ -112,7 +166,7 @@ struct A1Avatar: View {
                     .overlay {
                         Text(initial)
                             .font(A1Typography.font(fontSize ?? size * 0.37, weight: .medium))
-                            .foregroundStyle(A1Palette.secondary)
+                            .foregroundStyle(A1Palette.ink)
                             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                             .minimumScaleFactor(0.6)
                             .lineLimit(1)
@@ -121,6 +175,24 @@ struct A1Avatar: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+        .overlay(Circle().strokeBorder(A1Palette.ink.opacity(0.06), lineWidth: 1))
         .accessibilityHidden(true)
+    }
+}
+
+struct A1LineBadge: View {
+    let title: String
+    var active = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "simcard")
+            Text(title)
+        }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(active ? A1Palette.accent : A1Palette.secondary)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(active ? A1Palette.accentSoft : A1Palette.soft, in: Capsule())
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

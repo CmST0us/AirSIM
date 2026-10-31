@@ -177,6 +177,8 @@ final class ContactStore: ObservableObject {
     @Published private(set) var isAuthorized = false
     @Published private(set) var authorizationState: ContactAuthorizationState = .notDetermined
     @Published var errorMessage: String?
+    @Published private(set) var isLoading = false
+    @Published private(set) var loadErrorMessage: String?
     private let cache: ContactCacheStore
     private let defaults: UserDefaults
     @Published private var favoriteIDs: Set<String>
@@ -269,7 +271,16 @@ final class ContactStore: ObservableObject {
     }
 
     private func refresh(userInitiated: Bool) async {
-        if UITestScenario.active { return }
+        if UITestScenario.active {
+            if ProcessInfo.processInfo.arguments.contains("--ui-contacts-load-error") {
+                loadErrorMessage = userInitiated ? nil : "无法读取通讯录，请重试"
+            }
+            return
+        }
+        guard !isLoading else { return }
+        isLoading = true
+        loadErrorMessage = nil
+        defer { isLoading = false }
         do {
             // 手机重启后可能先在数据保护尚未解锁时读取到空数组；每次前台刷新都重试磁盘缓存。
             let cachedContacts = cache.load()
@@ -292,6 +303,7 @@ final class ContactStore: ObservableObject {
                 guard granted else {
                     isAuthorized = false
                     errorMessage = "未获得通讯录访问权限"
+                    loadErrorMessage = errorMessage
                     return
                 }
             case .load:
@@ -303,6 +315,7 @@ final class ContactStore: ObservableObject {
             case .blocked:
                 isAuthorized = false
                 errorMessage = "通讯录权限已关闭，请在系统设置中开启"
+                loadErrorMessage = errorMessage
                 return
             }
 
@@ -317,12 +330,13 @@ final class ContactStore: ObservableObject {
             }.value
             guard cache.save(contacts) else {
                 errorMessage = "通讯录已读取，但保存到本机失败"
+                loadErrorMessage = errorMessage
                 return
             }
             errorMessage = nil
         } catch {
-            isAuthorized = false
-            errorMessage = error.localizedDescription
+            errorMessage = "无法读取通讯录，请重试"
+            loadErrorMessage = errorMessage
         }
     }
 

@@ -63,53 +63,60 @@ struct A1CardsView: View {
             header
             List {
                 Group {
-                    Text(cloud.modules.count == 2 ? "两个号码，各自清楚。" : "管理你的号卡。")
+                    Text("你的号码，随身同行。")
                         .font(A1Typography.font(14))
                         .foregroundStyle(A1Palette.secondary)
-                        .padding(.top, 13).padding(.bottom, 26)
+                        .padding(.top, 8).padding(.bottom, 24)
                         .listRowSeparator(.hidden)
                     if cloud.modules.isEmpty {
                         emptyCards
                             .listRowSeparator(.hidden)
                     }
-                    ForEach(Array(cloud.modules.enumerated()), id: \.element.module_id) { index, module in
+                    ForEach(cloud.modules, id: \.module_id) { module in
                         Button {
                             selectedModuleID = module.module_id
                             compactShowsDetail = !usesWideLayout
                         } label: {
-                            card(module, index: index)
+                            card(module)
                         }
-                        .buttonStyle(.plain)
-                        .padding(.bottom, 14)
+                        .buttonStyle(A1RowButtonStyle())
+                        .padding(.bottom, 16)
                         .accessibilityIdentifier("module-" + module.module_id)
                         .accessibilityAddTraits(usesWideLayout && detailModule?.module_id == module.module_id ? .isSelected : [])
                         .listRowSeparator(.hidden)
                     }
                     if !cloud.modules.isEmpty {
-                        Text("呼出与连接")
+                        Text("号卡设置")
                             .font(A1Typography.font(18, weight: .bold))
-                            .padding(.top, 39)
+                            .padding(.top, 24).padding(.bottom, 16)
                             .listRowSeparator(.hidden)
-                        Menu {
-                            ForEach(cloud.modules, id: \.module_id) { module in
-                                Button {
-                                    Task { await cloud.selectModule(module.module_id) }
-                                } label: {
-                                    if module.module_id == cloud.defaultOutgoingModuleID {
-                                        Label(cloud.moduleName(module.module_id), systemImage: "checkmark")
-                                    } else {
-                                        Text(cloud.moduleName(module.module_id))
+                        VStack(spacing: 0) {
+                            Menu {
+                                ForEach(cloud.modules, id: \.module_id) { module in
+                                    Button {
+                                        Task { await cloud.selectModule(module.module_id) }
+                                    } label: {
+                                        if module.module_id == cloud.defaultOutgoingModuleID {
+                                            Label(cloud.moduleName(module.module_id), systemImage: "checkmark")
+                                        } else {
+                                            Text(cloud.moduleName(module.module_id))
+                                        }
                                     }
                                 }
+                            } label: {
+                                A1CardSettingRow(title: "默认呼出号码", value: cloud.defaultOutgoingModuleID.map(cloud.moduleName) ?? "未选择", actionable: true)
                             }
-                        } label: {
-                            A1CardSettingRow(title: "默认呼出号码", value: cloud.defaultOutgoingModuleID.map(cloud.moduleName) ?? "未选择", actionable: true)
+                            .disabled(cloud.blocksSwitch)
+                            .accessibilityIdentifier("a1-card-default-line")
+                            Divider()
+                            A1CardSettingRow(title: "号码不可用时", value: "不自动切换")
+                            Divider()
+                            A1CardSettingRow(title: "网络连接", value: connectionTitle)
+                                .accessibilityIdentifier("a1-card-connection")
                         }
-                        .disabled(cloud.blocksSwitch)
-                        .accessibilityIdentifier("a1-card-default-line")
-                        A1CardSettingRow(title: "号码不可用时", value: "不自动切换")
-                        A1CardSettingRow(title: "网络连接", value: connectionTitle)
-                            .accessibilityIdentifier("a1-card-connection")
+                        .padding(.horizontal, 16)
+                        .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .listRowSeparator(.hidden)
                         Text(requiresPairing ? cloud.userStatus : "连接会自动恢复。通话和短信始终使用所选号卡。")
                             .font(A1Typography.font(12))
                             .foregroundStyle(A1Palette.secondary)
@@ -117,7 +124,7 @@ struct A1CardsView: View {
                             .listRowSeparator(.hidden)
                     }
                 }
-                .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
+                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                 .listRowBackground(A1Palette.background)
                 .listRowSeparatorTint(A1Palette.separator)
             }
@@ -141,7 +148,7 @@ struct A1CardsView: View {
                     .frame(width: 44, height: 44)
                     .background(A1Palette.soft, in: Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(A1PressButtonStyle())
             .disabled(cloud.blocksSwitch || !cloud.pairingAvailable)
             .accessibilityLabel("添加设备")
             .accessibilityIdentifier("v2-add-device")
@@ -159,55 +166,42 @@ struct A1CardsView: View {
             .accessibilityLabel("号卡选项")
             .accessibilityIdentifier("a1-card-options")
         }
-        .padding(.horizontal, 24).padding(.top, 8)
+        .padding(.horizontal, 20).padding(.top, 8)
         .frame(minHeight: 53)
     }
 
-    private func card(_ module: V2Module, index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
-                A1AssetIcon(index == 0 ? "a1-card-sim-blue" : "a1-card-sim-green")
-                Text(cloud.moduleName(module.module_id))
-                    .font(A1Typography.font(17, weight: .bold))
-                    .fixedSize(horizontal: false, vertical: true)
-                if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
-                Text(module.online ? "在线" : "离线")
-                    .font(A1Typography.font(12, weight: .medium))
-                    .foregroundStyle(A1Palette.secondary)
-            }
-            Text("未提供号码")
-                .font(A1Typography.font(27, weight: .medium))
-                .foregroundStyle(A1Palette.secondary)
-                .frame(minHeight: 38)
-            HStack {
-                Text(module.module_id == cloud.defaultOutgoingModuleID ? "默认呼出号码" : "通话与短信")
-                    .font(A1Typography.font(12))
-                    .foregroundStyle(A1Palette.secondary)
-                Spacer()
-                A1AssetIcon("a1-card-chevron")
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, minHeight: 143, alignment: .leading)
-        .background(A1Palette.soft, in: RoundedRectangle(cornerRadius: 20))
+    private func card(_ module: V2Module) -> some View {
+        A1SIMCardFace(
+            name: cloud.moduleName(module.module_id),
+            online: module.online,
+            isDefault: module.module_id == cloud.defaultOutgoingModuleID
+        )
         .overlay {
             if usesWideLayout && detailModule?.module_id == module.module_id {
-                RoundedRectangle(cornerRadius: 20)
-                    .strokeBorder(A1Palette.ink, lineWidth: 2)
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(A1Palette.accent, lineWidth: 3)
+                    .padding(-4)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var emptyCards: some View {
-        VStack(spacing: 18) {
-            A1AssetIcon("a1-card-detail-sim")
+        VStack(spacing: 24) {
+            Image(systemName: "simcard")
+                .font(.system(size: 48, weight: .light))
+                .foregroundStyle(A1Palette.accent)
+                .frame(width: 112, height: 112)
+                .background(A1Palette.accentSoft, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             Text("添加你的第一张号卡")
                 .font(A1Typography.font(24, weight: .medium))
             Text("连接模块后，即可通话和收发短信。")
                 .font(A1Typography.font(14)).foregroundStyle(A1Palette.secondary)
-            Button("添加设备") { presentation = .pairing }
+            Button { presentation = .pairing } label: {
+                Text("添加设备").foregroundStyle(A1Palette.onCard)
+            }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+                .tint(A1Palette.accentFill)
                 .controlSize(.large)
                 .disabled(cloud.blocksSwitch || !cloud.pairingAvailable)
             if !cloud.pairingAvailable {
@@ -217,7 +211,7 @@ struct A1CardsView: View {
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 72)
+        .padding(.vertical, 48)
     }
 
     @ViewBuilder private var detailPane: some View {
@@ -267,47 +261,46 @@ private struct A1CardDetailView: View {
             }
             List {
                 Group {
-                    VStack(spacing: 0) {
-                        A1AssetIcon("a1-card-detail-sim")
-                            .padding(.top, 31)
-                        Text(cloud.moduleName(module.module_id))
-                            .font(A1Typography.font(30, weight: .medium))
-                            .multilineTextAlignment(.center)
-                            .padding(.top, 18)
-                        Text("未提供号码")
-                            .font(A1Typography.font(26))
-                            .foregroundStyle(A1Palette.secondary)
-                            .padding(.top, 8)
-                        Text(module.online ? "号卡 · 在线" : "号卡 · 离线")
-                            .font(A1Typography.font(13))
-                            .foregroundStyle(A1Palette.secondary)
-                            .padding(.top, 4).padding(.bottom, 43)
-                    }
-                    .frame(maxWidth: .infinity)
+                    A1SIMCardFace(
+                        name: cloud.moduleName(module.module_id),
+                        online: module.online,
+                        isDefault: module.module_id == cloud.defaultOutgoingModuleID
+                    )
+                    .padding(.top, 24)
+                    .padding(.bottom, 32)
                     .listRowSeparator(.hidden)
-                    Button(action: onRename) {
-                        A1CardSettingRow(title: "号卡名称", value: cloud.moduleName(module.module_id), actionable: true, titleSize: 15, valueSize: 13)
+                    VStack(spacing: 0) {
+                        Button(action: onRename) {
+                            A1CardSettingRow(title: "号卡名称", value: cloud.moduleName(module.module_id), actionable: true, titleSize: 17, valueSize: 15)
+                        }
+                        .buttonStyle(A1RowButtonStyle())
+                        .accessibilityLabel("修改模块名称")
+                        .accessibilityIdentifier("rename-" + module.module_id)
+                        Divider()
+                        Button {
+                            Task { await cloud.selectModule(module.module_id) }
+                        } label: {
+                            A1CardSettingRow(title: "默认呼出", value: module.module_id == cloud.defaultOutgoingModuleID ? "当前默认" : "设为默认", actionable: true, titleSize: 17, valueSize: 15)
+                        }
+                        .buttonStyle(A1RowButtonStyle())
+                        .disabled(cloud.blocksSwitch)
+                        .accessibilityIdentifier("a1-card-set-default")
+                        Divider()
+                        A1CardSettingRow(title: "来电与短信", value: receptionTitle, titleSize: 17, valueSize: 15)
+                        Divider()
+                        A1CardSettingRow(title: "连接方式", value: connectionTitle, titleSize: 17, valueSize: 15)
+                        Divider()
+                        A1CardSettingRow(title: "不可用时", value: "不自动切换", titleSize: 17, valueSize: 15)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("修改模块名称")
-                    .accessibilityIdentifier("rename-" + module.module_id)
-                    Button {
-                        Task { await cloud.selectModule(module.module_id) }
-                    } label: {
-                        A1CardSettingRow(title: "默认呼出", value: module.module_id == cloud.defaultOutgoingModuleID ? "当前默认" : "设为默认", actionable: true, titleSize: 15, valueSize: 13)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(cloud.blocksSwitch)
-                    .accessibilityIdentifier("a1-card-set-default")
-                    A1CardSettingRow(title: "来电与短信", value: receptionTitle, titleSize: 15, valueSize: 13)
-                    A1CardSettingRow(title: "连接方式", value: connectionTitle, titleSize: 15, valueSize: 13)
-                    A1CardSettingRow(title: "不可用时", value: "不自动切换", titleSize: 15, valueSize: 13)
+                    .padding(.horizontal, 16)
+                    .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .listRowSeparator(.hidden)
                     Text(requiresPairing ? cloud.userStatus : "连接会自动恢复，无需手动重连。")
                         .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
                         .padding(.top, 28).padding(.bottom, 28)
                         .listRowSeparator(.hidden)
                 }
-                .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
+                .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                 .listRowBackground(A1Palette.background)
                 .listRowSeparatorTint(A1Palette.separator)
             }
@@ -345,8 +338,8 @@ private struct A1CardSettingRow: View {
     let title: String
     let value: String
     var actionable = false
-    var titleSize: CGFloat = 14
-    var valueSize: CGFloat = 12
+    var titleSize: CGFloat = 17
+    var valueSize: CGFloat = 15
 
     var body: some View {
         HStack(spacing: 8) {
@@ -361,10 +354,51 @@ private struct A1CardSettingRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if actionable { A1AssetIcon("a1-card-row-chevron") }
         }
-        .padding(.vertical, 10)
-        .frame(minHeight: 55)
+        .padding(.vertical, 12)
+        .frame(minHeight: 56)
         .contentShape(Rectangle())
         .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
         .alignmentGuide(.listRowSeparatorTrailing) { $0.width }
+    }
+}
+
+private struct A1SIMCardFace: View {
+    let name: String
+    let online: Bool
+    let isDefault: Bool
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(alignment: .top, spacing: 16) {
+                Image(systemName: "simcard")
+                    .font(.system(size: 32, weight: .ultraLight))
+                    .accessibilityHidden(true)
+                Spacer(minLength: 8)
+                Label(online ? "在线" : "离线", systemImage: online ? "circle.fill" : "circle")
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(A1Palette.soft, in: Capsule())
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(name)
+                    .font(.title2.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("未提供号码")
+                    .font(.subheadline)
+                    .foregroundStyle(A1Palette.secondary)
+            }
+            HStack(spacing: 8) {
+                Label(isDefault ? "默认呼出" : "通话与短信", systemImage: isDefault ? "checkmark.circle.fill" : "phone")
+                    .font(.footnote.weight(.medium))
+                Spacer(minLength: 8)
+                Text("AirSIM")
+                    .font(.footnote.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, minHeight: 224, alignment: .leading)
+        .foregroundStyle(A1Palette.ink)
+        .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }

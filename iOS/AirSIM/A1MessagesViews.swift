@@ -11,6 +11,7 @@ struct A1MessagesView: View {
     @Environment(\.a1UsesWideLayout) private var wideLayout
     @State private var search = ""
     @State private var showingSearch = false
+    @FocusState private var searching: Bool
     @State private var selectedLine: String?
     @State private var showingComposer = false
 
@@ -63,7 +64,10 @@ struct A1MessagesView: View {
             }
 
             .onAppear { selectInitialConversation() }
-            .onChange(of: wideLayout) { _ in selectInitialConversation() }
+            .onChange(of: wideLayout) { wide in
+                selectInitialConversation()
+                if !wide && !search.isEmpty { showingSearch = true }
+            }
             .onChange(of: model.accountSMSThreads.map(\.id)) { _ in selectInitialConversation() }
         }
     }
@@ -72,20 +76,23 @@ struct A1MessagesView: View {
             VStack(spacing: 0) {
                 if showingSearch || wideLayout {
                     HStack(spacing: 8) {
-                        if wideLayout { A1AssetIcon("a1-duo-sms-search") }
+                        Image(systemName: "magnifyingglass").foregroundStyle(A1Palette.secondary)
                         TextField("搜索姓名、号码或短信", text: $search)
+                            .focused($searching)
                             .submitLabel(.search)
-                        if !search.isEmpty {
-                            Button { search = "" } label: {
-                                Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44)
-                            }.accessibilityLabel("清除搜索").foregroundStyle(A1Palette.secondary)
+                            .onSubmit { searching = false }
+                        Button { search = "" } label: {
+                            Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44)
                         }
+                        .accessibilityLabel("清除搜索").foregroundStyle(A1Palette.secondary)
+                        .opacity(search.isEmpty ? 0 : 1)
+                        .disabled(search.isEmpty).accessibilityHidden(search.isEmpty)
                     }
                         .font(A1Typography.font(15))
-                        .padding(12)
-                        .background(A1Palette.soft, in: RoundedRectangle(cornerRadius: 12))
-                        .padding(.horizontal, 24)
-                        .padding(.top, 12)
+                        .padding(.leading, 12)
+                        .background(A1Palette.soft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .padding(.horizontal, 20)
+                        .padding(.top, wideLayout ? 24 : 12)
                         .accessibilityIdentifier("a1-message-search")
                 }
                 if !wideLayout {
@@ -93,66 +100,76 @@ struct A1MessagesView: View {
                     HStack(spacing: 8) {
                         filterPill("全部", moduleID: nil)
                         ForEach(lines, id: \.self) { id in filterPill(model.lineTitle(moduleID: id), moduleID: id) }
-                    }.padding(.horizontal, 24)
+                    }.padding(.horizontal, 20)
                 }
                 .padding(.top, 20)
-                .padding(.bottom, 18)
+                .padding(.bottom, 16)
                 } else {
                     Menu {
-                        Button("所有会话") { selectedLine = nil }
-                        ForEach(lines, id: \.self) { id in
-                            Button(model.lineTitle(moduleID: id)) { selectedLine = id }
+                        Picker("筛选号卡", selection: $selectedLine) {
+                            Text("所有会话").tag(String?.none)
+                            ForEach(lines, id: \.self) { id in
+                                Text(model.lineTitle(moduleID: id)).tag(Optional(id))
+                            }
                         }
                     } label: {
-                        Text(selectedLine.map { model.lineTitle(moduleID: $0) } ?? "所有会话")
-                            .font(A1Typography.font(13, weight: .medium)).foregroundStyle(A1Palette.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack {
+                            Text(selectedLine.map { model.lineTitle(moduleID: $0) } ?? "所有会话")
+                            Spacer()
+                            Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                        }
+                        .font(A1Typography.font(13, weight: .medium)).foregroundStyle(A1Palette.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     }
                     .accessibilityLabel("筛选号卡")
                     .frame(minHeight: 44)
-                    .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 8)
-                }
-                if let status = model.cloudV2?.messageListStatus {
-                    HStack {
-                        Text(status).font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
-                        Spacer()
-                        if let onSettings { Button("查看号卡", action: onSettings).font(A1Typography.font(12)).frame(minHeight: 44) }
-                    }.padding(.horizontal, 24)
-                }
-                if model.cloudV2?.hasMessageGap == true {
-                    Text("部分短信未同步，记录可能不完整")
-                        .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
-                        .padding(.horizontal, 24)
+                    .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 8)
                 }
                 List(selection: Binding(get: { selectedConversation }, set: { selectedConversation = $0 })) {
                     ForEach(threads) { thread in
                         NavigationLink(value: thread.id) {
-                            if wideLayout { wideConversationRow(thread) } else { conversationRow(thread) }
+                            conversationRow(thread)
                         }
                             .tag(thread.id)
                             .accessibilityIdentifier("sms-thread-\(thread.id.moduleID)-\(thread.id.peer)")
                             .buttonStyle(.plain)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))
-                            .listRowBackground(wideLayout && selectedConversation == thread.id ? A1Palette.soft : A1Palette.background)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                            .listRowBackground(wideLayout && selectedConversation == thread.id ? A1Palette.accentSoft : A1Palette.surface)
                             .listRowSeparatorTint(A1Palette.separator)
                             .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                             .alignmentGuide(.listRowSeparatorTrailing) { dimensions in max(0, dimensions.width - (wideLayout ? 0 : 60)) }
                     }
-                    if !threads.isEmpty && !wideLayout {
-                        Text("仅显示云端号码的短信")
-                            .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
-                            .frame(maxWidth: .infinity).padding(.top, 18)
-                            .listRowSeparator(.hidden).listRowBackground(A1Palette.background)
-                    }
+
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .environment(\.defaultMinListRowHeight, 0)
                 .refreshable { await model.refreshMessages() }
+                .scrollDismissesKeyboard(.interactively)
                 .overlay {
                     if threads.isEmpty {
-                        Text(search.isEmpty ? "暂无短信" : "未找到短信")
-                            .font(A1Typography.font(17)).foregroundStyle(A1Palette.secondary)
+                        VStack(spacing: 12) {
+                            Image(systemName: search.isEmpty ? "message" : "magnifyingglass")
+                                .font(.system(size: 32, weight: .light)).accessibilityHidden(true)
+                            Text(search.isEmpty ? "暂无短信" : "未找到短信")
+                                .font(A1Typography.font(17, weight: .medium))
+                            Text(search.isEmpty ? "收到或发送的短信会显示在这里" : "试试其他姓名、号码或关键词")
+                                .font(A1Typography.font(14))
+                            if !search.isEmpty {
+                                Button("清除搜索") { search = ""; searching = false }
+                                    .frame(minHeight: 44)
+                            } else if selectedLine != nil {
+                                Button("查看所有号卡") { selectedLine = nil }.frame(minHeight: 44)
+                            } else {
+                                if model.pairedAndroidAgents.isEmpty, let onSettings {
+                                    Button("添加设备", action: onSettings).frame(minHeight: 44)
+                                } else {
+                                    Button("新信息") { showingComposer = true }.frame(minHeight: 44)
+                                }
+                            }
+                        }
+                        .foregroundStyle(A1Palette.secondary).tint(A1Palette.linkBlue)
+                        .multilineTextAlignment(.center).padding(24)
                     }
                 }
             }
@@ -160,11 +177,16 @@ struct A1MessagesView: View {
             .frame(maxWidth: .infinity)
             .background(A1Palette.background)
             .navigationTitle("短信")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(wideLayout ? .inline : .large)
+            .toolbarBackground(A1Palette.background, for: .navigationBar)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if !wideLayout {
-                        Button { showingSearch.toggle() } label: { Label("搜索短信", systemImage: "magnifyingglass") }
+                        Button {
+                            showingSearch.toggle()
+                            searching = showingSearch
+                            if !showingSearch { search = "" }
+                        } label: { Label(showingSearch ? "结束搜索" : "搜索短信", systemImage: showingSearch ? "xmark" : "magnifyingglass") }
                     }
                     Button { showingComposer = true } label: { Label("新信息", systemImage: "square.and.pencil") }
                         .accessibilityIdentifier("a1-message-compose")
@@ -180,52 +202,45 @@ struct A1MessagesView: View {
         selectedConversation = conversation
     }
 
-    private func wideConversationRow(_ thread: AccountSMSThread) -> some View {
-        let contact = contacts.contact(for: thread.id.peer)
-        return HStack(spacing: 12) {
-            A1Avatar(name: contact?.name ?? thread.id.peer, photoData: contact?.photoData, size: 44, fontSize: 17)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(contacts.displayName(for: thread.id.peer))
-                    .font(A1Typography.font(17, weight: .medium)).foregroundStyle(A1Palette.ink).lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
-                Text("\(model.lineTitle(moduleID: thread.id.moduleID)) · \(thread.lastMessage.text)")
-                    .font(A1Typography.font(13)).foregroundStyle(A1Palette.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
-            }.frame(maxWidth: .infinity, alignment: .leading)
-        }.padding(.vertical, 12).frame(minHeight: 70).contentShape(Rectangle())
-    }
-
     private func filterPill(_ title: String, moduleID: String?) -> some View {
         Button { selectedLine = moduleID } label: {
-            Text(title).font(A1Typography.font(13, weight: .medium))
-                .foregroundStyle(selectedLine == moduleID ? .white : A1Palette.secondary)
-                .padding(.horizontal, 20)
-                .frame(minWidth: moduleID == nil ? 70 : 130, minHeight: 36)
-                .padding(.vertical, 6)
-                .background(selectedLine == moduleID ? A1Palette.blue : A1Palette.soft, in: Capsule())
-                .frame(minHeight: 44)
-        }.buttonStyle(.plain)
+            HStack(spacing: 6) {
+                if moduleID != nil { Image(systemName: "simcard").font(.caption) }
+                Text(title).font(.subheadline.weight(.medium))
+            }
+            .foregroundStyle(selectedLine == moduleID ? .white : A1Palette.secondary)
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(selectedLine == moduleID ? A1Palette.accentFill : A1Palette.surface, in: Capsule())
+            .frame(minHeight: 44)
+        }.buttonStyle(A1PressButtonStyle())
         .accessibilityAddTraits(selectedLine == moduleID ? .isSelected : [])
         .accessibilityIdentifier(moduleID.map { "sms-filter-" + $0 } ?? "sms-filter-all")
     }
 
     private func conversationRow(_ thread: AccountSMSThread) -> some View {
         let contact = contacts.contact(for: thread.id.peer)
-        return HStack(spacing: 12) {
-            A1Avatar(name: contact?.name ?? thread.id.peer, photoData: contact?.photoData, size: 48, fontSize: 17.76)
-            VStack(alignment: .leading, spacing: 4) {
+        return HStack(alignment: .top, spacing: 12) {
+            A1Avatar(name: contact?.name ?? thread.id.peer, photoData: contact?.photoData, size: 48)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 8) {
                 (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout())) {
                     Text(contacts.displayName(for: thread.id.peer))
-                        .font(A1Typography.font(17, weight: .medium)).lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                     if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
                     Text(A1SMSDate.short(thread.lastMessage.timestamp))
-                        .font(.caption).foregroundStyle(A1Palette.secondary)
+                        .font(.caption).monospacedDigit().foregroundStyle(A1Palette.secondary)
+                        .layoutPriority(1)
                 }
-                Text(thread.lastMessage.text).font(A1Typography.font(13))
-                    .foregroundStyle(A1Palette.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
-                Text(model.lineTitle(moduleID: thread.id.moduleID))
-                    .font(A1Typography.font(11, weight: .medium))
-                    .foregroundStyle(thread.id.moduleID == model.cloudV2?.selectedModuleID ? A1Palette.linkBlue : A1Palette.secondary)
+                Text(thread.lastMessage.text)
+                    .font(.subheadline).foregroundStyle(A1Palette.secondary)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                A1LineBadge(title: model.lineTitle(moduleID: thread.id.moduleID),
+                            active: thread.id.moduleID == model.cloudV2?.selectedModuleID)
             }
-        }.padding(.vertical, 12).frame(minHeight: 103).contentShape(Rectangle()).foregroundStyle(A1Palette.ink)
+        }
+        .padding(.vertical, 16).contentShape(Rectangle()).foregroundStyle(A1Palette.ink)
     }
 
     private func openPendingComposer() {
@@ -268,9 +283,9 @@ private struct A1MessageThreadView: View {
     private var scrollsStatus: Bool { dynamicTypeSize.isAccessibilitySize || verticalSizeClass == .compact }
     private var failed: Bool { messages.contains { $0.canRetry } }
     private var senderStatus: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             if let sendStatus { Text(sendStatus).font(A1Typography.font(12)).foregroundStyle(A1Palette.negative) }
-            Text("发送自 \(model.lineTitle(moduleID: conversation.moduleID))")
+            Label("发送自 \(model.lineTitle(moduleID: conversation.moduleID))", systemImage: "simcard")
                 .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
         }
     }
@@ -282,32 +297,34 @@ private struct A1MessageThreadView: View {
                 Text(contacts.displayName(for: conversation.peer))
                     .font(A1Typography.font(22, weight: .semibold))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 8)
+                    .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 8)
                     .accessibilityAddTraits(.isHeader)
             }
             GeometryReader { viewport in
                 ScrollViewReader { proxy in
                     ScrollView {
                     LazyVStack(spacing: 0) {
-                        if let first = messages.first {
-                            Text(A1SMSDate.heading(first.timestamp))
-                                .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
-                                .frame(minHeight: 17)
-                                .padding(.top, dynamicTypeSize.isAccessibilitySize ? 16 : 32)
-                        }
                         ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                            if showsTimestamp(at: index) {
+                                Text(A1SMSDate.heading(message.timestamp))
+                                    .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
+                                    .padding(.horizontal, 12).padding(.vertical, 6)
+                                    .background(A1Palette.soft, in: Capsule())
+                                    .padding(.top, index == 0 ? 20 : 24).padding(.bottom, 16)
+                            }
                             messageBubble(message)
-                                .padding(.top, messageSpacing(at: index))
+                                .padding(.top, showsTimestamp(at: index) ? 0 : messageSpacing(at: index))
                                 .id(message.id)
                         }
                         if scrollsStatus { senderStatus.padding(.top, 16) }
-                    }.padding(.horizontal, 24).padding(.bottom, 20)
+                    }.padding(.horizontal, 20).padding(.bottom, 20)
                         .background {
                             GeometryReader { content in
                                 Color.clear.preference(key: A1SMSContentHeight.self, value: content.size.height)
                             }
                         }
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .onPreferenceChange(A1SMSContentHeight.self) { height in
                         guard !positionedHistory, viewport.size.height > 0, height > 0, let last = messages.last else { return }
                         positionedHistory = true
@@ -320,10 +337,10 @@ private struct A1MessageThreadView: View {
                     }
                 }
             }
-            VStack(spacing: 16) {
+            VStack(spacing: 8) {
                 if !scrollsStatus { senderStatus }
-                A1SMSComposerBar(text: draft, canSend: canSend, asset: embedded ? "a1-duo-sms-send" : assetPrefix + "send", send: send)
-            }.padding(.horizontal, 24).padding(.bottom, 10).padding(.top, 12)
+                A1SMSComposerBar(text: draft, canSend: canSend, sending: sending, asset: embedded ? "a1-duo-sms-send" : assetPrefix + "send", send: send)
+            }.padding(.horizontal, 20).padding(.bottom, 10).padding(.top, 12)
         }
         .frame(maxWidth: 600).frame(maxWidth: .infinity)
         .foregroundStyle(A1Palette.ink).background(A1Palette.background)
@@ -358,27 +375,30 @@ private struct A1MessageThreadView: View {
         }
     }
 
+    private func showsTimestamp(at index: Int) -> Bool {
+        index == 0 || messages[index].timestamp.timeIntervalSince(messages[index - 1].timestamp) >= 300
+            || !Calendar.current.isDate(messages[index].timestamp, inSameDayAs: messages[index - 1].timestamp)
+    }
+
     private func messageSpacing(at index: Int) -> CGFloat {
-        guard index > 0 else { return 19 }
-        if embedded { return 47 }
-        if messages[index - 1].direction == "outgoing" { return 15 }
-        return messages[index].canRetry ? 38 : 50
+        guard index > 0 else { return 0 }
+        return messages[index - 1].direction == messages[index].direction ? 8 : 16
     }
 
     private func messageBubble(_ message: AccountSMSMessage) -> some View {
         let outgoing = message.direction == "outgoing"
         return HStack(alignment: .top) {
             if outgoing { Spacer(minLength: dynamicTypeSize.isAccessibilitySize ? 16 : 56) }
-            VStack(alignment: outgoing ? .trailing : .leading, spacing: message.canRetry ? 22 : 18) {
+            VStack(alignment: outgoing ? .trailing : .leading, spacing: 8) {
                 Text(message.text).font(A1Typography.font(17))
                     .textSelection(.enabled)
                     .frame(minHeight: 21)
                     .padding(.horizontal, 16).padding(.vertical, 12)
                     .foregroundStyle(outgoing ? .white : A1Palette.ink)
-                    .background(outgoing ? A1Palette.blue : A1Palette.soft, in: RoundedRectangle(cornerRadius: 20))
+                    .background(outgoing ? A1Palette.accentFill : A1Palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 if outgoing {
                     if message.canRetry {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .trailing, spacing: 4) {
                             Text(message.statusText).font(A1Typography.font(12)).foregroundStyle(A1Palette.negative)
                             Button("使用\(model.lineTitle(moduleID: conversation.moduleID))重试") {
                                 sending = true
@@ -392,9 +412,9 @@ private struct A1MessageThreadView: View {
                             .frame(minHeight: 44)
                             .disabled(sending || !model.canSendSMS(in: conversation))
                             .accessibilityIdentifier("a1-message-retry")
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    } else if !embedded || message.state != "sent" {
-                        Text(message.state == "sent" ? "发送自 \(model.lineTitle(moduleID: conversation.moduleID))" : message.statusText)
+                        }.frame(maxWidth: .infinity, alignment: .trailing)
+                    } else if message.state != "sent" {
+                        Text(message.statusText)
                             .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
                     }
                 }
@@ -423,39 +443,34 @@ private struct A1MessageThreadView: View {
     }
 }
 
-private struct A1SMSIconButton: View {
-    let asset: String
-    let label: String
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            A1AssetIcon(asset).frame(width: 44, height: 44).background(A1Palette.soft, in: Circle())
-        }.buttonStyle(.plain).accessibilityLabel(label)
-    }
-}
-
 private struct A1SMSComposerBar: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Binding var text: String
     let canSend: Bool
+    let sending: Bool
     let asset: String
     let send: () -> Void
     @FocusState private var editing: Bool
     var body: some View {
-        HStack(alignment: .bottom, spacing: 10) {
+        HStack(alignment: .bottom, spacing: 12) {
             TextField("短信", text: $text, axis: .vertical)
                 .focused($editing)
                 .font(A1Typography.font(17)).lineLimit(1...((dynamicTypeSize.isAccessibilitySize || verticalSizeClass == .compact) ? 1 : 5))
-                .padding(.horizontal, 15).padding(.vertical, 11)
+                .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(minHeight: 46)
-                .overlay(RoundedRectangle(cornerRadius: 23).stroke(A1Palette.separator, lineWidth: 1))
+                .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(editing ? A1Palette.accent : A1Palette.separator, lineWidth: 1))
                 .accessibilityLabel("短信内容").accessibilityIdentifier("message-reply")
             Button(action: send) {
-                A1AssetIcon(asset, tint: canSend ? .white : A1Palette.secondary).frame(width: 44, height: 44)
-                    .background(canSend ? A1Palette.blue : A1Palette.gray, in: Circle())
-            }.buttonStyle(.plain).disabled(!canSend)
-                .accessibilityLabel("发送").accessibilityIdentifier("message-send")
+                Group {
+                    if sending { ProgressView().tint(.white) }
+                    else { Image(systemName: "arrow.up").font(.body.weight(.semibold)).foregroundStyle(canSend ? .white : A1Palette.secondary) }
+                }
+                .frame(width: 44, height: 44)
+                .background(canSend || sending ? A1Palette.accentFill : A1Palette.gray, in: Circle())
+            }.buttonStyle(A1PressButtonStyle()).disabled(!canSend)
+                .accessibilityLabel(sending ? "正在发送" : "发送").accessibilityIdentifier("message-send")
         }
         .onDisappear { editing = false }
     }
@@ -489,6 +504,7 @@ private struct A1NewMessageView: View {
     @State private var initialized = false
     @State private var draftConversation: SMSConversationID?
     @State private var lastSubmittedText: String?
+    @State private var confirmingDiscard = false
     @FocusState private var editingRecipient: Bool
 
     init(initialRecipient: String) { _recipient = State(initialValue: initialRecipient) }
@@ -501,6 +517,9 @@ private struct A1NewMessageView: View {
         return !sending && model.canSendSMS(in: conversation)
             && !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+    private var hasUnassignedDraft: Bool {
+        conversation?.peer.isEmpty != false && !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     private var suggestions: [ContactStore.Contact] {
         guard !recipient.isEmpty, contacts.contact(for: recipient) == nil else { return [] }
         return Array(contacts.contacts.filter {
@@ -510,9 +529,9 @@ private struct A1NewMessageView: View {
 
     private var scrollsStatus: Bool { dynamicTypeSize.isAccessibilitySize || verticalSizeClass == .compact }
     private var senderStatus: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             if let sendStatus { Text(sendStatus).font(A1Typography.font(12)).foregroundStyle(A1Palette.negative) }
-            Text("发送自 \(model.lineTitle(moduleID: conversation?.moduleID ?? selectedLine))")
+            Label("发送自 \(model.lineTitle(moduleID: conversation?.moduleID ?? selectedLine))", systemImage: "simcard")
                 .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
         }
     }
@@ -538,6 +557,8 @@ private struct A1NewMessageView: View {
                             .background(A1Palette.soft, in: Circle())
                     }.accessibilityLabel("从通讯录选择").disabled(lockedConversation != nil)
                 }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 if let contact = contacts.contact(for: recipient) {
                     HStack(spacing: 10) {
                         A1Avatar(name: contact.name, photoData: contact.photoData, size: 36)
@@ -570,12 +591,12 @@ private struct A1NewMessageView: View {
                         if !dynamicTypeSize.isAccessibilitySize { Spacer() }
                         Text(model.lineTitle(moduleID: conversation?.moduleID ?? selectedLine))
                         A1AssetIcon("a1-detail-down")
-                    }.font(A1Typography.font(14)).padding(14).background(A1Palette.soft, in: Capsule())
+                    }.font(.subheadline).padding(16).background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }.disabled(lockedConversation != nil)
                     .accessibilityIdentifier("sms-compose-line-picker")
                 if scrollsStatus { senderStatus }
             }
-            .padding(.horizontal, 24).padding(.top, 8)
+            .padding(.horizontal, 20).padding(.top, 8)
             .frame(maxWidth: 600).frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
@@ -589,19 +610,29 @@ private struct A1NewMessageView: View {
                         content = body
                         if let draftConversation { model.setSMSDraft(body, for: draftConversation) }
                     }
-                ), canSend: canSend, asset: "a1-sms-thread-send", send: send)
+                ), canSend: canSend, sending: sending, asset: "a1-sms-thread-send", send: send)
             }
-            .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 10)
+            .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 10)
             .frame(maxWidth: 600).frame(maxWidth: .infinity)
             .background(A1Palette.background)
             }
             .background(A1Palette.background).foregroundStyle(A1Palette.ink)
             .navigationTitle("新信息")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(A1Palette.background, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { switchDraft(); dismiss() }.disabled(sending) }
+                ToolbarItem(placement: .cancellationAction) { Button("取消") {
+                    switchDraft()
+                    if hasUnassignedDraft { confirmingDiscard = true } else { dismiss() }
+                }.disabled(sending) }
             }
-            .interactiveDismissDisabled(sending)
+            .interactiveDismissDisabled(sending || hasUnassignedDraft)
+            .confirmationDialog("放弃这条短信？", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+                Button("放弃短信", role: .destructive) { dismiss() }
+                Button("继续编辑", role: .cancel) { }
+            } message: {
+                Text("尚未选择收件人，关闭后这段内容不会保留。")
+            }
             .sheet(isPresented: $showingContacts) {
                 A1SMSContactPicker { phone in recipient = phone; switchDraft(); showingContacts = false }
             }
