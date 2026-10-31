@@ -79,7 +79,7 @@ func (s *Server) client(w http.ResponseWriter, r *http.Request) {
 		epoch = p.epoch
 		boot = p.boot
 		backend = p.backend
-		snap = p.snapshot
+		snap = visibleSnapshot(p, online)
 	}
 	if len(parts) == 2 && r.Method == "GET" {
 		switch parts[1] {
@@ -116,13 +116,7 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request, user, client strin
 			wire.Error(w, 503, "database_unavailable")
 			return
 		}
-		v := map[string]any{"module_id": id, "online": s.peers[id] != nil, "last_seen": nil, "agent_boot_id": "", "backend_epoch": "", "connection_epoch": ""}
-		if p := s.last[id]; p != nil {
-			v["last_seen"] = p.last.UTC()
-			v["agent_boot_id"] = p.boot
-			v["backend_epoch"] = p.backend
-			v["connection_epoch"] = p.epoch
-		}
+		v := s.moduleSummary(id)
 		out = append(out, v)
 	}
 	wire.JSON(w, 200, map[string]any{"server_id": s.cfg.Server, "modules": out})

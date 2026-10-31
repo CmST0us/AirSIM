@@ -1299,6 +1299,11 @@ final class AppModel: ObservableObject {
 
     var defaultOutgoingModuleID: String? { cloudV2?.defaultOutgoingModuleID ?? currentAndroidAgent?.id }
 
+    func moduleSignal(moduleID: String?) -> ModuleSignalState {
+        guard let cloudV2, let id = moduleID ?? cloudV2.selectedModuleID else { return .unavailable }
+        return cloudV2.moduleSignal(id)
+    }
+
     func lineTitle(moduleID: String?) -> String {
         if let cloudV2 {
             guard let id = moduleID ?? cloudV2.selectedModuleID else { return "未选择号卡" }

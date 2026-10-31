@@ -180,15 +180,57 @@ struct A1Avatar: View {
     }
 }
 
+enum ModuleSignalState: Equatable {
+    case available(bars: Int)
+    case unavailable
+
+    var accessibilityDescription: String {
+        switch self {
+        case let .available(bars): return "蜂窝信号，\(min(4, max(0, bars))) 格，共 4 格"
+        case .unavailable: return "蜂窝信号不可用"
+        }
+    }
+
+    var image: Image {
+        switch self {
+        case let .available(bars):
+            return Image(systemName: "cellularbars", variableValue: Double(min(4, max(0, bars))) / 4)
+        case .unavailable:
+            return Image(systemName: "antenna.radiowaves.left.and.right.slash")
+        }
+    }
+}
+
+struct A1ModuleLabel: View {
+    let title: String
+    let signal: ModuleSignalState
+
+    var body: some View {
+        Label { Text(title) } icon: { signal.image }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(title)
+            .accessibilityValue(signal.accessibilityDescription)
+    }
+}
+
+struct A1InlineModuleLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.icon.fixedSize()
+            configuration.title
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 struct A1LineBadge: View {
     let title: String
+    let signal: ModuleSignalState
     var active = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "simcard")
-            Text(title)
-        }
+        A1ModuleLabel(title: title, signal: signal)
+            .labelStyle(A1InlineModuleLabelStyle())
             .font(.caption.weight(.medium))
             .foregroundStyle(active ? A1Palette.accent : A1Palette.secondary)
             .padding(.horizontal, 8).padding(.vertical, 4)

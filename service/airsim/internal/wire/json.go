@@ -64,7 +64,13 @@ func walkValue(d *json.Decoder, allow bool, fields map[string]bool) error {
 				return ErrInvalid
 			}
 			seen[s] = true
-			if e = walkValue(d, fields[s] || s == "receipt", nil); e != nil {
+			nested := map[string]bool{}
+			for path, nullable := range fields {
+				if strings.HasPrefix(path, s+".") {
+					nested[strings.TrimPrefix(path, s+".")] = nullable
+				}
+			}
+			if e = walkValue(d, fields[s] || s == "receipt", nested); e != nil {
 				return e
 			}
 		}
@@ -133,7 +139,7 @@ func Error(w http.ResponseWriter, status int, code string) {
 	JSON(w, status, map[string]string{"error": code})
 }
 
-// DecodeNullable permits explicit null only in named top-level fields.
+// DecodeNullable permits explicit null only in named fields or dot-separated object paths.
 func DecodeNullable(b []byte, v any, nullable ...string) error {
 	allowed := map[string]bool{}
 	for _, k := range nullable {

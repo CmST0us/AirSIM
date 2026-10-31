@@ -357,7 +357,7 @@ struct ActiveCallView: View {
                 .minimumScaleFactor(dynamicTypeSize.isAccessibilitySize ? 1 : 0.7)
                 .frame(minHeight: 45)
                 .padding(.top, compact ? 16 : 24)
-            Text("\(incoming ? "打入" : "使用") \(model.lineTitle(moduleID: moduleID))")
+            A1ModuleLabel(title: "\(incoming ? "打入" : "使用") \(model.lineTitle(moduleID: moduleID))", signal: model.moduleSignal(moduleID: moduleID))
                 .font(A1Typography.font(15))
                 .foregroundStyle(A1Palette.onCard.opacity(0.72))
                 .multilineTextAlignment(.center)

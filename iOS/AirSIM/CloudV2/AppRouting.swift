@@ -295,6 +295,12 @@ private struct FixtureTransport: V2HTTPTransport {
             : nil
         return CloudV2Model(client: V2Client(transport: Self(), tokens: tokens), defaults: defaults, root: UITestScenario.root, tokens: tokens, pairingClient: pairingClient)
     }
+    private static func signal(module: String, online: Bool, date: String) -> [String: Any] {
+        let rssi = module == first ? 24 : 8
+        return ["available": online, "observed_at": date,
+                "rssi": online ? rssi as Any : NSNull(),
+                "dbm": online ? (-113 + 2 * rssi) as Any : NSNull()]
+    }
     func send(_ request: URLRequest, limit: Int) async throws -> V2HTTPResponse {
         let id = Self.first, second = Self.second
         let path = request.url?.path ?? ""
@@ -314,7 +320,7 @@ private struct FixtureTransport: V2HTTPTransport {
         if path == "/.well-known/airsim" {
             object = ["protocol_version": 2, "profile": "airsim-v2-r4.1", "server_id": id, "api_origin": "https://example.invalid", "media_origin": "https://media.example.invalid", "device_origin": "https://device.example.invalid", "capabilities": ["controlled_test_client": true, "telephony": true, "messaging": true, "experimental_audio": true, "apns": false, "interactive_login": false]]
         } else if path == "/v2/modules" {
-            object = ["server_id": id, "modules": moduleIDs.map { ["module_id": $0, "online": online, "last_seen": date, "agent_boot_id": id, "backend_epoch": id, "connection_epoch": id] as [String: Any] }]
+            object = ["server_id": id, "modules": moduleIDs.map { ["module_id": $0, "online": online, "last_seen": date, "agent_boot_id": id, "backend_epoch": id, "connection_epoch": id, "signal": Self.signal(module: $0, online: online, date: date)] as [String: Any] }]
         } else if path.hasSuffix("snapshot") {
             let call: [String: Any] = [
                 "call_id": id,
@@ -327,6 +333,7 @@ private struct FixtureTransport: V2HTTPTransport {
             ]
             object = ["server_id": id, "module_id": module, "online": online, "last_seen": date, "connection_epoch": id, "snapshot": [
                 "agent_boot_id": id, "backend_epoch": id, "observed_at": date,
+                "signal": Self.signal(module: module, online: online, date: date),
                 "control": ["schema_version": 1, "agent_boot_id": id, "backend_epoch": id, "ready": true, "reason": "", "scope": "local_control", "voice_ready": false, "telephony_ready": true, "messaging_ready": true, "inbox_gap": false, "inbox_dropped": 0, "command_capacity_remaining": 100],
                 "calls": ["agent_boot_id": id, "backend_epoch": id, "available": true, "calls": UITestScenario.name == "design-empty" ? [] : UITestScenario.usesDesignData ? Self.designCalls.filter { $0.moduleID == module }.map { $0.wire as [String: Any] } : [call]],
                 "audio": ["available": false, "implementation": "unavailable", "verification": "unverified", "voice_ready": false, "reason": ""]]]

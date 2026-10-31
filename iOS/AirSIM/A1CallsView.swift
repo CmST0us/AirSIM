@@ -8,7 +8,6 @@ struct A1CallsView: View {
     let onCall: (String, String?) -> Void
     let onMessage: (String, String?) -> Void
     let onContacts: () -> Void
-    let onSettings: () -> Void
     var onDial: () -> Void = {}
     @State private var showingHistory = false
     @State private var showingSearch = false
@@ -37,15 +36,14 @@ struct A1CallsView: View {
             }
             .frame(maxWidth: 600)
             .frame(maxWidth: .infinity)
-            .background(A1Palette.background)
+            .background { A1Palette.background.ignoresSafeArea() }
             .navigationTitle("通话")
             .navigationBarTitleDisplayMode(.large)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
+                ToolbarItem(placement: .primaryAction) {
                     Button { showingSearch = true } label: { Image(systemName: "magnifyingglass") }
                         .accessibilityLabel("搜索通话和联系人")
-                    Menu { Button("设置", action: onSettings) } label: { Image(systemName: "ellipsis") }
-                        .accessibilityLabel("更多")
                 }
             }
             .navigationDestination(isPresented: $showingHistory) {
@@ -243,14 +241,12 @@ struct A1CallsView: View {
                 .scrollDismissesKeyboard(.interactively)
                     }
         }
-        .foregroundStyle(A1Palette.ink).background(A1Palette.background)
+        .foregroundStyle(A1Palette.ink)
+        .background { A1Palette.background.ignoresSafeArea() }
         .navigationTitle("通话")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .toolbar { ToolbarItem(placement: .primaryAction) {
-            Menu { Button("设置", action: onSettings) } label: { Image(systemName: "ellipsis") }
-                .accessibilityLabel("更多")
-        } }
+        .toolbarBackground(.hidden, for: .navigationBar)
     }
 
     private func deliverPendingMessage() {
@@ -303,7 +299,9 @@ struct A1CallsView: View {
                             A1Avatar(name: contact.name, photoData: contact.photoData, size: 40, fontSize: 17)
                             Text(contact.name).font(.subheadline.weight(.semibold))
                                 .foregroundStyle(A1Palette.ink).fixedSize(horizontal: false, vertical: true)
-                            Text(model.lineTitle(moduleID: contacts.preferredModuleID(for: contact.id)))
+                            A1ModuleLabel(title: model.lineTitle(moduleID: contacts.preferredModuleID(for: contact.id)), signal: model.moduleSignal(moduleID: contacts.preferredModuleID(for: contact.id)))
+                                .labelStyle(A1InlineModuleLabelStyle())
+                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 1)
                                 .font(.caption).foregroundStyle(A1Palette.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                             Label("呼叫", systemImage: "phone.fill")
@@ -412,7 +410,8 @@ private struct A1CallRowContent: View {
     }
 
     private var line: some View {
-        Text(A1CallPresentation.line(call, model: model))
+        A1ModuleLabel(title: A1CallPresentation.line(call, model: model), signal: model.isV2 && model.moduleID(for: call) == nil ? .unavailable : model.moduleSignal(moduleID: model.moduleID(for: call)))
+            .labelStyle(A1InlineModuleLabelStyle())
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -514,7 +513,9 @@ private struct A1CallDetailsView: View {
                 }
                 Section("通话信息") {
                     LabeledContent("类型", value: A1CallPresentation.direction(call))
-                    LabeledContent("线路", value: A1CallPresentation.line(call, model: model))
+                    LabeledContent("线路") {
+                        A1ModuleLabel(title: A1CallPresentation.line(call, model: model), signal: model.isV2 && model.moduleID(for: call) == nil ? .unavailable : model.moduleSignal(moduleID: model.moduleID(for: call)))
+                    }
                     LabeledContent("开始时间", value: call.startedAt.formatted(date: .abbreviated, time: .standard))
                     if let ended = call.endedAt {
                         LabeledContent("结束时间", value: ended.formatted(date: .abbreviated, time: .standard))
@@ -721,7 +722,7 @@ private struct A1WideCallDetailView: View {
                         .frame(minHeight: 24).padding(.top, 4)
                     Button { showingInformation = true } label: {
                         HStack(spacing: 9) {
-                            Text(A1CallPresentation.line(call, model: model))
+                            A1ModuleLabel(title: A1CallPresentation.line(call, model: model), signal: model.isV2 && model.moduleID(for: call) == nil ? .unavailable : model.moduleSignal(moduleID: model.moduleID(for: call)))
                                 .font(A1Typography.font(14, weight: .medium)).fixedSize(horizontal: false, vertical: true)
                             A1AssetIcon("a1-wide-down")
                         }
@@ -731,6 +732,7 @@ private struct A1WideCallDetailView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("查看原号卡，\(A1CallPresentation.line(call, model: model))")
+                    .accessibilityValue((originalLineAvailable ? model.moduleSignal(moduleID: model.moduleID(for: call)) : .unavailable).accessibilityDescription)
                     .padding(.top, 16)
                     (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 14)) : AnyLayout(HStackLayout(spacing: 14))) {
                         Button { Task { await model.redial(call) } } label: {

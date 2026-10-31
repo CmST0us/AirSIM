@@ -63,3 +63,20 @@ func TestNullableRequiredFields(t *testing.T) {
 		t.Fatal("valid nullable authorization rejected")
 	}
 }
+
+func TestNullableObjectPaths(t *testing.T) {
+	var v struct {
+		Signal json.RawMessage `json:"signal,omitempty"`
+		Other  json.RawMessage `json:"other,omitempty"`
+	}
+	for _, input := range []string{`{"signal":{"rssi":null}}`, `{"signal":null}`, `{}`} {
+		if DecodeNullable([]byte(input), &v, "signal", "signal.rssi") != nil {
+			t.Fatalf("rejected %s", input)
+		}
+	}
+	for _, input := range []string{`{"other":{"rssi":null}}`, `{"signal":{"unknown":null}}`, `{"signal":{"nested":{"rssi":null}}}`} {
+		if DecodeNullable([]byte(input), &v, "signal", "signal.rssi") == nil {
+			t.Fatalf("accepted %s", input)
+		}
+	}
+}

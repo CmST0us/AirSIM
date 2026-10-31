@@ -30,7 +30,7 @@ struct V2ConnectionSections: View {
                         Button { Task { await model.selectModule(module.module_id) } } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(model.moduleName(module.module_id)).foregroundStyle(.primary)
+                                    A1ModuleLabel(title: model.moduleName(module.module_id), signal: model.moduleSignal(module.module_id)).foregroundStyle(.primary)
                                     Text(module.online ? "在线" : "离线")
                                         .font(.caption).foregroundStyle(.secondary)
                                 }

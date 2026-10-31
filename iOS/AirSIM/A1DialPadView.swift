@@ -114,7 +114,7 @@ struct A1DialPadView: View {
                 .font(A1Typography.font(15, weight: .medium)).foregroundStyle(A1Palette.linkBlue)
                 .padding(.top, 50)
             if let outgoingModuleID {
-                Text("当前选择仍为\(model.lineTitle(moduleID: outgoingModuleID))")
+                A1ModuleLabel(title: "当前选择仍为\(model.lineTitle(moduleID: outgoingModuleID))", signal: model.moduleSignal(moduleID: outgoingModuleID))
                     .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary).padding(.top, 25)
             }
         }.padding(.horizontal, 20).padding(.bottom, 32)
@@ -129,7 +129,7 @@ struct A1DialPadView: View {
                     .accessibilityHidden(true)
                 Text("呼出")
                     .foregroundStyle(A1Palette.secondary)
-                Text(outgoingModuleID == nil ? "选择号卡" : model.lineTitle(moduleID: outgoingModuleID))
+                A1ModuleLabel(title: outgoingModuleID == nil ? "选择号卡" : model.lineTitle(moduleID: outgoingModuleID), signal: outgoingModuleID == nil ? .unavailable : model.moduleSignal(moduleID: outgoingModuleID))
                     .fontWeight(.medium)
                     .fixedSize(horizontal: false, vertical: true)
                 Image(systemName: "chevron.down")
@@ -145,7 +145,7 @@ struct A1DialPadView: View {
         .buttonStyle(A1PressButtonStyle())
         .padding(.horizontal, 20)
         .accessibilityLabel("选择本次呼出号卡")
-        .accessibilityValue(outgoingModuleID.map { model.lineTitle(moduleID: $0) } ?? "未选择")
+        .accessibilityValue(outgoingModuleID.map { "\(model.lineTitle(moduleID: $0))，\(model.moduleSignal(moduleID: $0).accessibilityDescription)" } ?? "未选择")
         .accessibilityIdentifier("module-selector")
         .disabled(startingCall)
     }
@@ -164,7 +164,7 @@ struct A1DialPadView: View {
                             showingLines = false
                         } label: {
                             HStack(spacing: 12) {
-                                Text(model.lineTitle(moduleID: line.id))
+                                A1ModuleLabel(title: model.lineTitle(moduleID: line.id), signal: model.moduleSignal(moduleID: line.id))
                                     .foregroundStyle(A1Palette.ink)
                                     .fixedSize(horizontal: false, vertical: true)
                                 Spacer(minLength: 8)

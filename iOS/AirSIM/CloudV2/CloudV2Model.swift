@@ -307,6 +307,22 @@ final class CloudV2Model: ObservableObject {
         if let key = moduleNameKey(moduleID), let name = defaults.string(forKey: key), !name.isEmpty { return name }
         return "模块 · \(moduleID.prefix(8))"
     }
+    func moduleSignal(_ moduleID: String) -> ModuleSignalState {
+        let date = now()
+        guard connected, let module = modules.first(where: { $0.module_id == moduleID }),
+              module.online, let lastSeen = module.last_seen.flatMap({ try? V2Validation.date($0) }),
+              (-3...15).contains(date.timeIntervalSince(lastSeen)) else { return .unavailable }
+        if let response = snapshot, response.module_id == moduleID {
+            guard response.server_id == configuration?.identity.serverID, response.online,
+                  response.connection_epoch == module.connection_epoch,
+                  let snapshot = response.snapshot,
+                  snapshot.agent_boot_id == module.agent_boot_id,
+                  snapshot.backend_epoch == module.backend_epoch,
+                  (-3...8).contains(date.timeIntervalSince(snapshot.observedAt)) else { return .unavailable }
+            if let signal = snapshot.signal { return signal.presentation(now: date) }
+        }
+        return module.signal?.presentation(now: date) ?? .unavailable
+    }
     func renameModule(_ moduleID: String, name: String) {
         guard let key = moduleNameKey(moduleID), modules.contains(where: { $0.module_id == moduleID }) else { return }
         let value = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(40))

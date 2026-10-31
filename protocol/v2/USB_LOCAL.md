@@ -37,7 +37,7 @@ App 在空闲时优先使用已授权且身份验证通过的 USB。首次控制
 所有接口除媒体握手外使用 `Authorization: Bearer <本地token>`；服务端检查期限与客户端。请求必须携带 `X-AirSIM-Timestamp`（Unix秒）、`X-AirSIM-Nonce`（32随机字节lowercase hex）、`X-AirSIM-Signature`（HMAC-SHA256 lowercase hex）。HMAC key为本地token解码后的32字节，签名输入为 `timestamp + "\n" + nonce + "\n" + method + "\n" + path_and_query + "\n" + body原始字节`。时间窗±30秒，nonce至少保留61秒且拒绝重用。控制 body 上限8192字节，响应有界，拒绝重定向。仅支持下列白名单，响应沿用现有 v2 App 模型：
 
 - `GET /v2/modules`：仅当前模块，online 表示本地控制就绪，connection_epoch 为Agent本次本地运行实例 UUID。
-- `GET /v2/modules/{id}/snapshot`：模块实际状态，freshness/boot/backend 与云端一致，不取 ECS 在线状态。
+- `GET /v2/modules/{id}/snapshot`：模块实际状态，freshness/boot/backend 与云端一致，不取 ECS 在线状态。目录 `GET /v2/modules` 的每个模块及 `snapshot.signal` 与 [R4 信号契约](R4.md) 一致，读取现有 AT 采样缓存；未知或超过 30 秒的样本不可用，保留实际采样时间。
 - `GET /v2/modules/{id}/messages`：模块短信视图及缺口标识。
 - `POST /v2/modules/{id}/commands`：原 `connection_epoch,command` envelope，原类型化动作和去重记录。返回 `command_id,state,generation,receipt`。
 - `GET /v2/modules/{id}/commands/{id}`：仅同一本地授权客户端创建的命令结果。

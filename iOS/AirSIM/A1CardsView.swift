@@ -92,19 +92,19 @@ struct A1CardsView: View {
                             .listRowSeparator(.hidden)
                         VStack(spacing: 0) {
                             Menu {
-                                ForEach(cloud.modules, id: \.module_id) { module in
-                                    Button {
-                                        Task { await cloud.selectModule(module.module_id) }
-                                    } label: {
-                                        if module.module_id == cloud.defaultOutgoingModuleID {
-                                            Label(cloud.moduleName(module.module_id), systemImage: "checkmark")
-                                        } else {
-                                            Text(cloud.moduleName(module.module_id))
-                                        }
+                                Picker("默认呼出号码", selection: Binding(
+                                    get: { cloud.defaultOutgoingModuleID },
+                                    set: { id in
+                                        if let id { Task { await cloud.selectModule(id) } }
+                                    }
+                                )) {
+                                    ForEach(cloud.modules, id: \.module_id) { module in
+                                        A1ModuleLabel(title: cloud.moduleName(module.module_id), signal: cloud.moduleSignal(module.module_id))
+                                            .tag(Optional(module.module_id))
                                     }
                                 }
                             } label: {
-                                A1CardSettingRow(title: "默认呼出号码", value: cloud.defaultOutgoingModuleID.map(cloud.moduleName) ?? "未选择", actionable: true)
+                                A1CardSettingRow(title: "默认呼出号码", value: cloud.defaultOutgoingModuleID.map(cloud.moduleName) ?? "未选择", signal: cloud.defaultOutgoingModuleID.map(cloud.moduleSignal), actionable: true)
                             }
                             .disabled(cloud.blocksSwitch)
                             .accessibilityIdentifier("a1-card-default-line")
@@ -173,6 +173,7 @@ struct A1CardsView: View {
     private func card(_ module: V2Module) -> some View {
         A1SIMCardFace(
             name: cloud.moduleName(module.module_id),
+            signal: cloud.moduleSignal(module.module_id),
             online: module.online,
             isDefault: module.module_id == cloud.defaultOutgoingModuleID
         )
@@ -263,6 +264,7 @@ private struct A1CardDetailView: View {
                 Group {
                     A1SIMCardFace(
                         name: cloud.moduleName(module.module_id),
+                        signal: cloud.moduleSignal(module.module_id),
                         online: module.online,
                         isDefault: module.module_id == cloud.defaultOutgoingModuleID
                     )
@@ -271,7 +273,7 @@ private struct A1CardDetailView: View {
                     .listRowSeparator(.hidden)
                     VStack(spacing: 0) {
                         Button(action: onRename) {
-                            A1CardSettingRow(title: "号卡名称", value: cloud.moduleName(module.module_id), actionable: true, titleSize: 17, valueSize: 15)
+                            A1CardSettingRow(title: "号卡名称", value: cloud.moduleName(module.module_id), signal: cloud.moduleSignal(module.module_id), actionable: true, titleSize: 17, valueSize: 15)
                         }
                         .buttonStyle(A1RowButtonStyle())
                         .accessibilityLabel("修改模块名称")
@@ -313,6 +315,13 @@ private struct A1CardDetailView: View {
         .background(A1Palette.background)
         .foregroundStyle(A1Palette.ink)
         .navigationTitle(cloud.moduleName(module.module_id))
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                A1ModuleLabel(title: cloud.moduleName(module.module_id), signal: cloud.moduleSignal(module.module_id))
+                    .labelStyle(A1InlineModuleLabelStyle())
+                    .font(.headline)
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(showsBack ? .visible : .hidden, for: .navigationBar)
         .toolbar(.visible, for: .tabBar)
@@ -337,6 +346,7 @@ private struct A1CardSettingRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let title: String
     let value: String
+    var signal: ModuleSignalState? = nil
     var actionable = false
     var titleSize: CGFloat = 17
     var valueSize: CGFloat = 15
@@ -347,7 +357,10 @@ private struct A1CardSettingRow: View {
                 Text(title).font(A1Typography.font(titleSize)).foregroundStyle(A1Palette.ink)
                     .layoutPriority(1)
                 if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
-                Text(value).font(A1Typography.font(valueSize)).foregroundStyle(A1Palette.secondary)
+                Group {
+                    if let signal { A1ModuleLabel(title: value, signal: signal) }
+                    else { Text(value) }
+                }.font(A1Typography.font(valueSize)).foregroundStyle(A1Palette.secondary)
                     .multilineTextAlignment(dynamicTypeSize.isAccessibilitySize ? .leading : .trailing)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -364,6 +377,7 @@ private struct A1CardSettingRow: View {
 
 private struct A1SIMCardFace: View {
     let name: String
+    let signal: ModuleSignalState
     let online: Bool
     let isDefault: Bool
     var body: some View {
@@ -380,7 +394,7 @@ private struct A1SIMCardFace: View {
                     .background(A1Palette.soft, in: Capsule())
             }
             VStack(alignment: .leading, spacing: 8) {
-                Text(name)
+                A1ModuleLabel(title: name, signal: signal)
                     .font(.title2.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
                 Text("未提供号码")

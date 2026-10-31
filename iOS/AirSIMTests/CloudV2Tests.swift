@@ -1603,6 +1603,8 @@ extension CloudV2Tests {
     var pending: [String: CheckedContinuation<V2HTTPResponse, Error>] = [:]
     var snapshotCalls: [[String: Any]] = []
     var snapshotMessages: [[String: Any]] = []
+    var signals: [String: [String: Any]] = [:]
+    var offlineModules = Set<String>()
     var connectionEpoch = v2ID
     var writes = 0
     var commandHTTPStatus: Int?
@@ -1667,9 +1669,17 @@ extension CloudV2Tests {
     func response(_ lane: String, module: String = v2ID) throws -> V2HTTPResponse {
         let body: Data
         if lane == "directory" {
-            body = try v2Data(["server_id": v2ID, "modules": [v2ID, v2OtherID].map { ["module_id": $0, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": connectionEpoch] }])
+            body = try v2Data(["server_id": v2ID, "modules": [v2ID, v2OtherID].map { id -> [String: Any] in
+                var value: [String: Any] = ["module_id": id, "online": !offlineModules.contains(id), "last_seen": V2Validation.timestamp(currentNow), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": connectionEpoch]
+                value["signal"] = signals[id]
+                return value
+            }])
         } else if lane == "snapshot" { var value = try JSONSerialization.jsonObject(with: v2SnapshotData(module: module, age: -currentNow.timeIntervalSince(v2Now), calls: snapshotCalls)) as! [String: Any]
             value["connection_epoch"] = connectionEpoch
+            value["online"] = !offlineModules.contains(module)
+            var snapshot = value["snapshot"] as! [String: Any]
+            snapshot["signal"] = signals[module]
+            value["snapshot"] = snapshot
             body = try v2Data(value) }
         else { body = try v2Data(["server_id": v2ID, "module_id": module, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": snapshotMessages]) }
         return V2HTTPResponse(status: 200, body: body)
@@ -2695,4 +2705,66 @@ extension CloudV2Tests {
         XCTAssertEqual(fixture.writes, 0)
         await fixture.close()
     }
+}
+
+
+extension CloudV2Tests {
+    func testSignalStrengthDecodingLevelsAndFreshness() throws {
+        for (rssi, bars) in [(0, 0), (1, 0), (2, 1), (9, 1), (10, 2), (14, 2), (15, 3), (19, 3), (20, 4), (31, 4)] {
+            let value = try V2JSON.decode(V2Signal.self, from: v2Data(v2Signal(rssi: rssi)), limit: 1024)
+            XCTAssertEqual(value.presentation(now: v2Now), .available(bars: bars))
+            XCTAssertEqual(value.presentation(now: v2Now.addingTimeInterval(30)), .available(bars: bars))
+            XCTAssertEqual(value.presentation(now: v2Now.addingTimeInterval(31)), .unavailable)
+            XCTAssertEqual(value.presentation(now: v2Now.addingTimeInterval(-4)), .unavailable)
+        }
+        let unknown = try V2JSON.decode(V2Signal.self, from: v2Data(v2Signal(rssi: nil)), limit: 1024)
+        XCTAssertEqual(unknown.presentation(now: v2Now), .unavailable)
+        for invalid in [v2Signal(rssi: 99), ["available": true, "observed_at": NSNull(), "rssi": 20, "dbm": -73], ["available": false, "observed_at": NSNull(), "rssi": 20, "dbm": -73]] {
+            XCTAssertThrowsError(try V2JSON.decode(V2Signal.self, from: v2Data(invalid), limit: 1024))
+        }
+        var mismatch = v2Signal(rssi: 20); mismatch["dbm"] = -72
+        XCTAssertThrowsError(try V2JSON.decode(V2Signal.self, from: v2Data(mismatch), limit: 1024))
+    }
+
+    func testSignalSnapshotAcceptsAbsentAndNullMeasurement() throws {
+        let data = try v2SnapshotData()
+        XCTAssertNil(try V2JSON.decode(V2SnapshotResponse.self, from: data, limit: 16384).snapshot?.signal)
+        var response = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        var snapshot = response["snapshot"] as! [String: Any]
+        snapshot["signal"] = NSNull(); response["snapshot"] = snapshot
+        XCTAssertNil(try V2JSON.decode(V2SnapshotResponse.self, from: v2Data(response), limit: 16384).snapshot?.signal)
+        snapshot["signal"] = v2Signal(rssi: 10); response["snapshot"] = snapshot
+        XCTAssertEqual(try V2JSON.decode(V2SnapshotResponse.self, from: v2Data(response), limit: 16384).snapshot?.signal?.presentation(now: v2Now), .available(bars: 2))
+    }
+
+    @MainActor func testModuleSignalFollowsItsModuleUpdatesAndDisconnection() async throws {
+        let fixture = try V2PollFixture()
+        addTeardownBlock { await fixture.close() }
+        fixture.signals = [v2ID: v2Signal(rssi: 24), v2OtherID: v2Signal(rssi: 8)]
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.snapshot?.snapshot?.signal != nil }
+        let app = AppModel(cloudV2: fixture.model)
+        XCTAssertEqual(app.moduleSignal(moduleID: nil), .available(bars: 4))
+        XCTAssertEqual(app.moduleSignal(moduleID: v2OtherID), .available(bars: 1))
+        fixture.signals[v2ID] = v2Signal(rssi: 10)
+        try await v2PollWait { app.moduleSignal(moduleID: v2ID) == .available(bars: 2) }
+        fixture.signals[v2ID] = v2Signal(rssi: nil)
+        try await v2PollWait { app.moduleSignal(moduleID: v2ID) == .unavailable }
+        await fixture.model.selectModule(v2OtherID)
+        try await v2PollWait { fixture.model.snapshot?.module_id == v2OtherID }
+        XCTAssertEqual(app.moduleSignal(moduleID: nil), .available(bars: 1))
+        XCTAssertEqual(app.moduleSignal(moduleID: v2ID), .unavailable)
+        fixture.offlineModules.insert(v2OtherID)
+        try await v2PollWait { fixture.model.snapshot?.online == false }
+        XCTAssertEqual(app.moduleSignal(moduleID: v2OtherID), .unavailable)
+        await fixture.close()
+        XCTAssertEqual(app.moduleSignal(moduleID: v2OtherID), .unavailable)
+        XCTAssertEqual(fixture.writes, 0)
+    }
+}
+
+private func v2Signal(rssi: Int?) -> [String: Any] {
+    ["available": rssi != nil, "observed_at": V2Validation.timestamp(v2Now),
+     "rssi": rssi.map { $0 as Any } ?? NSNull(),
+     "dbm": rssi.map { (-113 + 2 * $0) as Any } ?? NSNull()]
 }

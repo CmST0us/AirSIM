@@ -55,15 +55,18 @@ struct RootView: View {
             TabView(selection: selectedTabBinding) {
                 A1CallsView(onCall: dial, onMessage: composeMessage,
                             onContacts: { selectedTab = .contacts },
-                            onSettings: { selectedTab = .cards }, onDial: { selectedTab = .dial })
+                            onDial: { selectedTab = .dial })
+                    .background { A1Palette.background.ignoresSafeArea() }
                     .tag(PhoneTab.calls)
                     .tabItem { Label("通话", systemImage: "phone") }
                 A1ContactsView(onCall: dial, onMessage: composeMessage)
+                    .background { A1Palette.background.ignoresSafeArea() }
                     .tag(PhoneTab.contacts)
                     .tabItem { Label("联系人", systemImage: "person.crop.circle") }
                 A1MessagesView(pendingRecipient: $pendingSMSRecipient,
                                pendingConversation: $pendingSMSConversation,
                                onSettings: { selectedTab = .cards })
+                    .background { A1Palette.background.ignoresSafeArea() }
                     .tag(PhoneTab.messages)
                     .tabItem { Label("短信", systemImage: "bubble.left.and.bubble.right") }
                 A1DialPadView(onSettings: { selectedTab = .cards })
@@ -75,12 +78,13 @@ struct RootView: View {
             }
             .phoneTabSelectionFeedback(selectedTab.rawValue)
             .tint(A1Palette.linkBlue)
+            .background { A1Palette.background.ignoresSafeArea() }
             if let call = model.inAppPresentedCall {
                 ActiveCallView(call: call)
                     .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
             }
         }
-        .background(A1Palette.background)
+        .background { A1Palette.background.ignoresSafeArea() }
         .preferredColorScheme(model.inAppPresentedCall == nil ? settings.appearance.colorScheme : .dark)
         .onChange(of: model.messageScope) { _ in
             pendingSMSRecipient = nil; pendingSMSConversation = nil; model.numberInput = ""

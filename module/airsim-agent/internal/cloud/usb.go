@@ -341,7 +341,7 @@ func (u *USB) snapshot(ctx context.Context) (map[string]any, error) {
 	if audio.Session != nil && (audio.Session.Boot != second.Boot || audio.Session.Epoch != second.Epoch) {
 		audio.Session = nil
 	}
-	return map[string]any{"agent_boot_id": second.Boot, "backend_epoch": second.Epoch, "observed_at": time.Now().UTC(), "control": second, "calls": calls, "audio": audio}, nil
+	return map[string]any{"agent_boot_id": second.Boot, "backend_epoch": second.Epoch, "observed_at": time.Now().UTC(), "control": second, "calls": calls, "audio": audio, "signal": u.agent.signalView()}, nil
 }
 func (u *USB) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/v2/media" {
@@ -364,7 +364,7 @@ func (u *USB) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			usbJSON(w, 503, nil)
 			return
 		}
-		usbJSON(w, 200, map[string]any{"server_id": server, "modules": []any{map[string]any{"module_id": module, "online": true, "last_seen": time.Now().UTC(), "agent_boot_id": s.Boot, "backend_epoch": s.Epoch, "connection_epoch": u.epoch}}})
+		usbJSON(w, 200, map[string]any{"server_id": server, "modules": []any{map[string]any{"module_id": module, "online": true, "last_seen": time.Now().UTC(), "agent_boot_id": s.Boot, "backend_epoch": s.Epoch, "connection_epoch": u.epoch, "signal": u.agent.signalView()}}})
 		return
 	}
 	prefix := "/v2/modules/" + module + "/"

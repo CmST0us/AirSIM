@@ -246,6 +246,27 @@ final class ActiveCallViewTests: UITestCase {
 }
 
 final class RealRuntimeDiagnosticTests: XCTestCase {
+    func testModuleSignalOnDevice() throws {
+#if targetEnvironment(simulator)
+        throw XCTSkip("Requires a paired physical device")
+#else
+        continueAfterFailure = false
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["AIRSIM_LIVE_DEVICE_TESTS"] == "1", "Explicit live-device test invocation required")
+        let app = XCUIApplication(bundleIdentifier: "com.eric3u.airsim2")
+        app.launchArguments = ["-airsim.selected-tab", "拨号键盘"]
+        app.launch()
+        let selector = app.buttons["module-selector"]
+        XCTAssertTrue(selector.waitForExistence(timeout: 20), "Paired module selector did not load")
+        let available = NSPredicate(format: "value CONTAINS %@", "蜂窝信号，")
+        let expectation = XCTNSPredicateExpectation(predicate: available, object: selector)
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 40), .completed, "Live module signal did not reach the App")
+        let value = selector.value as? String ?? ""
+        let level = (0...4).first { value.contains("蜂窝信号，\($0) 格，共 4 格") }
+        XCTAssertNotNil(level, "Unexpected signal level")
+        print("AIRSIM_SIGNAL_DEVICE_VERIFIED bars=\(level ?? -1)")
+#endif
+    }
+
     func testV2OnlySettingsOnDevice() throws {
 #if targetEnvironment(simulator)
         throw XCTSkip("Requires a paired physical device")
@@ -395,6 +416,30 @@ final class A1DesignTests: UITestCase {
     override var scenario: String { "design-a1" }
     override var presentationArguments: [String] { ["-airsim.appearance", "light"] }
 
+    func testDefaultModuleMenuKeepsSignalWithSelection() {
+        openTab("号卡")
+        let selector = app.buttons["a1-card-default-line"]
+        for _ in 0..<4 where !selector.isHittable { app.swipeUp() }
+        XCTAssertTrue(selector.isHittable)
+        selector.tap()
+        let personal = app.buttons["生活 · 9066"].firstMatch
+        XCTAssertTrue(personal.waitForExistence(timeout: 5))
+        capture("a1-signal-default-menu")
+        personal.tap()
+        openTab("拨号键盘")
+        let dialSelector = app.buttons["module-selector"]
+        XCTAssertTrue(dialSelector.waitForExistence(timeout: 5))
+        let selected = expectation(
+            for: NSPredicate(format: "value == %@", "生活 · 9066，蜂窝信号，1 格，共 4 格"),
+            evaluatedWith: dialSelector
+        )
+        wait(for: [selected], timeout: 5)
+        dialSelector.tap()
+        XCTAssertTrue(app.buttons["a1-dial-line-00112233-4455-4677-8899-aabbccddeeff"].exists)
+        XCTAssertTrue(app.buttons["a1-dial-line-10112233-4455-4677-8899-aabbccddeeff"].exists)
+        capture("a1-signal-dial-lines")
+    }
+
     func testDesignScreenshotsAndFiveTabs() {
         openTab("通话")
         XCTAssertTrue(app.staticTexts["常用联系人"].waitForExistence(timeout: 5))
@@ -511,7 +556,7 @@ final class A1DesignTests: UITestCase {
         app.navigationBars.buttons["取消"].tap()
         XCTAssertTrue(app.buttons["a1-message-compose"].waitForExistence(timeout: 5))
         openTab("通话")
-        XCTAssertTrue(app.buttons["更多"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["搜索通话和联系人"].waitForExistence(timeout: 5))
     }
 
     func testContactDetailOpensCancellableMessageComposer() {
@@ -526,7 +571,7 @@ final class A1DesignTests: UITestCase {
         app.navigationBars.buttons["取消"].tap()
         XCTAssertTrue(app.buttons["a1-message-compose"].waitForExistence(timeout: 5))
         openTab("通话")
-        XCTAssertTrue(app.buttons["更多"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["搜索通话和联系人"].waitForExistence(timeout: 5))
     }
     private func reveal(_ element: XCUIElement, up: Bool = true,
                         file: StaticString = #filePath, line: UInt = #line) {
@@ -556,15 +601,15 @@ final class A1DialDesignTests: UITestCase {
         wait(for: [ready], timeout: 10)
         capture("a1-dial-entered")
         let selector = app.buttons["module-selector"]
-        XCTAssertEqual(selector.value as? String, "工作 · 4821")
+        XCTAssertEqual(selector.value as? String, "工作 · 4821，蜂窝信号，4 格，共 4 格")
         selector.tap()
         XCTAssertTrue(app.staticTexts["仅用于本次呼叫"].waitForExistence(timeout: 5))
         capture("a1-dial-lines")
         app.buttons["a1-dial-line-10112233-4455-4677-8899-aabbccddeeff"].tap()
-        XCTAssertEqual(selector.value as? String, "生活 · 9066")
+        XCTAssertEqual(selector.value as? String, "生活 · 9066，蜂窝信号，1 格，共 4 格")
         openTab("联系人")
         openTab("拨号键盘")
-        XCTAssertEqual(selector.value as? String, "工作 · 4821")
+        XCTAssertEqual(selector.value as? String, "工作 · 4821，蜂窝信号，4 格，共 4 格")
         XCTAssertEqual(app.staticTexts["a1-dial-number"].label, "00000000888")
         app.buttons["a1-dial-add-contact"].tap()
         XCTAssertTrue(app.navigationBars["新增联系人"].waitForExistence(timeout: 5))

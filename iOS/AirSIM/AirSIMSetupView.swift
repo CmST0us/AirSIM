@@ -66,7 +66,7 @@ private struct AirSIMFirstConnectionContent: View {
                                                 .foregroundStyle(A1Palette.accent)
                                                 .accessibilityHidden(true)
                                             VStack(alignment: .leading, spacing: 4) {
-                                                Text(cloud.moduleName(module.module_id))
+                                                A1ModuleLabel(title: cloud.moduleName(module.module_id), signal: cloud.moduleSignal(module.module_id))
                                                     .font(.body.weight(.medium))
                                                     .foregroundStyle(A1Palette.ink)
                                                 Text(module.online ? "在线" : "离线")

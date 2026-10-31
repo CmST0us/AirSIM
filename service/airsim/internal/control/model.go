@@ -2,6 +2,7 @@ package control
 
 import (
 	"airsim.local/server/internal/wire"
+	"bytes"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -113,6 +114,7 @@ type Snapshot struct {
 	Control  Status          `json:"control"`
 	Calls    Calls           `json:"calls"`
 	Audio    json.RawMessage `json:"audio"`
+	Signal   json.RawMessage `json:"signal,omitempty"`
 }
 type Message struct {
 	ID        string    `json:"message_id"`
@@ -137,4 +139,55 @@ type Record struct {
 	State      string          `json:"state"`
 	Generation string          `json:"generation"`
 	Receipt    json.RawMessage `json:"receipt"`
+}
+
+// validSignal accepts legacy snapshots without a signal measurement.
+func validSignal(raw json.RawMessage) bool {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return true
+	}
+	var signal struct {
+		Available bool    `json:"available"`
+		Observed  *string `json:"observed_at"`
+		RSSI      *int    `json:"rssi"`
+		DBM       *int    `json:"dbm"`
+	}
+	if wire.DecodeNullable(raw, &signal, "observed_at", "rssi", "dbm") != nil {
+		return false
+	}
+	if signal.Observed != nil {
+		if _, err := time.Parse(time.RFC3339Nano, *signal.Observed); err != nil || !strings.HasSuffix(*signal.Observed, "Z") {
+			return false
+		}
+	}
+	if !signal.Available {
+		return signal.RSSI == nil && signal.DBM == nil
+	}
+	return signal.Observed != nil && signal.RSSI != nil && signal.DBM != nil && *signal.RSSI >= 0 && *signal.RSSI <= 31 && *signal.DBM == -113+2*(*signal.RSSI)
+}
+
+func visibleSnapshot(p *peer, online bool) *Snapshot {
+	if p == nil || p.snapshot == nil {
+		return nil
+	}
+	snapshot := *p.snapshot
+	if !online {
+		snapshot.Signal = nil
+	}
+	return &snapshot
+}
+
+func (s *Server) moduleSummary(id string) map[string]any {
+	online := s.peers[id] != nil
+	v := map[string]any{"module_id": id, "online": online, "last_seen": nil, "agent_boot_id": "", "backend_epoch": "", "connection_epoch": ""}
+	if p := s.last[id]; p != nil {
+		v["last_seen"] = p.last.UTC()
+		v["agent_boot_id"] = p.boot
+		v["backend_epoch"] = p.backend
+		v["connection_epoch"] = p.epoch
+		if snapshot := visibleSnapshot(p, online); snapshot != nil && len(snapshot.Signal) > 0 {
+			v["signal"] = snapshot.Signal
+		}
+	}
+	return v
 }

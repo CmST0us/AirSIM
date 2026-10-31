@@ -196,10 +196,11 @@ struct A1ContactsView: View {
         .frame(maxWidth: usesWideLayout ? .infinity : 600)
         .frame(maxWidth: .infinity)
         .foregroundStyle(A1Palette.ink)
-        .background(A1Palette.background)
+        .background { A1Palette.background.ignoresSafeArea() }
         .navigationTitle("联系人")
         .navigationBarTitleDisplayMode(usesWideLayout ? .inline : .large)
         .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { showingEditor = true } label: { Image(systemName: "plus") }
@@ -291,7 +292,7 @@ struct A1ContactDetailView: View {
                         .padding(.top, 3)
                     lineMenu {
                         HStack(spacing: 8) {
-                            A1LineBadge(title: lineTitle)
+                            A1LineBadge(title: lineTitle, signal: model.moduleSignal(moduleID: preferredModuleID))
                             Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                         }
                         .foregroundStyle(A1Palette.accent)
@@ -320,7 +321,7 @@ struct A1ContactDetailView: View {
                             }
                             Divider().overlay(A1Palette.separator)
                         }
-                        lineMenu { informationRow("常用呼出号卡", value: lineTitle) }
+                        lineMenu { informationRow("常用呼出号卡", value: lineTitle, signal: model.moduleSignal(moduleID: preferredModuleID)) }
                         Divider().overlay(A1Palette.separator)
                         Button { contacts.toggleFavorite(id: contact.id) } label: {
                             informationRow(contacts.isFavorite(id: contact.id) ? "移出常用联系人" : "加入常用联系人")
@@ -361,20 +362,26 @@ struct A1ContactDetailView: View {
         Menu {
             Button("跟随当前号卡") { contacts.setPreferredModuleID(nil, for: contact.id) }
             ForEach(model.pairedAndroidAgents) { line in
-                Button(model.lineTitle(moduleID: line.id)) {
+                Button {
                     contacts.setPreferredModuleID(line.id, for: contact.id)
+                } label: {
+                    A1ModuleLabel(title: model.lineTitle(moduleID: line.id), signal: model.moduleSignal(moduleID: line.id))
                 }
             }
         } label: { label() }
         .accessibilityLabel("常用呼出号卡，\(lineTitle)")
+        .accessibilityValue(model.moduleSignal(moduleID: preferredModuleID).accessibilityDescription)
     }
 
-    private func informationRow(_ title: String, value: String? = nil) -> some View {
+    private func informationRow(_ title: String, value: String? = nil, signal: ModuleSignalState? = nil) -> some View {
         (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
             Text(title).font(A1Typography.font(15)).foregroundStyle(A1Palette.ink)
             if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
             if let value {
-                Text(value).font(A1Typography.font(13))
+                Group {
+                    if let signal { A1ModuleLabel(title: value, signal: signal) }
+                    else { Text(value) }
+                }.font(A1Typography.font(13))
                     .foregroundStyle(A1Palette.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

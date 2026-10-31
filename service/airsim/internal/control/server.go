@@ -285,7 +285,7 @@ func (s *Server) consume(p *peer, env Envelope) bool {
 		return wire.Decode(env.Payload, &v) == nil
 	case "snapshot":
 		var snap Snapshot
-		if wire.Decode(env.Payload, &snap, "agent_boot_id", "backend_epoch", "observed_at", "control", "calls", "audio") != nil || snap.Control.Schema != 1 || snap.Boot != p.boot || snap.Control.Boot != snap.Boot || snap.Calls.Boot != snap.Boot || snap.Control.Backend != snap.Backend || snap.Calls.Backend != snap.Backend {
+		if wire.DecodeNullable(env.Payload, &snap, "signal", "signal.observed_at", "signal.rssi", "signal.dbm") != nil || !validSignal(snap.Signal) || snap.Control.Schema != 1 || snap.Boot != p.boot || snap.Control.Boot != snap.Boot || snap.Calls.Boot != snap.Boot || snap.Control.Backend != snap.Backend || snap.Calls.Backend != snap.Backend {
 			return false
 		}
 		if p.backend != snap.Backend {

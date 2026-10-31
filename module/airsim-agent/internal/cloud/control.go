@@ -3,6 +3,7 @@ package cloud
 import (
 	"airsim.local/airsim-agent/internal/control"
 	"airsim.local/airsim-agent/internal/media"
+	"airsim.local/airsim-agent/internal/state"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -25,6 +26,9 @@ type Media interface {
 	Stop(string) int
 }
 type Agent struct {
+	Signal interface {
+		Signal(time.Time) state.SignalView
+	}
 	USB            *USB
 	ownerMu        sync.Mutex
 	claim          *callClaim
@@ -439,7 +443,7 @@ func (c *connection) sync(lastSnap, lastMessages *string, lastSent *time.Time) b
 	if first.Boot != second.Boot || first.Epoch != second.Epoch || calls.Boot != second.Boot || calls.Epoch != second.Epoch || calls2.Boot != second.Boot || calls2.Epoch != second.Epoch {
 		return true
 	}
-	payload := map[string]any{"agent_boot_id": second.Boot, "backend_epoch": second.Epoch, "observed_at": "", "control": second, "calls": calls2, "audio": a.Media.View()}
+	payload := map[string]any{"agent_boot_id": second.Boot, "backend_epoch": second.Epoch, "observed_at": "", "control": second, "calls": calls2, "audio": a.Media.View(), "signal": a.signalView()}
 	b, _ := json.Marshal(payload)
 	interval := 5 * time.Second
 	for _, call := range calls2.Calls {

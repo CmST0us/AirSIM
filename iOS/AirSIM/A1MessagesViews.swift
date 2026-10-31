@@ -109,12 +109,16 @@ struct A1MessagesView: View {
                         Picker("筛选号卡", selection: $selectedLine) {
                             Text("所有会话").tag(String?.none)
                             ForEach(lines, id: \.self) { id in
-                                Text(model.lineTitle(moduleID: id)).tag(Optional(id))
+                                A1ModuleLabel(title: model.lineTitle(moduleID: id), signal: model.moduleSignal(moduleID: id)).tag(Optional(id))
                             }
                         }
                     } label: {
                         HStack {
-                            Text(selectedLine.map { model.lineTitle(moduleID: $0) } ?? "所有会话")
+                            Group {
+                                if let selectedLine {
+                                    A1ModuleLabel(title: model.lineTitle(moduleID: selectedLine), signal: model.moduleSignal(moduleID: selectedLine))
+                                } else { Text("所有会话") }
+                            }
                             Spacer()
                             Image(systemName: "chevron.down").font(.caption.weight(.semibold))
                         }
@@ -122,6 +126,7 @@ struct A1MessagesView: View {
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                     }
                     .accessibilityLabel("筛选号卡")
+                    .accessibilityValue(selectedLine.map { "\(model.lineTitle(moduleID: $0))，\(model.moduleSignal(moduleID: $0).accessibilityDescription)" } ?? "所有会话")
                     .frame(minHeight: 44)
                     .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 8)
                 }
@@ -134,7 +139,7 @@ struct A1MessagesView: View {
                             .accessibilityIdentifier("sms-thread-\(thread.id.moduleID)-\(thread.id.peer)")
                             .buttonStyle(.plain)
                             .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
-                            .listRowBackground(wideLayout && selectedConversation == thread.id ? A1Palette.accentSoft : A1Palette.surface)
+                            .listRowBackground(wideLayout && selectedConversation == thread.id ? A1Palette.accentSoft : A1Palette.background)
                             .listRowSeparatorTint(A1Palette.separator)
                             .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                             .alignmentGuide(.listRowSeparatorTrailing) { dimensions in max(0, dimensions.width - (wideLayout ? 0 : 60)) }
@@ -175,10 +180,10 @@ struct A1MessagesView: View {
             }
             .frame(maxWidth: 600)
             .frame(maxWidth: .infinity)
-            .background(A1Palette.background)
+            .background { A1Palette.background.ignoresSafeArea() }
             .navigationTitle("短信")
             .navigationBarTitleDisplayMode(wideLayout ? .inline : .large)
-            .toolbarBackground(A1Palette.background, for: .navigationBar)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if !wideLayout {
@@ -205,9 +210,11 @@ struct A1MessagesView: View {
     private func filterPill(_ title: String, moduleID: String?) -> some View {
         Button { selectedLine = moduleID } label: {
             HStack(spacing: 6) {
-                if moduleID != nil { Image(systemName: "simcard").font(.caption) }
-                Text(title).font(.subheadline.weight(.medium))
+                if let moduleID {
+                    A1ModuleLabel(title: title, signal: model.moduleSignal(moduleID: moduleID))
+                } else { Text(title) }
             }
+            .font(.subheadline.weight(.medium))
             .foregroundStyle(selectedLine == moduleID ? .white : A1Palette.secondary)
             .padding(.horizontal, 16).padding(.vertical, 10)
             .background(selectedLine == moduleID ? A1Palette.accentFill : A1Palette.surface, in: Capsule())
@@ -237,6 +244,7 @@ struct A1MessagesView: View {
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 A1LineBadge(title: model.lineTitle(moduleID: thread.id.moduleID),
+                            signal: model.moduleSignal(moduleID: thread.id.moduleID),
                             active: thread.id.moduleID == model.cloudV2?.selectedModuleID)
             }
         }
@@ -285,7 +293,7 @@ private struct A1MessageThreadView: View {
     private var senderStatus: some View {
         VStack(spacing: 8) {
             if let sendStatus { Text(sendStatus).font(A1Typography.font(12)).foregroundStyle(A1Palette.negative) }
-            Label("发送自 \(model.lineTitle(moduleID: conversation.moduleID))", systemImage: "simcard")
+            A1ModuleLabel(title: "发送自 \(model.lineTitle(moduleID: conversation.moduleID))", signal: model.moduleSignal(moduleID: conversation.moduleID))
                 .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
         }
     }
@@ -367,7 +375,7 @@ private struct A1MessageThreadView: View {
                         Text(contacts.displayName(for: conversation.peer))
                         Text(A1PhonePresentation.display(conversation.peer)).textSelection(.enabled)
                     }
-                    Section("发送号卡") { Text(model.lineTitle(moduleID: conversation.moduleID)) }
+                    Section("发送号卡") { A1ModuleLabel(title: model.lineTitle(moduleID: conversation.moduleID), signal: model.moduleSignal(moduleID: conversation.moduleID)) }
                 }
                 .navigationTitle("会话信息").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showingInfo = false } } }
@@ -400,13 +408,15 @@ private struct A1MessageThreadView: View {
                     if message.canRetry {
                         VStack(alignment: .trailing, spacing: 4) {
                             Text(message.statusText).font(A1Typography.font(12)).foregroundStyle(A1Palette.negative)
-                            Button("使用\(model.lineTitle(moduleID: conversation.moduleID))重试") {
+                            Button {
                                 sending = true
                                 Task {
                                     let outcome = await model.retrySMS(message)
                                     sending = false
                                     showOutcome(outcome)
                                 }
+                            } label: {
+                                A1ModuleLabel(title: "使用\(model.lineTitle(moduleID: conversation.moduleID))重试", signal: model.moduleSignal(moduleID: conversation.moduleID))
                             }
                             .font(A1Typography.font(14, weight: .medium)).foregroundStyle(A1Palette.linkBlue)
                             .frame(minHeight: 44)
@@ -531,7 +541,7 @@ private struct A1NewMessageView: View {
     private var senderStatus: some View {
         VStack(spacing: 8) {
             if let sendStatus { Text(sendStatus).font(A1Typography.font(12)).foregroundStyle(A1Palette.negative) }
-            Label("发送自 \(model.lineTitle(moduleID: conversation?.moduleID ?? selectedLine))", systemImage: "simcard")
+            A1ModuleLabel(title: "发送自 \(model.lineTitle(moduleID: conversation?.moduleID ?? selectedLine))", signal: model.moduleSignal(moduleID: conversation?.moduleID ?? selectedLine))
                 .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
         }
     }
@@ -582,14 +592,16 @@ private struct A1NewMessageView: View {
                 }
                 Menu {
                     ForEach(model.pairedAndroidAgents) { line in
-                        Button(model.lineTitle(moduleID: line.id)) { selectedLine = line.id; switchDraft() }
+                        Button { selectedLine = line.id; switchDraft() } label: {
+                            A1ModuleLabel(title: model.lineTitle(moduleID: line.id), signal: model.moduleSignal(moduleID: line.id))
+                        }
                             .accessibilityIdentifier("sms-compose-line-" + line.id)
                     }
                 } label: {
                     (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout())) {
                         Text("发送号卡").foregroundStyle(A1Palette.ink)
                         if !dynamicTypeSize.isAccessibilitySize { Spacer() }
-                        Text(model.lineTitle(moduleID: conversation?.moduleID ?? selectedLine))
+                        A1ModuleLabel(title: model.lineTitle(moduleID: conversation?.moduleID ?? selectedLine), signal: model.moduleSignal(moduleID: conversation?.moduleID ?? selectedLine))
                         A1AssetIcon("a1-detail-down")
                     }.font(.subheadline).padding(16).background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }.disabled(lockedConversation != nil)

@@ -202,7 +202,7 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 		cloudConfig = filepath.Join(data, "config", "cloud.json")
 	}
 	provisioner := cloud.NewProvisioner(id, cloudConfig, profile)
-	cloudAgent := &cloud.Agent{P: provisioner, Control: coordinator, Media: audio, Boot: boot, Version: version}
+	cloudAgent := &cloud.Agent{P: provisioner, Control: coordinator, Media: audio, Signal: store, Boot: boot, Version: version}
 	if len(usbAddress) > 0 {
 		if e = cloudAgent.ConfigureUSB(usbAddress[0], filepath.Join(data, "config")); e != nil {
 			return e

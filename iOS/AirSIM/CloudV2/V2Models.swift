@@ -242,6 +242,43 @@ struct V2MediaFormat: Decodable {
     }
 }
 
+struct V2Signal: Decodable {
+    let available: Bool
+    let observed_at: String?
+    let observedAt: Date?
+    let rssi: Int?
+    let dbm: Int?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.v2Fields("available observed_at rssi dbm")
+        available = try c.get("available")
+        observed_at = try c.nullable("observed_at")
+        observedAt = try observed_at.map(V2Validation.date)
+        rssi = try c.nullable("rssi")
+        dbm = try c.nullable("dbm")
+        if available {
+            guard observedAt != nil, let rssi, (0...31).contains(rssi),
+                  dbm == -113 + 2 * rssi else { throw V2Error.invalidValue }
+        } else {
+            guard rssi == nil, dbm == nil else { throw V2Error.invalidValue }
+        }
+    }
+
+    func presentation(now: Date) -> ModuleSignalState {
+        guard available, let observedAt, let rssi,
+              (-3...30).contains(now.timeIntervalSince(observedAt)) else { return .unavailable }
+        let bars: Int
+        switch rssi {
+        case 0...1: bars = 0
+        case 2...9: bars = 1
+        case 10...14: bars = 2
+        case 15...19: bars = 3
+        default: bars = 4
+        }
+        return .available(bars: bars)
+    }
+}
+
 struct V2Snapshot: Decodable {
     let agent_boot_id: String
     let backend_epoch: String
@@ -250,14 +287,16 @@ struct V2Snapshot: Decodable {
     let control: V2ControlStatus
     let calls: V2Calls
     let audio: V2AudioStatus
+    let signal: V2Signal?
     init(from decoder: Decoder) throws {
-        let c = try decoder.v2Fields("agent_boot_id backend_epoch observed_at control calls audio", optional: "")
+        let c = try decoder.v2Fields("agent_boot_id backend_epoch observed_at control calls audio", optional: "signal")
         agent_boot_id = try c.get("agent_boot_id")
         backend_epoch = try c.get("backend_epoch")
         observed_at = try c.get("observed_at")
         control = try c.get("control")
         calls = try c.get("calls")
         audio = try c.get("audio")
+        signal = try c.nullable("signal")
         try V2Validation.uuid(agent_boot_id, empty: true)
         try V2Validation.uuid(backend_epoch, empty: true)
         observedAt = try V2Validation.date(observed_at)
@@ -341,14 +380,16 @@ struct V2Module: Decodable {
     let agent_boot_id: String
     let backend_epoch: String
     let connection_epoch: String
+    let signal: V2Signal?
     init(from decoder: Decoder) throws {
-        let c = try decoder.v2Fields("module_id online last_seen agent_boot_id backend_epoch connection_epoch", optional: "")
+        let c = try decoder.v2Fields("module_id online last_seen agent_boot_id backend_epoch connection_epoch", optional: "signal")
         module_id = try c.get("module_id")
         online = try c.get("online")
         last_seen = try c.nullable("last_seen")
         agent_boot_id = try c.get("agent_boot_id")
         backend_epoch = try c.get("backend_epoch")
         connection_epoch = try c.get("connection_epoch")
+        signal = try c.nullable("signal")
         try V2Validation.uuid(module_id, empty: false)
         if let last_seen { _ = try V2Validation.date(last_seen) }
         try V2Validation.uuid(agent_boot_id, empty: true)
