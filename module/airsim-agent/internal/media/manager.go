@@ -33,13 +33,17 @@ func ParseRequest(b []byte) (Request, error) {
 }
 
 type Format struct {
-	SampleRate   int    `json:"sample_rate"`
-	Channels     int    `json:"channels"`
-	SampleFormat string `json:"sample_format"`
-	FrameSamples int    `json:"frame_samples"`
+	Codec           string `json:"codec"`
+	CodecFrameUS    int    `json:"codec_frame_us"`
+	CodecFrameBytes int    `json:"codec_frame_bytes"`
+	SampleRate      int    `json:"sample_rate"`
+	Channels        int    `json:"channels"`
+	SampleFormat    string `json:"sample_format"`
+	FrameSamples    int    `json:"frame_samples"`
 }
 
-var format = Format{8000, 1, "s16le", 160}
+var LC3Format = Format{Codec: "lc3", CodecFrameUS: 10000, CodecFrameBytes: 40, SampleRate: 16000, Channels: 1, SampleFormat: "s16le", FrameSamples: 320}
+var format = LC3Format
 
 type Created struct {
 	ID     string `json:"session_id"`

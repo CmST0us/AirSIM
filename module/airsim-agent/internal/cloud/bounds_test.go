@@ -66,7 +66,7 @@ func TestControlBoundsAndNoOwnershipAdoption(t *testing.T) {
 }
 func TestMediaOwnerWrongSessionStopAndPairValidation(t *testing.T) {
 	c, fc := testConnection(t)
-	r := mediaStart{Request: uid(), Session: uid(), Call: fc.call, Boot: fc.boot, Epoch: fc.epoch, Client: uid(), Generation: uid(), Ticket: strings.Repeat("ab", 32), Expires: time.Now().Add(20 * time.Second).UTC().Format(time.RFC3339Nano)}
+	r := mediaStart{Format: json.RawMessage(`{"codec":"lc3","sample_rate":16000,"channels":1,"sample_format":"s16le","frame_samples":320,"codec_frame_us":10000,"codec_frame_bytes":40}`), Request: uid(), Session: uid(), Call: fc.call, Boot: fc.boot, Epoch: fc.epoch, Client: uid(), Generation: uid(), Ticket: strings.Repeat("ab", 32), Expires: time.Now().Add(20 * time.Second).UTC().Format(time.RFC3339Nano)}
 	b, _ := json.Marshal(r)
 	if !c.startMedia(b) {
 		t.Fatal("owner rejection should report status")
@@ -176,7 +176,7 @@ func TestMediaTicketClockSkewExactBoundaries(t *testing.T) {
 				t.Fatal("expiry boundary")
 			}
 			c, fc := testConnection(t)
-			r := mediaStart{Request: uid(), Session: uid(), Call: fc.call, Boot: fc.boot, Epoch: fc.epoch, Client: uid(), Generation: uid(), Ticket: strings.Repeat("ab", 32), Expires: expires}
+			r := mediaStart{Format: json.RawMessage(`{"codec":"lc3","sample_rate":16000,"channels":1,"sample_format":"s16le","frame_samples":320,"codec_frame_us":10000,"codec_frame_bytes":40}`), Request: uid(), Session: uid(), Call: fc.call, Boot: fc.boot, Epoch: fc.epoch, Client: uid(), Generation: uid(), Ticket: strings.Repeat("ab", 32), Expires: expires}
 			payload, _ := json.Marshal(r)
 			if c.startMediaAt(payload, tt.now) != tt.valid {
 				t.Fatal("startMedia protocol boundary")

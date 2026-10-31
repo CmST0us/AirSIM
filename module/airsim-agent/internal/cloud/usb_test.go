@@ -203,7 +203,7 @@ func TestUSBMediaDuplexAndCleanup(t *testing.T) {
 		if _, e = media.ReadJSON(conn, 1024); e != nil {
 			return
 		}
-		_ = media.WriteJSON(conn, map[string]any{"ok": true, "sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160}, 1024)
+		_ = media.WriteJSON(conn, map[string]any{"ok": true, "codec": "lc3", "codec_frame_us": 10000, "codec_frame_bytes": 40, "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320}, 1024)
 		down := media.NewFrame(fm.id, 2, 1)
 		down[40] = 77
 		if writeFrame(conn, down[:]) != nil {
@@ -217,7 +217,7 @@ func TestUSBMediaDuplexAndCleanup(t *testing.T) {
 	generation := uid()
 	a.owners[fc.call] = owner{fc.call, g.Client, generation, fc.boot, fc.epoch}
 	a.claim = &callClaim{client: g.Client, route: "usb", call: fc.call, boot: fc.boot, epoch: fc.epoch}
-	data, _ := json.Marshal(map[string]string{"request_id": uid(), "connection_epoch": a.USB.epoch, "generation": generation})
+	data, _ := json.Marshal(map[string]string{"codec": "lc3", "request_id": uid(), "connection_epoch": a.USB.epoch, "generation": generation})
 	path := "/v2/modules/" + a.P.id.ModuleID + "/calls/" + fc.call + "/media-sessions"
 	recorder := httptest.NewRecorder()
 	a.USB.ServeHTTP(recorder, signedUSB(t, g, "POST", path, data, strings.Repeat("a", 64)))

@@ -97,7 +97,7 @@ func (f *fakeMedia) View() media.Status {
 }
 func (f *fakeMedia) Create(ctx context.Context, r media.Request) (media.Created, int) {
 	f.creates.Add(1)
-	return media.Created{ID: f.id, Token: f.token, Socket: f.socket, Format: media.Format{SampleRate: 8000, Channels: 1, SampleFormat: "s16le", FrameSamples: 160}}, 201
+	return media.Created{ID: f.id, Token: f.token, Socket: f.socket, Format: media.LC3Format}, 201
 }
 func (f *fakeMedia) Stop(id string) int {
 	if id == f.id {
@@ -218,137 +218,147 @@ func TestTLSControlDiscoveryCommandsReceiptsAndGeneration(t *testing.T) {
 	}
 }
 func TestMediaBridgeTLSUnixMappingAndCleanup(t *testing.T) {
-	f := newFixture(t)
-	localID, cloudID := uid(), uid()
-	dir, e := os.MkdirTemp("/tmp", "r4-bridge-")
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer os.RemoveAll(dir)
-	socket := filepath.Join(dir, "media.sock")
-	listener, e := net.Listen("unix", socket)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer listener.Close()
-	fm := &fakeMedia{socket: socket, id: localID, token: strings.Repeat("cd", 32)}
-	localSeen := make(chan media.Frame, 1)
-	localDone := make(chan struct{})
-	go func() {
-		defer close(localDone)
-		conn, e := listener.Accept()
-		if e != nil {
-			return
-		}
-		defer conn.Close()
-		conn.SetDeadline(time.Now().Add(4 * time.Second))
-		b, e := media.ReadJSON(conn, 1024)
-		if e != nil {
-			return
-		}
-		var auth map[string]string
-		json.Unmarshal(b, &auth)
-		if auth["session_id"] != localID || auth["token"] != fm.token {
-			return
-		}
-		media.WriteJSON(conn, map[string]any{"ok": true, "sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160}, 1024)
-		var last uint64
-		for {
-			in, _, e := media.ReadFrame(conn, localID, 1, &last)
+	for _, erasure := range []bool{false, true} {
+		t.Run(map[bool]string{false: "lc3", true: "erasure"}[erasure], func(t *testing.T) {
+			f := newFixture(t)
+			localID, cloudID := uid(), uid()
+			dir, e := os.MkdirTemp("/tmp", "r4-bridge-")
 			if e != nil {
-				return
+				t.Fatal(e)
 			}
-			if in[40] != 37 {
-				continue
+			defer os.RemoveAll(dir)
+			socket := filepath.Join(dir, "media.sock")
+			listener, e := net.Listen("unix", socket)
+			if e != nil {
+				t.Fatal(e)
 			}
-			localSeen <- in
-			out := media.NewFrame(localID, 2, 3)
-			copy(out[40:], in[40:])
-			writeFrame(conn, out[:])
-			io.Copy(io.Discard, conn)
-			return
-		}
-	}()
-	cloudSeen := make(chan media.Frame, 1)
-	server := tlsServer(t, f, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ws, e := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"airsim.media.v2"}})
-		if e != nil {
-			return
-		}
-		defer ws.CloseNow()
-		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
-		defer cancel()
-		_, b, e := ws.Read(ctx)
-		if e != nil {
-			return
-		}
-		var auth map[string]string
-		json.Unmarshal(b, &auth)
-		if auth["role"] != "agent" || auth["session_id"] != cloudID {
-			return
-		}
-		waiting, _ := json.Marshal(map[string]string{"type": "waiting", "session_id": cloudID})
-		ws.Write(ctx, websocket.MessageText, waiting)
-		paired, _ := json.Marshal(map[string]any{"type": "paired", "session_id": cloudID, "format": media.Format{SampleRate: 8000, Channels: 1, SampleFormat: "s16le", FrameSamples: 160}})
-		ws.Write(ctx, websocket.MessageText, paired)
-		frame := media.NewFrame(cloudID, 1, 4)
-		for i := 40; i < len(frame); i++ {
-			frame[i] = 37
-		}
-		ws.Write(ctx, websocket.MessageBinary, frame[:])
-		typ, b, e := ws.Read(ctx)
-		if e != nil || typ != websocket.MessageBinary {
-			return
-		}
-		var seq uint64
-		out, _, e := media.ReadFrame(bytes.NewReader(b), cloudID, 2, &seq)
-		if e == nil {
-			cloudSeen <- out
-		}
-	}))
-	f.req.API = server.URL
-	f.req.Device = server.URL
-	f.req.Media = server.URL
-	f.prepare(t)
-	f.issue(t)
-	f.p.Activate(f.bundle)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	a := &Agent{P: f.p, Media: fm}
-	c := &connection{agent: a, config: f.p.config, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 32)}
-	reason := c.bridge(ctx, mediaStart{Request: uid(), Session: cloudID, Call: uid(), Boot: uid(), Epoch: uid(), Ticket: strings.Repeat("ab", 32)})
-	if reason != "media_closed" {
-		t.Fatal(reason)
-	}
-	select {
-	case in := <-localSeen:
-		if in[40] != 37 {
-			t.Fatal("local payload")
-		}
-	default:
-		t.Fatal("no local frame")
-	}
-	select {
-	case out := <-cloudSeen:
-		for _, b := range out[40:] {
-			if b != 37 {
-				t.Fatal("PCM changed")
+			defer listener.Close()
+			fm := &fakeMedia{socket: socket, id: localID, token: strings.Repeat("cd", 32)}
+			localSeen := make(chan media.Frame, 1)
+			localDone := make(chan struct{})
+			go func() {
+				defer close(localDone)
+				conn, e := listener.Accept()
+				if e != nil {
+					return
+				}
+				defer conn.Close()
+				conn.SetDeadline(time.Now().Add(4 * time.Second))
+				b, e := media.ReadJSON(conn, 1024)
+				if e != nil {
+					return
+				}
+				var auth map[string]string
+				json.Unmarshal(b, &auth)
+				if auth["session_id"] != localID || auth["token"] != fm.token {
+					return
+				}
+				media.WriteJSON(conn, map[string]any{"ok": true, "codec": "lc3", "codec_frame_us": 10000, "codec_frame_bytes": 40, "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320}, 1024)
+				var last uint64
+				for {
+					in, _, e := media.ReadFrame(conn, localID, 1, &last)
+					if e != nil {
+						return
+					}
+					if (!erasure && in[40] != 37) || (erasure && in[36] != 1) {
+						continue
+					}
+					localSeen <- in
+					out := media.NewFrame(localID, 2, 3)
+					copy(out[36:], in[36:])
+					writeFrame(conn, out[:])
+					io.Copy(io.Discard, conn)
+					return
+				}
+			}()
+			cloudSeen := make(chan media.Frame, 1)
+			server := tlsServer(t, f, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				ws, e := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"airsim.media.v2"}})
+				if e != nil {
+					return
+				}
+				defer ws.CloseNow()
+				ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+				defer cancel()
+				_, b, e := ws.Read(ctx)
+				if e != nil {
+					return
+				}
+				var auth map[string]string
+				json.Unmarshal(b, &auth)
+				if auth["role"] != "agent" || auth["session_id"] != cloudID {
+					return
+				}
+				waiting, _ := json.Marshal(map[string]string{"type": "waiting", "session_id": cloudID})
+				ws.Write(ctx, websocket.MessageText, waiting)
+				paired, _ := json.Marshal(map[string]any{"type": "paired", "session_id": cloudID, "format": media.LC3Format})
+				ws.Write(ctx, websocket.MessageText, paired)
+				frame := media.NewFrame(cloudID, 1, 4)
+				for i := 40; i < len(frame); i++ {
+					frame[i] = 37
+				}
+				if erasure {
+					frame.Erase()
+				}
+				ws.Write(ctx, websocket.MessageBinary, frame[:])
+				typ, b, e := ws.Read(ctx)
+				if e != nil || typ != websocket.MessageBinary {
+					return
+				}
+				var seq uint64
+				out, _, e := media.ReadFrame(bytes.NewReader(b), cloudID, 2, &seq)
+				if e == nil {
+					cloudSeen <- out
+				}
+			}))
+			f.req.API = server.URL
+			f.req.Device = server.URL
+			f.req.Media = server.URL
+			f.prepare(t)
+			f.issue(t)
+			f.p.Activate(f.bundle)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			a := &Agent{P: f.p, Media: fm}
+			c := &connection{agent: a, config: f.p.config, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 32)}
+			reason := c.bridge(ctx, mediaStart{Format: json.RawMessage(`{"codec":"lc3","sample_rate":16000,"channels":1,"sample_format":"s16le","frame_samples":320,"codec_frame_us":10000,"codec_frame_bytes":40}`), Request: uid(), Session: cloudID, Call: uid(), Boot: uid(), Epoch: uid(), Ticket: strings.Repeat("ab", 32), Expires: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano)})
+			if reason != "cloud_read_closed" && reason != "cloud_remote_closed" && reason != "local_read_closed" {
+				t.Fatal(reason)
 			}
-		}
-	default:
-		t.Fatal("no cloud frame")
-	}
-	if fm.stops.Load() != 1 {
-		t.Fatal("local cleanup")
-	}
-	stats := a.LastBridgeStats()
-	if stats.CloudInputGaps != 3 || stats.LocalInputGaps != 2 {
-		t.Fatal("gap counters", stats)
-	}
-	select {
-	case <-localDone:
-	case <-time.After(time.Second):
-		t.Fatal("local goroutine leak")
+			select {
+			case in := <-localSeen:
+				if (!erasure && in[40] != 37) || (erasure && in[36] != 1) {
+					t.Fatal("local payload")
+				}
+			default:
+				t.Fatal("no local frame")
+			}
+			select {
+			case out := <-cloudSeen:
+				if erasure && out[36] != 1 {
+					t.Fatal("lost erasure flag")
+				}
+				for _, b := range out[40:] {
+					if (!erasure && b != 37) || (erasure && b != 0) {
+						t.Fatal("PCM changed")
+					}
+				}
+			default:
+				t.Fatal("no cloud frame")
+			}
+			if fm.stops.Load() != 1 {
+				t.Fatal("local cleanup")
+			}
+			stats := a.LastBridgeStats()
+			if stats.CloudInputGaps != 3 || stats.LocalInputGaps != 2 {
+				t.Fatal("gap counters", stats)
+			}
+			select {
+			case <-localDone:
+			case <-time.After(time.Second):
+				t.Fatal("local goroutine leak")
+			}
+		})
 	}
 }
 
@@ -462,11 +472,9 @@ func TestTLSControlConnectionEndsAtCertificateExpiry(t *testing.T) {
 // Keep one input flowing while the other stops after its first real frame.
 // Neither playout ticks nor downlink silence may renew either read deadline.
 func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
-	for _, stallLocal := range []bool{false, true} {
-		name := "cloud_stalls"
-		if stallLocal {
-			name = "local_stalls"
-		}
+	for _, name := range []string{"cloud_stalls", "local_stalls", "sustained_bidirectional"} {
+		stallLocal := name == "local_stalls"
+		sustained := name == "sustained_bidirectional"
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			localID, cloudID := uid(), uid()
@@ -482,6 +490,7 @@ func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
 			}
 			defer listener.Close()
 			fm := &fakeMedia{socket: socket, id: localID, token: strings.Repeat("cd", 32)}
+			var localReceived, cloudReceived atomic.Int64
 			localDone := make(chan struct{})
 			go func() {
 				defer close(localDone)
@@ -490,11 +499,11 @@ func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
 					return
 				}
 				defer conn.Close()
-				conn.SetDeadline(time.Now().Add(4 * time.Second))
+				conn.SetDeadline(time.Now().Add(12 * time.Second))
 				if _, e = media.ReadJSON(conn, 1024); e != nil {
 					return
 				}
-				if media.WriteJSON(conn, map[string]any{"ok": true, "sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160}, 1024) != nil {
+				if media.WriteJSON(conn, map[string]any{"ok": true, "codec": "lc3", "codec_frame_us": 10000, "codec_frame_bytes": 40, "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320}, 1024) != nil {
 					return
 				}
 				sendCtx, stop := context.WithCancel(context.Background())
@@ -508,7 +517,7 @@ func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
 						if writeFrame(conn, out[:]) != nil {
 							return
 						}
-						if stallLocal {
+						if stallLocal && !sustained {
 							return
 						}
 						select {
@@ -518,7 +527,8 @@ func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
 						}
 					}
 				}()
-				io.Copy(io.Discard, conn)
+				n, _ := io.Copy(io.Discard, conn)
+				localReceived.Store(n / media.FrameSize)
 				stop()
 				conn.Close()
 				<-writerDone
@@ -531,12 +541,12 @@ func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
 					return
 				}
 				defer ws.CloseNow()
-				peerCtx, stop := context.WithTimeout(r.Context(), 4*time.Second)
+				peerCtx, stop := context.WithTimeout(r.Context(), 12*time.Second)
 				defer stop()
 				if _, _, e = ws.Read(peerCtx); e != nil {
 					return
 				}
-				paired, _ := json.Marshal(map[string]any{"type": "paired", "session_id": cloudID, "format": media.Format{SampleRate: 8000, Channels: 1, SampleFormat: "s16le", FrameSamples: 160}})
+				paired, _ := json.Marshal(map[string]any{"type": "paired", "session_id": cloudID, "format": media.LC3Format})
 				if ws.Write(peerCtx, websocket.MessageText, paired) != nil {
 					return
 				}
@@ -550,7 +560,7 @@ func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
 						if ws.Write(peerCtx, websocket.MessageBinary, out[:]) != nil {
 							return
 						}
-						if !stallLocal {
+						if !stallLocal && !sustained {
 							return
 						}
 						select {
@@ -564,6 +574,7 @@ func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
 					if _, _, e = ws.Read(peerCtx); e != nil {
 						break
 					}
+					cloudReceived.Add(1)
 				}
 				stop()
 				ws.CloseNow()
@@ -575,17 +586,31 @@ func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
 			f.prepare(t)
 			f.issue(t)
 			f.p.Activate(f.bundle)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			duration := 5 * time.Second
+			if sustained {
+				duration = 9 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), duration)
 			defer cancel()
 			a := &Agent{P: f.p, Media: fm}
 			c := &connection{agent: a, config: f.p.config, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 32)}
 			start := time.Now()
-			reason := c.bridge(ctx, mediaStart{Request: uid(), Session: cloudID, Call: uid(), Boot: uid(), Epoch: uid(), Ticket: strings.Repeat("ab", 32)})
+			reason := c.bridge(ctx, mediaStart{Format: json.RawMessage(`{"codec":"lc3","sample_rate":16000,"channels":1,"sample_format":"s16le","frame_samples":320,"codec_frame_us":10000,"codec_frame_bytes":40}`), Request: uid(), Session: cloudID, Call: uid(), Boot: uid(), Epoch: uid(), Ticket: strings.Repeat("ab", 32), Expires: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano)})
 			elapsed := time.Since(start)
-			if reason != "media_closed" || elapsed < 1900*time.Millisecond || elapsed > 3*time.Second {
+			want := "cloud_read_timeout"
+			if stallLocal && !sustained {
+				want = "local_read_timeout"
+			}
+			minElapsed, maxElapsed := 1900*time.Millisecond, 3*time.Second
+			if sustained {
+				want = "media_cancelled"
+				minElapsed = 8 * time.Second
+				maxElapsed = 10 * time.Second
+			}
+			if reason != want || elapsed < minElapsed || elapsed > maxElapsed {
 				t.Fatalf("read deadline: %s %v", reason, elapsed)
 			}
-			if !stallLocal && a.LastBridgeStats().ZeroFrames < 50 {
+			if !sustained && !stallLocal && a.LastBridgeStats().ZeroFrames < 50 {
 				t.Fatal("downlink silence did not exercise read deadline")
 			}
 			if fm.stops.Load() != 1 {
@@ -597,6 +622,12 @@ func TestMediaBridgeRealInputDeadlineDespitePlayout(t *testing.T) {
 				case <-time.After(time.Second):
 					t.Fatal("peer goroutine leak")
 				}
+			}
+			if sustained {
+				if localReceived.Load() < 350 || cloudReceived.Load() < 350 {
+					t.Fatalf("sustained frames local=%d cloud=%d", localReceived.Load(), cloudReceived.Load())
+				}
+				t.Logf("sustained %s: local=%d cloud=%d", elapsed, localReceived.Load(), cloudReceived.Load())
 			}
 		})
 	}

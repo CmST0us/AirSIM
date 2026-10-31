@@ -42,7 +42,7 @@ func TestFramesStrictAndFragmented(t *testing.T) {
 		t.Fatal("gap")
 	}
 	seq = 0
-	if _, _, e := ReadFrame(bytes.NewReader(f[:359]), id, 1, &seq); e == nil {
+	if _, _, e := ReadFrame(bytes.NewReader(f[:FrameSize-1]), id, 1, &seq); e == nil {
 		t.Fatal("partial")
 	}
 	a, b := net.Pipe()
@@ -127,7 +127,7 @@ func (f *fakeHelper) Stop() {
 	})
 }
 func readyEvent() HelperEvent {
-	return HelperEvent{Type: "ready", SampleRate: 8000, Channels: 1, SampleFormat: "s16le", FrameSamples: 160, Capture: &PCMConfig{8000, 320, 2, 640}, Playback: &PCMConfig{8000, 320, 2, 640}}
+	return HelperEvent{Type: "ready", Codec: "lc3", CodecFrameUS: 10000, CodecFrameBytes: 40, SampleRate: 16000, Channels: 1, SampleFormat: "s16le", FrameSamples: 320, Capture: &PCMConfig{8000, 320, 2, 640}, Playback: &PCMConfig{8000, 320, 2, 640}}
 }
 func launchFake(id string, stall bool, earlyError string, nativeRate ...uint32) *fakeHelper {
 	c, cp := net.Pipe()
@@ -547,8 +547,8 @@ func TestRefinedHardwareConfigStrict(t *testing.T) {
 		t.Fatal(e)
 	}
 	eg25 := readyEvent()
-	eg25.Capture = &PCMConfig{8000, 256, 8, 2048}
-	eg25.Playback = &PCMConfig{8000, 256, 8, 2048}
+	eg25.Capture = &PCMConfig{16000, 256, 8, 2048}
+	eg25.Playback = &PCMConfig{16000, 256, 8, 2048}
 	b, _ = json.Marshal(eg25)
 	if _, e := parseHelper(b); e != nil {
 		t.Fatal("EG25 mmap configuration", e)
@@ -561,7 +561,7 @@ func TestRefinedHardwareConfigStrict(t *testing.T) {
 			t.Fatal("accepted unsupported config", cfg)
 		}
 	}
-	if good.FrameSamples != 160 {
+	if good.FrameSamples != 320 {
 		t.Fatal("external frame changed")
 	}
 }
@@ -572,7 +572,7 @@ func TestNativeRatesStrictAndRetained(t *testing.T) {
 		good.Playback.SampleRate = rate
 		b, _ := json.Marshal(good)
 		parsed, err := parseHelper(b)
-		if err != nil || parsed.Playback.SampleRate != rate || parsed.SampleRate != 8000 || parsed.FrameSamples != 160 {
+		if err != nil || parsed.Playback.SampleRate != rate || parsed.SampleRate != 16000 || parsed.FrameSamples != 320 {
 			t.Fatal("native/external rate", err)
 		}
 		for _, direction := range []string{"capture", "playback"} {
@@ -594,11 +594,20 @@ func TestNativeRatesStrictAndRetained(t *testing.T) {
 			}
 		}
 	}
+	for _, rate := range []uint32{8000, 16000} {
+		capture := readyEvent()
+		capture.Capture.SampleRate = rate
+		b, _ := json.Marshal(capture)
+		if parsed, err := parseHelper(b); err != nil || parsed.Capture.SampleRate != rate {
+			t.Fatal("native capture rate rejected", rate)
+		}
+	}
 	bad := readyEvent()
-	bad.Capture.SampleRate = 16000
+	bad.SampleRate = 8000
+	bad.FrameSamples = 160
 	b, _ := json.Marshal(bad)
 	if _, err := parseHelper(b); err == nil {
-		t.Fatal("16k capture accepted")
+		t.Fatal("8 kHz external format accepted")
 	}
 	good := readyEvent()
 	b, _ = json.Marshal(good)
@@ -620,11 +629,66 @@ func TestNativeRatesStrictAndRetained(t *testing.T) {
 	if v.Session == nil || v.Session.Actual == nil || v.Session.Actual.Playback.SampleRate != 16000 || v.Session.Actual.Capture.SampleRate != 8000 || v.VoiceReady {
 		t.Fatal("native rate not retained", v)
 	}
-	if format.SampleRate != 8000 || format.FrameSamples != 160 {
+	if format.SampleRate != 16000 || format.FrameSamples != 320 {
 		t.Fatal("external format changed")
 	}
 	encoded, _ := json.Marshal(v)
 	if !bytes.Contains(encoded, []byte(`"sample_rate":16000`)) {
 		t.Fatal("native rate missing from diagnostics")
+	}
+}
+
+func TestLC3ErasureAndVersion(t *testing.T) {
+	id := uid()
+	for _, mutate := range []func(*Frame){func(f *Frame) { f[4] = 1 }, func(f *Frame) { f[36] = 2 }, func(f *Frame) { f[36] = 1; f[40] = 1 }} {
+		f := NewFrame(id, 1, 1)
+		mutate(&f)
+		var last uint64
+		if _, _, err := ReadFrame(bytes.NewReader(f[:]), id, 1, &last); err == nil {
+			t.Fatal("invalid LC3 frame accepted")
+		}
+	}
+	f := NewFrame(id, 1, 1)
+	f[40] = 42
+	f.Erase()
+	var last uint64
+	out, _, err := ReadFrame(bytes.NewReader(f[:]), id, 1, &last)
+	if err != nil || out[36] != 1 || out[40] != 0 {
+		t.Fatal("erasure rejected")
+	}
+}
+
+func TestHelperRejectsMismatchedCodec(t *testing.T) {
+	b, _ := json.Marshal(readyEvent())
+	var object map[string]any
+	if err := json.Unmarshal(b, &object); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"codec", "codec_frame_us", "codec_frame_bytes"} {
+		saved := object[key]
+		delete(object, key)
+		raw, _ := json.Marshal(object)
+		if _, err := parseHelper(raw); err == nil {
+			t.Fatal("missing codec property", key)
+		}
+		object[key] = saved
+	}
+	object["codec"] = "pcm"
+	raw, _ := json.Marshal(object)
+	if _, err := parseHelper(raw); err == nil {
+		t.Fatal("PCM helper accepted")
+	}
+}
+
+func TestHelperStatsQueuePeakMatchesNativeQueue(t *testing.T) {
+	for peak, valid := range map[int]bool{4: true, 5: false} {
+		stats := map[string]any{"type": "stats", "capture_samples": 0, "playback_samples": 0, "capture_xruns": 0, "playback_xruns": 0, "capture_drops": 0, "playback_drops": 0, "input_drops": 0, "sequence_gaps": 0, "silence_samples": 0, "queue_peak": peak, "elapsed_ms": 0, "capture_progress_ms": 0, "playback_progress_ms": 0}
+		b, err := json.Marshal(stats)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := parseHelper(b); (err == nil) != valid {
+			t.Fatalf("queue_peak %d accepted=%t", peak, err == nil)
+		}
 	}
 }

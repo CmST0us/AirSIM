@@ -4,6 +4,7 @@ import (
 	"airsim.local/airsim-agent/internal/hal"
 	"airsim.local/airsim-agent/internal/ofono"
 	"context"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +46,7 @@ func (c *Coordinator) RunWithBackend(ctx context.Context, connect func(context.C
 	synchronizing := false
 	var connectionCancel context.CancelFunc
 	disconnect := func(reason string) {
+		log.Printf("control backend disconnected: reason=%s", reason)
 		if connectionCancel != nil {
 			connectionCancel()
 			connectionCancel = nil

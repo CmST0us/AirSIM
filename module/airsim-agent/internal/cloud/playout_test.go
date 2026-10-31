@@ -21,7 +21,9 @@ func (c *virtualPlayoutClock) Wait(ctx context.Context, target time.Time) bool {
 		return false
 	}
 	c.waits = append(c.waits, target)
-	c.now = target
+	if target.After(c.now) {
+		c.now = target
+	}
 	if c.onWait != nil {
 		c.onWait(target)
 	}
@@ -101,8 +103,8 @@ func TestPlayoutInitialBufferBurstCadenceAndEmptyDirections(t *testing.T) {
 				}
 			}
 			if zeros {
-				if counts.zeros.Load() != 2 || payloads[3] != (media.Frame{}) || payloads[4] != (media.Frame{}) {
-					t.Fatal("downlink zeros")
+				if counts.zeros.Load() != 2 || payloads[3][36] != 1 || payloads[4][36] != 1 || payloads[3][40] != 0 || payloads[4][40] != 0 {
+					t.Fatal("downlink erasure")
 				}
 			} else if counts.zeros.Load() != 0 {
 				t.Fatal("fabricated uplink")
@@ -113,7 +115,7 @@ func TestPlayoutInitialBufferBurstCadenceAndEmptyDirections(t *testing.T) {
 		})
 	}
 }
-func TestPlayoutSlowWriteAndDeschedulingDoNotCatchUp(t *testing.T) {
+func TestPlayoutSlowWriteAndDeschedulingCatchUp(t *testing.T) {
 	for _, delayed := range []bool{false, true} {
 		t.Run(map[bool]string{false: "slow_write", true: "scheduler"}[delayed], func(t *testing.T) {
 			base := time.Now()
@@ -140,12 +142,12 @@ func TestPlayoutSlowWriteAndDeschedulingDoNotCatchUp(t *testing.T) {
 				}
 				return nil
 			})
-			want := []time.Duration{40 * time.Millisecond, 120 * time.Millisecond, 140 * time.Millisecond}
+			want := []time.Duration{40 * time.Millisecond, 105 * time.Millisecond, 110 * time.Millisecond}
 			if delayed {
-				want = []time.Duration{120 * time.Millisecond, 140 * time.Millisecond, 160 * time.Millisecond}
+				want = []time.Duration{105 * time.Millisecond, 110 * time.Millisecond, 115 * time.Millisecond}
 			}
 			if !reflect.DeepEqual(starts, want) {
-				t.Fatal("catch-up or wrong rearm", starts)
+				t.Fatal("missed slots not drained", starts)
 			}
 		})
 	}
@@ -218,51 +220,125 @@ func TestPlayoutFixedGridDoesNotAccumulateWakeOrWriteLatency(t *testing.T) {
 	}
 }
 
-func TestPlayoutMinimumActualSpacingSkipsSlotWithoutMovingGrid(t *testing.T) {
-	for _, late := range []time.Duration{10 * time.Millisecond, 11 * time.Millisecond, 19 * time.Millisecond, 20 * time.Millisecond, 65 * time.Millisecond} {
+func TestPlayoutLateWakeDrainsWithMinimumSpacingAndResyncsBeyondAge(t *testing.T) {
+	cases := map[time.Duration][]time.Duration{
+		10 * time.Millisecond:  {110 * time.Millisecond, 120 * time.Millisecond, 140 * time.Millisecond},
+		20 * time.Millisecond:  {120 * time.Millisecond, 125 * time.Millisecond, 140 * time.Millisecond},
+		65 * time.Millisecond:  {165 * time.Millisecond, 170 * time.Millisecond, 175 * time.Millisecond},
+		300 * time.Millisecond: {420 * time.Millisecond, 440 * time.Millisecond, 460 * time.Millisecond},
+	}
+	for late, want := range cases {
 		t.Run(late.String(), func(t *testing.T) {
 			base := time.Now()
 			clock := &virtualPlayoutClock{now: base}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			q := newPlayoutQueue(&bridgeCounters{})
-			q.push(pcm(1), base)
+			counts := &bridgeCounters{}
+			q := newJitterQueue(counts)
+			for i := 1; i <= 3; i++ {
+				q.push(pcm(byte(i)), base)
+			}
+			resync := late > jitterMaxAge
 			clock.onWait = func(time.Time) {
 				if len(clock.waits) == 1 {
 					clock.now = clock.now.Add(late)
 				}
 			}
 			var starts []time.Duration
-			playPCM(ctx, q, clock, true, func(media.Frame) error {
+			playPCM(ctx, q, clock, true, func(f media.Frame) error {
 				starts = append(starts, clock.now.Sub(base))
+				if !resync && f != pcm(byte(len(starts))) {
+					t.Fatal("queued PCM skipped")
+				}
 				if len(starts) == 3 {
 					cancel()
 				}
 				return nil
 			})
-			want := []time.Duration{40*time.Millisecond + late, 80 * time.Millisecond, 100 * time.Millisecond}
-			if late == 10*time.Millisecond {
-				want = []time.Duration{50 * time.Millisecond, 60 * time.Millisecond, 80 * time.Millisecond}
-			}
-			if late == 20*time.Millisecond {
-				want = []time.Duration{80 * time.Millisecond, 100 * time.Millisecond, 120 * time.Millisecond}
-			}
-			if late == 65*time.Millisecond {
-				want = []time.Duration{120 * time.Millisecond, 140 * time.Millisecond, 160 * time.Millisecond}
-			}
 			if !reflect.DeepEqual(starts, want) {
-				t.Fatal("unexpected skipped slots", starts, want)
+				t.Fatal("unexpected cadence", starts, want)
 			}
 			for i := 1; i < len(starts); i++ {
-				if starts[i]-starts[i-1] < 10*time.Millisecond {
+				if starts[i]-starts[i-1] < catchUpSpacing {
 					t.Fatal("output burst")
 				}
 			}
-			for _, target := range clock.waits {
-				if (target.Sub(base)-40*time.Millisecond)%(20*time.Millisecond) != 0 {
-					t.Fatal("grid moved")
+			if resync {
+				if counts.drops.Load() != 3 || counts.zeros.Load() != 3 {
+					t.Fatal("stale backlog played after resync")
+				}
+			} else if counts.drops.Load() != 0 || counts.zeros.Load() != 0 {
+				t.Fatal("late wake discarded or concealed queued PCM")
+			}
+		})
+	}
+}
+
+func TestSequenceMappingDropAndPLCCredit(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		source, want []uint64
+	}{
+		{"first", []uint64{30, 31}, []uint64{1, 2}},
+		{"drop", []uint64{1, 5, 6}, []uint64{1, 5, 6}},
+		{"covered", []uint64{1, 0, 0, 4}, []uint64{1, 2, 3, 4}},
+		{"partial", []uint64{1, 0, 5}, []uint64{1, 2, 5}},
+		{"excess_credit", []uint64{1, 0, 0, 2, 5}, []uint64{1, 2, 3, 4, 7}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var m sequenceMapping
+			for i, seq := range tc.source {
+				f := media.NewFrame(uid(), 1, seq)
+				if seq == 0 {
+					f.Erase()
+				}
+				if got := m.next(f); got != tc.want[i] {
+					t.Fatalf("slot %d: got %d want %d", i, got, tc.want[i])
 				}
 			}
 		})
+	}
+}
+func TestSequenceMappingRetainsBurstQueueDrop(t *testing.T) {
+	now := time.Now()
+	q := newPlayoutQueue(&bridgeCounters{})
+	var m sequenceMapping
+	id := uid()
+	if m.next(media.NewFrame(id, 1, 1)) != 1 {
+		t.Fatal("initial sequence")
+	}
+	for seq := uint64(2); seq <= 8; seq++ {
+		q.push(media.NewFrame(id, 1, seq), now)
+	}
+	f, ok := q.pop(now)
+	if !ok || m.next(f) != 4 {
+		t.Fatal("overflow gap erased")
+	}
+	var concealed media.Frame
+	concealed.Erase()
+	if m.next(concealed) != 5 {
+		t.Fatal("PLC slot")
+	}
+	f = media.NewFrame(id, 1, 8)
+	if m.next(f) != 8 {
+		t.Fatal("double-counted PLC credit")
+	}
+}
+func TestJitterQueueHoldsCellularBurst(t *testing.T) {
+	now := time.Now()
+	counts := &bridgeCounters{}
+	q := newJitterQueue(counts)
+	for i := 1; i <= 12; i++ {
+		q.push(pcm(byte(i)), now)
+	}
+	if q.size != 12 || counts.drops.Load() != 0 || q.start() != now.Add(100*time.Millisecond) {
+		t.Fatal("jitter buffer bound or initial target")
+	}
+	// A frame delayed 240ms is still played; older frames are discarded.
+	if f, ok := q.pop(now.Add(240 * time.Millisecond)); !ok || f != pcm(1) {
+		t.Fatal("delayed frame discarded")
+	}
+	if _, ok := q.pop(now.Add(241 * time.Millisecond)); ok || counts.drops.Load() != 11 {
+		t.Fatal("expired frames retained", counts.drops.Load())
 	}
 }

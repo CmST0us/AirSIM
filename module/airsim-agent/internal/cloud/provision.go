@@ -509,6 +509,14 @@ func dialIPv4(ctx context.Context, dialer *net.Dialer, address string) (net.Conn
 	return nil, last
 }
 
+type mediaDialStageError struct {
+	stage string
+	err   error
+}
+
+func (e *mediaDialStageError) Error() string { return "media_connect_" + e.stage }
+func (e *mediaDialStageError) Unwrap() error { return e.err }
+
 func dialTLSIPv4(ctx context.Context, dialer *net.Dialer, cfg *tls.Config, address string) (net.Conn, error) {
 	host, port, e := net.SplitHostPort(address)
 	if e != nil {
@@ -516,7 +524,7 @@ func dialTLSIPv4(ctx context.Context, dialer *net.Dialer, cfg *tls.Config, addre
 	}
 	addresses, e := net.DefaultResolver.LookupIP(ctx, "ip4", host)
 	if e != nil {
-		return nil, e
+		return nil, &mediaDialStageError{stage: "dns", err: e}
 	}
 	if len(addresses) == 0 {
 		return nil, errors.New("no_ipv4_address")
@@ -535,7 +543,7 @@ func dialTLSIPv4(ctx context.Context, dialer *net.Dialer, cfg *tls.Config, addre
 			raw, e := dialer.DialContext(attempt, "tcp4", net.JoinHostPort(ip.String(), port))
 			if e != nil {
 				select {
-				case results <- result{err: e}:
+				case results <- result{err: &mediaDialStageError{stage: "tcp", err: e}}:
 				case <-race.Done():
 				}
 				return
@@ -548,7 +556,7 @@ func dialTLSIPv4(ctx context.Context, dialer *net.Dialer, cfg *tls.Config, addre
 			if e = conn.HandshakeContext(attempt); e != nil {
 				raw.Close()
 				select {
-				case results <- result{err: e}:
+				case results <- result{err: &mediaDialStageError{stage: "tls", err: e}}:
 				case <-race.Done():
 				}
 				return

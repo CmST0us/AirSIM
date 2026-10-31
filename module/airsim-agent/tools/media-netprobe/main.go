@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"github.com/coder/websocket"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -126,20 +128,28 @@ func sessionBytes(id string) [16]byte {
 	copy(s[:], b)
 	return s
 }
-func frame(id [16]byte, direction byte, sequence uint64) [360]byte {
-	var f [360]byte
+func frame(id [16]byte, direction byte, sequence uint64) [120]byte {
+	var f [120]byte
 	copy(f[:4], "ASMP")
-	f[4] = 1
+	f[4] = 2
 	f[5] = direction
 	binary.LittleEndian.PutUint16(f[6:8], 40)
 	copy(f[8:24], id[:])
 	binary.LittleEndian.PutUint64(f[24:32], sequence)
-	binary.LittleEndian.PutUint32(f[32:36], 320)
+	binary.LittleEndian.PutUint32(f[32:36], 80)
+	binary.LittleEndian.PutUint32(f[36:40], 1) // Network probe carries erasures, never encoded audio.
 	return f
 }
 func check(b []byte, id [16]byte, last uint64) (uint64, uint64, bool) {
-	if len(b) != 360 || string(b[:4]) != "ASMP" || b[4] != 1 || b[5] != 1 || binary.LittleEndian.Uint16(b[6:8]) != 40 || !bytes.Equal(b[8:24], id[:]) || binary.LittleEndian.Uint32(b[32:36]) != 320 || binary.LittleEndian.Uint32(b[36:40]) != 0 {
+	if len(b) != 120 || string(b[:4]) != "ASMP" || b[4] != 2 || b[5] != 1 || binary.LittleEndian.Uint16(b[6:8]) != 40 || !bytes.Equal(b[8:24], id[:]) || binary.LittleEndian.Uint32(b[32:36]) != 80 || binary.LittleEndian.Uint32(b[36:40]) > 1 {
 		return 0, 0, false
+	}
+	if b[36] == 1 {
+		for _, value := range b[40:] {
+			if value != 0 {
+				return 0, 0, false
+			}
+		}
 	}
 	seq := binary.LittleEndian.Uint64(b[24:32])
 	if seq == 0 || seq <= last {
@@ -170,22 +180,46 @@ func pairing(b []byte, id string) (string, bool) {
 		return "", false
 	}
 	var f struct {
-		Rate     int    `json:"sample_rate"`
-		Channels int    `json:"channels"`
-		Format   string `json:"sample_format"`
-		Frames   int    `json:"frame_samples"`
+		Codec           string `json:"codec"`
+		CodecFrameUS    int    `json:"codec_frame_us"`
+		CodecFrameBytes int    `json:"codec_frame_bytes"`
+		Rate            int    `json:"sample_rate"`
+		Channels        int    `json:"channels"`
+		Format          string `json:"sample_format"`
+		Frames          int    `json:"frame_samples"`
 	}
-	return tag.Type, exact(v.Format, []string{"sample_rate", "channels", "sample_format", "frame_samples"}, &f) == nil && f.Rate == 8000 && f.Channels == 1 && f.Format == "s16le" && f.Frames == 160
+	return tag.Type, exact(v.Format, []string{"codec", "codec_frame_us", "codec_frame_bytes", "sample_rate", "channels", "sample_format", "frame_samples"}, &f) == nil && f.Codec == "lc3" && f.CodecFrameUS == 10000 && f.CodecFrameBytes == 40 && f.Rate == 16000 && f.Channels == 1 && f.Format == "s16le" && f.Frames == 320
 }
 func client() *http.Client {
 	return &http.Client{Transport: &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, ForceAttemptHTTP2: false}, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect") }}
 }
 func run(parent context.Context, c config, h *http.Client) result {
 	out := result{Reason: "connect"}
-	handshake, hcancel := context.WithTimeout(parent, 5*time.Second)
+	connectStarted := time.Now()
+	handshake, hcancel := context.WithTimeout(parent, 20*time.Second)
 	defer hcancel()
 	ws, resp, e := websocket.Dial(handshake, c.URL, &websocket.DialOptions{HTTPClient: h, Subprotocols: []string{"airsim.media.v2"}, CompressionMode: websocket.CompressionDisabled})
 	if e != nil {
+		out.ElapsedMS = time.Since(connectStarted).Milliseconds()
+		var cert *tls.CertificateVerificationError
+		var unknown x509.UnknownAuthorityError
+		var invalid x509.CertificateInvalidError
+		var hostname x509.HostnameError
+		var network net.Error
+		switch {
+		case errors.As(e, &cert), errors.As(e, &unknown), errors.As(e, &invalid), errors.As(e, &hostname):
+			out.Reason = "connect_tls_verification"
+		case errors.Is(e, context.DeadlineExceeded):
+			out.Reason = "connect_timeout"
+		case errors.As(e, &network):
+			if network.Timeout() {
+				out.Reason = "connect_timeout"
+			} else {
+				out.Reason = "connect_network"
+			}
+		case resp != nil:
+			out.Reason = "connect_http"
+		}
 		if resp != nil && resp.Body != nil {
 			resp.Body.Close()
 		}
@@ -198,7 +232,7 @@ func run(parent context.Context, c config, h *http.Client) result {
 		return out
 	}
 	auth, _ := json.Marshal(map[string]string{"session_id": c.Session, "role": "agent", "ticket": c.Ticket})
-	authctx, acancel := context.WithTimeout(parent, 100*time.Millisecond)
+	authctx, acancel := context.WithTimeout(handshake, 3*time.Second)
 	e = ws.Write(authctx, websocket.MessageText, auth)
 	if e != nil {
 		acancel()
@@ -206,7 +240,7 @@ func run(parent context.Context, c config, h *http.Client) result {
 		return out
 	}
 	acancel()
-	readAuth, readAuthCancel := context.WithTimeout(parent, 2*time.Second)
+	readAuth, readAuthCancel := context.WithTimeout(handshake, 3*time.Second)
 	typ, b, e := ws.Read(readAuth)
 	readAuthCancel()
 	if e != nil || typ != websocket.MessageText {
@@ -219,7 +253,7 @@ func run(parent context.Context, c config, h *http.Client) result {
 		return out
 	}
 	if phase == "waiting" {
-		pairctx, pcancel := context.WithTimeout(parent, 2*time.Second)
+		pairctx, pcancel := context.WithCancel(handshake)
 		typ, b, e = ws.Read(pairctx)
 		pcancel()
 		phase, ok = pairing(b, c.Session)
@@ -340,7 +374,7 @@ func main() {
 	var output sync.Once
 	emit := func(r result) { output.Do(func() { _ = json.NewEncoder(os.Stdout).Encode(r) }) }
 	// Process-wide watchdog also bounds blocking stdout/cleanup/library calls.
-	watchdog := time.AfterFunc(35*time.Second, func() { os.Exit(1) })
+	watchdog := time.AfterFunc(45*time.Second, func() { os.Exit(1) })
 	defer watchdog.Stop()
 	if len(os.Args) != 2 {
 		emit(result{Reason: "config"})
@@ -351,7 +385,7 @@ func main() {
 		emit(result{Reason: "config"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 34900*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 44900*time.Millisecond)
 	defer cancel()
 	h := client()
 	tracker := &tcpTracker{}

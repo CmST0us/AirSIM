@@ -112,7 +112,7 @@ func testTLSCadence(t *testing.T, interval int) {
 		}
 		waiting, _ := json.Marshal(map[string]string{"type": "waiting", "session_id": c.Session})
 		ws.Write(ctx, websocket.MessageText, waiting)
-		paired, _ := json.Marshal(map[string]any{"type": "paired", "session_id": c.Session, "format": map[string]any{"sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160}})
+		paired, _ := json.Marshal(map[string]any{"type": "paired", "session_id": c.Session, "format": map[string]any{"codec": "lc3", "codec_frame_us": 10000, "codec_frame_bytes": 40, "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320}})
 		ws.Write(ctx, websocket.MessageText, paired)
 		var inseq, outseq uint64
 		for {
@@ -120,7 +120,7 @@ func testTLSCadence(t *testing.T, interval int) {
 			if e != nil {
 				return
 			}
-			if typ != websocket.MessageBinary || len(b) != 360 || b[5] != 2 {
+			if typ != websocket.MessageBinary || len(b) != 120 || b[5] != 2 {
 				malformed.Store(true)
 				return
 			}
@@ -182,7 +182,7 @@ func TestTLSFixtureReadTimeout(t *testing.T) {
 		if _, _, e = ws.Read(ctx); e != nil {
 			return
 		}
-		b, _ := json.Marshal(map[string]any{"type": "paired", "session_id": c.Session, "format": map[string]any{"sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160}})
+		b, _ := json.Marshal(map[string]any{"type": "paired", "session_id": c.Session, "format": map[string]any{"codec": "lc3", "codec_frame_us": 10000, "codec_frame_bytes": 40, "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320}})
 		if ws.Write(ctx, websocket.MessageText, b) != nil {
 			return
 		}
@@ -222,5 +222,18 @@ func TestIntervalConfig(t *testing.T) {
 	duplicate := bytes.Replace(b, []byte(`"send_interval_ms":20`), []byte(`"send_interval_ms":20,"send_interval_ms":200`), 1)
 	if _, e := parseConfig(duplicate); e == nil {
 		t.Fatal("duplicate interval")
+	}
+}
+
+func TestConnectTLSFailureIsSanitized(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer server.Close()
+	h := client()
+	defer h.CloseIdleConnections()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	result := run(ctx, config{URL: "wss" + strings.TrimPrefix(server.URL, "https"), Seconds: 20}, h)
+	if result.Reason != "connect_tls_verification" || result.Sent != 0 || result.Received != 0 {
+		t.Fatalf("connection classification: %+v", result)
 	}
 }

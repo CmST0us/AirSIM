@@ -9,6 +9,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,7 +33,7 @@ type Session struct {
 	epoch    string
 	sequence uint64
 	calls    map[int]voiceCall
-	seenSMS  map[string]bool
+	sms      *SMSLedger
 	events   chan hal.ControlEvent
 	overflow chan struct{}
 	done     chan struct{}
@@ -40,7 +41,8 @@ type Session struct {
 	cancel   context.CancelFunc
 }
 
-func Connect(ctx context.Context, port Controller) (*Session, error) {
+// Connect starts a control session; ledger may be nil for an in-memory ledger.
+func Connect(ctx context.Context, port Controller, ledger *SMSLedger) (*Session, error) {
 	if port == nil {
 		return nil, errors.New("backend_unavailable")
 	}
@@ -53,8 +55,11 @@ func Connect(ctx context.Context, port Controller) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	if ledger == nil {
+		ledger = OpenSMSLedger("")
+	}
 	child, cancel := context.WithCancel(ctx)
-	s := &Session{at: port, epoch: epoch, calls: map[int]voiceCall{}, seenSMS: map[string]bool{}, events: make(chan hal.ControlEvent, 128), overflow: make(chan struct{}, 1), done: make(chan struct{}), cancel: cancel}
+	s := &Session{at: port, epoch: epoch, calls: map[int]voiceCall{}, sms: ledger, events: make(chan hal.ControlEvent, 128), overflow: make(chan struct{}, 1), done: make(chan struct{}), cancel: cancel}
 	go s.run(child)
 	return s, nil
 }
@@ -165,12 +170,15 @@ func (s *Session) Snapshot(ctx context.Context) (hal.ControlSnapshot, error) {
 	}
 	return out, nil
 }
+
+const queryFailureBudget = 15 * time.Second
+
 func (s *Session) run(ctx context.Context) {
 	defer close(s.done)
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	count := 0
-	failures := 0
+	var failingSince time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -185,15 +193,18 @@ func (s *Session) run(ctx context.Context) {
 			}
 			s.mu.Unlock()
 			if err != nil {
-				// QDC507 can return CME 100 while transitioning into ringing.
+				// QDC507 returns CME 100 for several seconds while ringing.
 				// Keep object identities across a bounded transient query failure.
-				failures++
-				if !errors.Is(err, at.ErrQuery) || failures >= 3 {
+				if failingSince.IsZero() {
+					failingSince = time.Now()
+				}
+				if !errors.Is(err, at.ErrQuery) || time.Since(failingSince) >= queryFailureBudget {
+					log.Printf("eg25 control poll stopped: query=%t invalid=%t desynchronized=%t", errors.Is(err, at.ErrQuery), errors.Is(err, at.ErrInvalid), errors.Is(err, at.ErrDesynchronized))
 					return
 				}
 				continue
 			}
-			failures = 0
+			failingSince = time.Time{}
 			count++
 		}
 	}

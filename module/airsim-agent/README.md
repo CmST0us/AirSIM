@@ -1,10 +1,10 @@
 # airsim-agent v2
 
-本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.eg25.usb`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent 或 RM500 CLI；未配置云端时可独立运行。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false；详细边界见 [R2 记录](R2_TESTING.md)。RM500U 的 headless 启动与恢复见[开机启动说明](RM500U_AUTOSTART.md)。
+本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.lc3`，依赖 godbus/dbus v5.2.2 与其 x/sys v0.27.0，不依赖旧 Agent 或 RM500 CLI；未配置云端时可独立运行。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false；详细边界见 [R2 记录](R2_TESTING.md)。RM500U 的 headless 启动与恢复见[开机启动说明](RM500U_AUTOSTART.md)。
 
-支持 `rm500u-embedded` 与 `eg25-qdc507` 两个精确平台。RM500U 使用 oFono，EG25 使用 Agent 内的 AT 控制后端，两者共用 HAL、串行协调器、命令去重、本机 API、云端协议与媒体会话。EG25 固件、ARMv7 构建、DATA11、驱动、8 kHz mmap 音频和安装说明见 [EG25](../eg25/README.md)。短信 PDU 使用 `github.com/warthog618/sms v0.3.0`。
+支持 `rm500u-embedded` 与 `eg25-qdc507` 两个精确平台。RM500U 使用 oFono，EG25 使用 Agent 内的 AT 控制后端，两者共用 HAL、串行协调器、命令去重、本机 API、云端协议与媒体会话。EG25 固件、ARMv7 构建、DATA11、驱动、16 kHz mmap 音频和安装说明见 [EG25](../eg25/README.md)。短信 PDU 使用 `github.com/warthog618/sms v0.3.0`。
 
-云端连接将 discovery 与设备 mTLS 控制握手分别限制为 30 秒和 15 秒。跨网 Cloudflare 路径可能明显慢于局域网测试，不能沿用原 5 秒总预算；外层仍按有界退避重连。
+云端连接将 discovery 与设备 mTLS 控制握手分别限制为 30 秒和 15 秒。云媒体建连预算最多 20 秒，并受票据绝对到期时间和父上下文截止限制；每地址 TLS 仍为 15 秒、认证写读为 3 秒。媒体桥关闭保留首个固定原因：`cloud_read/write_timeout/closed`、`cloud_remote_closed`、`local_read/write_timeout/closed`、`cloud_invalid_frame`、`local_invalid_frame` 或 `media_cancelled`；清理取消不覆盖首错，不记录原始错误或媒体内容。建连失败按 `media_connect_dns`、`media_connect_tls`、`media_connect_refused`、`media_connect_timeout`、`media_connect_tcp_timeout`、`media_connect_tls_timeout`、`media_connect_http`、`media_connect_dial`、`media_connect_unknown` 分类；取消使用 `media_cancelled`。跨网 Cloudflare 路径可能明显慢于局域网测试，不能沿用原 5 秒总预算；外层仍按有界退避重连。
 
 R3 已实现原生音频 helper、本机媒体会话与通话 lease；本机验证和构建见 [R3 交接记录](R3_TESTING.md)及[构建证据](R3_BUILD_EVIDENCE.json)。R3 裁决04构建已部署，当前固件、厂商16kHz语音时钟下75.004秒双向内容验收通过；用户确认听清提示语及自己的回声。运行时 voice_ready=false、verification=unverified 仍保留为实验发布门槛。权威事实见[验收证据](R3_ACCEPTANCE_EVIDENCE.json)与[历史诊断证据](R3_DIAGNOSTIC_EVIDENCE.json)。下文 R2 证据保留为历史基线。
 
@@ -19,6 +19,14 @@ R1 AT 只读采样与精确 RM500 profile 校验继续保留。R2 新增长期�
 - `internal/journal`：不含正文或号码的原子操作记录。
 - `internal/identity`、`internal/at`、`internal/platform/rm500u`、`internal/state`：沿用 R1 身份、串口、平台和只读快照职责。
 - `internal/transport/local`：0600 Unix socket API，handler 不直接访问设备。
+
+## LC3 音频
+
+当前媒体格式固定为 LC3、16 kHz 单声道，解码 PCM 为 S16LE、320 samples/20 ms。每个 ASMP v2 包包含两个 10 ms、40 字节 LC3 帧，总长 120 字节；云端和 USB 使用同一格式。Go 继续禁用 CGO，编解码由原生 helper 和 App 执行。Agent 的 `hello.media_codec` 为 `lc3`；媒体格式握手和 helper ready 必须精确匹配，旧 PCM helper 不能接入。
+
+待处理接听命令经定时轮询或 `receipt_query` 返回 `accepted`／`observed` 时，统一更新通话声明和媒体所有权，后续 `media_start` 使用同一客户端与 generation。回执查询即使状态未变化也返回结果。
+
+缺包通过 erasure 标志传给解码端执行 PLC；桥接重写 session/sequence 时保留该标志及未补偿的源序号缺口；已补PLC的空槽抵扣后续缺口，避免重复补偿。`zero_frames` 统计桥接补出的 erasure 包，helper 的 `silence_samples` 仍只统计实际全零 PCM。硬件路由、音频 lease、队列期限与 PCM 配置保持既有约束。Agent 与 helper 必须配套构建、切换和回滚；当前 LC3 尚未完成实机通话验收。
 
 ## 本机验证与构建
 

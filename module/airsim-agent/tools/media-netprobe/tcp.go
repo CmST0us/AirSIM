@@ -34,11 +34,11 @@ func (t *tcpTracker) dial(ctx context.Context, network, address string) (net.Con
 	return c, e
 }
 
-// The collector retains at most 35 one-second samples and never prints addresses.
+// The collector retains at most 45 one-second samples and never prints addresses.
 func (t *tcpTracker) collect(parent context.Context) func() []tcpSample {
 	ctx, cancel := context.WithCancel(parent)
 	done := make(chan struct{})
-	samples := make([]tcpSample, 0, 35)
+	samples := make([]tcpSample, 0, 45)
 	start := time.Now()
 	go func() {
 		defer close(done)
@@ -52,7 +52,7 @@ func (t *tcpTracker) collect(parent context.Context) func() []tcpSample {
 				t.mu.Lock()
 				c := t.conn
 				t.mu.Unlock()
-				if c == nil || len(samples) >= 35 {
+				if c == nil || len(samples) >= 45 {
 					continue
 				}
 				s := readTCPInfo(c)

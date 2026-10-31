@@ -558,11 +558,12 @@ func (u *USB) mediaAPI(w http.ResponseWriter, r *http.Request, client string, pa
 		return
 	}
 	var b struct {
+		Codec      string `json:"codec"`
 		Request    string `json:"request_id"`
 		Epoch      string `json:"connection_epoch"`
 		Generation string `json:"generation"`
 	}
-	if !usbBody(w, r, &b, "request_id,connection_epoch,generation") || !control.ValidID(b.Request) || !control.ValidID(b.Generation) {
+	if !usbBody(w, r, &b, "request_id,connection_epoch,generation,codec") || b.Codec != "lc3" || !control.ValidID(b.Request) || !control.ValidID(b.Generation) {
 		usbJSON(w, 400, nil)
 		return
 	}
@@ -633,7 +634,7 @@ func (u *USB) mediaAPI(w http.ResponseWriter, r *http.Request, client string, pa
 	u.mediaResult(w, 201, m)
 }
 func (u *USB) mediaResult(w http.ResponseWriter, code int, m *usbMedia) {
-	usbJSON(w, code, map[string]any{"session_id": m.ID, "ticket": m.Ticket, "expires_at": m.Expires.UTC(), "media_url": "wss" + strings.TrimPrefix(u.origin, "https") + "/v2/media", "format": media.Format{SampleRate: 8000, Channels: 1, SampleFormat: "s16le", FrameSamples: 160}})
+	usbJSON(w, code, map[string]any{"session_id": m.ID, "ticket": m.Ticket, "expires_at": m.Expires.UTC(), "media_url": "wss" + strings.TrimPrefix(u.origin, "https") + "/v2/media", "format": media.LC3Format})
 }
 func (u *USB) mediaSocket(w http.ResponseWriter, r *http.Request) {
 	ws, e := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"airsim.media.v2"}, CompressionMode: websocket.CompressionDisabled})
@@ -716,13 +717,10 @@ func (u *USB) mediaSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ack struct {
-		OK       bool   `json:"ok"`
-		Rate     int    `json:"sample_rate"`
-		Channels int    `json:"channels"`
-		Format   string `json:"sample_format"`
-		Frames   int    `json:"frame_samples"`
+		OK bool `json:"ok"`
+		media.Format
 	}
-	if exact(b, "ok,sample_rate,channels,sample_format,frame_samples", &ack) != nil || !ack.OK || ack.Rate != 8000 || ack.Channels != 1 || ack.Format != "s16le" || ack.Frames != 160 {
+	if exact(b, "ok,codec,sample_rate,channels,sample_format,frame_samples,codec_frame_us,codec_frame_bytes", &ack) != nil || !ack.OK || ack.Format != media.LC3Format {
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})

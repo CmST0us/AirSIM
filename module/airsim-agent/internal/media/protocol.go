@@ -10,8 +10,8 @@ import (
 	"strings"
 )
 
-const FrameSize = 360
-const PayloadSize = 320
+const FrameSize = 120
+const PayloadSize = 80
 
 var ErrProtocol = errors.New("media_protocol")
 
@@ -29,13 +29,13 @@ func sessionBytes(id string) ([16]byte, error) {
 func NewFrame(id string, direction byte, seq uint64) Frame {
 	var f Frame
 	copy(f[:4], "ASMP")
-	f[4] = 1
+	f[4] = 2
 	f[5] = direction
 	binary.LittleEndian.PutUint16(f[6:8], 40)
 	b, _ := sessionBytes(id)
 	copy(f[8:24], b[:])
 	binary.LittleEndian.PutUint64(f[24:32], seq)
-	binary.LittleEndian.PutUint32(f[32:36], 320)
+	binary.LittleEndian.PutUint32(f[32:36], PayloadSize)
 	return f
 }
 func ReadFrame(r io.Reader, id string, direction byte, last *uint64) (Frame, uint64, error) {
@@ -44,8 +44,15 @@ func ReadFrame(r io.Reader, id string, direction byte, last *uint64) (Frame, uin
 		return f, 0, e
 	}
 	sid, e := sessionBytes(id)
-	if e != nil || string(f[:4]) != "ASMP" || f[4] != 1 || f[5] != direction || binary.LittleEndian.Uint16(f[6:8]) != 40 || string(f[8:24]) != string(sid[:]) || binary.LittleEndian.Uint32(f[32:36]) != 320 || binary.LittleEndian.Uint32(f[36:40]) != 0 {
+	if e != nil || string(f[:4]) != "ASMP" || f[4] != 2 || f[5] != direction || binary.LittleEndian.Uint16(f[6:8]) != 40 || string(f[8:24]) != string(sid[:]) || binary.LittleEndian.Uint32(f[32:36]) != PayloadSize || binary.LittleEndian.Uint32(f[36:40]) > 1 {
 		return f, 0, ErrProtocol
+	}
+	if f[36] == 1 {
+		for _, b := range f[40:] {
+			if b != 0 {
+				return f, 0, ErrProtocol
+			}
+		}
 	}
 	seq := binary.LittleEndian.Uint64(f[24:32])
 	if seq == 0 || seq <= *last {
@@ -93,3 +100,5 @@ func writeAll(w io.Writer, b []byte) error {
 	}
 	return nil
 }
+
+func (f *Frame) Erase() { clear(f[40:]); binary.LittleEndian.PutUint32(f[36:40], 1) }

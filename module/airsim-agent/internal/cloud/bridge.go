@@ -5,25 +5,31 @@ import (
 	"airsim.local/airsim-agent/internal/media"
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"github.com/coder/websocket"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
 type mediaStart struct {
-	Request    string `json:"request_id"`
-	Session    string `json:"session_id"`
-	Call       string `json:"call_id"`
-	Boot       string `json:"agent_boot_id"`
-	Epoch      string `json:"backend_epoch"`
-	Client     string `json:"client_installation_id"`
-	Generation string `json:"generation"`
-	Ticket     string `json:"ticket"`
-	Expires    string `json:"expires_at"`
+	Format     json.RawMessage `json:"format"`
+	Request    string          `json:"request_id"`
+	Session    string          `json:"session_id"`
+	Call       string          `json:"call_id"`
+	Boot       string          `json:"agent_boot_id"`
+	Epoch      string          `json:"backend_epoch"`
+	Client     string          `json:"client_installation_id"`
+	Generation string          `json:"generation"`
+	Ticket     string          `json:"ticket"`
+	Expires    string          `json:"expires_at"`
 }
 type BridgeStats struct {
 	SessionID      string `json:"session_id"`
@@ -51,7 +57,11 @@ func (c *connection) startMedia(b []byte) bool {
 }
 func (c *connection) startMediaAt(b []byte, now time.Time) bool {
 	var r mediaStart
-	if exact(b, "request_id,session_id,call_id,agent_boot_id,backend_epoch,client_installation_id,generation,ticket,expires_at", &r) != nil {
+	if exact(b, "request_id,session_id,call_id,agent_boot_id,backend_epoch,client_installation_id,generation,ticket,expires_at,format", &r) != nil {
+		return false
+	}
+	var negotiated media.Format
+	if exact(r.Format, "codec,sample_rate,channels,sample_format,frame_samples,codec_frame_us,codec_frame_bytes", &negotiated) != nil || negotiated != media.LC3Format {
 		return false
 	}
 	for _, id := range []string{r.Request, r.Session, r.Call, r.Boot, r.Epoch, r.Client, r.Generation} {
@@ -118,15 +128,24 @@ func paired(b []byte, id string) (string, bool) {
 		return "", false
 	}
 	var f media.Format
-	return typ, exact(v.Format, "sample_rate,channels,sample_format,frame_samples", &f) == nil && f == (media.Format{SampleRate: 8000, Channels: 1, SampleFormat: "s16le", FrameSamples: 160})
+	return typ, exact(v.Format, "codec,sample_rate,channels,sample_format,frame_samples,codec_frame_us,codec_frame_bytes", &f) == nil && f == (media.LC3Format)
 }
+func mediaSetupDeadline(now time.Time, expires string) time.Time {
+	deadline := now.Add(20 * time.Second)
+	expiry, _ := utc(expires) // startMedia validates the absolute ticket expiry.
+	if expiry.Before(deadline) {
+		return expiry
+	}
+	return deadline
+}
+
 func (c *connection) bridge(parent context.Context, r mediaStart) (reason string) {
 	counts := &bridgeCounters{}
 	c.agent.beginBridge(r.Session, counts)
 	defer func() { c.agent.endBridge(r.Session, reason) }()
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	setup, scancel := context.WithTimeout(ctx, 5*time.Second)
+	setup, scancel := context.WithDeadline(ctx, mediaSetupDeadline(time.Now(), r.Expires))
 	defer scancel()
 	client, e := c.agent.P.client(c.config, false)
 	if e != nil {
@@ -138,7 +157,7 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 		if resp != nil && resp.Body != nil {
 			resp.Body.Close()
 		}
-		return "media_connect"
+		return mediaConnectReason(e, resp)
 	}
 	defer ws.CloseNow()
 	if ws.Subprotocol() != "airsim.media.v2" {
@@ -190,13 +209,10 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 		return "media_local_auth"
 	}
 	var ack struct {
-		OK       bool   `json:"ok"`
-		Rate     int    `json:"sample_rate"`
-		Channels int    `json:"channels"`
-		Format   string `json:"sample_format"`
-		Frames   int    `json:"frame_samples"`
+		OK bool `json:"ok"`
+		media.Format
 	}
-	if exact(b, "ok,sample_rate,channels,sample_format,frame_samples", &ack) != nil || !ack.OK || ack.Rate != 8000 || ack.Channels != 1 || ack.Format != "s16le" || ack.Frames != 160 {
+	if exact(b, "ok,codec,sample_rate,channels,sample_format,frame_samples,codec_frame_us,codec_frame_bytes", &ack) != nil || !ack.OK || ack.Format != media.LC3Format {
 		return "media_local_auth"
 	}
 	conn.SetDeadline(time.Time{})
@@ -207,7 +223,15 @@ func (c *connection) bridge(parent context.Context, r mediaStart) (reason string
 	return bridgeFrames(ctx, cancel, ws, conn, local.ID, r.Session, counts)
 }
 func bridgeFrames(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn net.Conn, localID, sessionID string, counts *bridgeCounters) string {
-	down := newPlayoutQueue(counts)
+	var first sync.Once
+	reason := "media_cancelled"
+	fail := func(code string) {
+		if ctx.Err() != nil {
+			return
+		}
+		first.Do(func() { reason = code; cancel() })
+	}
+	down := newJitterQueue(counts)
 	up := newPlayoutQueue(counts)
 	clock := realPlayoutClock{}
 	var wg sync.WaitGroup
@@ -217,14 +241,23 @@ func bridgeFrames(ctx context.Context, cancel context.CancelFunc, ws *websocket.
 		defer cancel()
 		var sequence uint64
 		for {
-			readctx, rcancel := context.WithTimeout(ctx, 2*time.Second)
+			// Record timeout before WebSocket cancellation closes the other direction.
+			readctx, rcancel := context.WithCancel(ctx)
+			timer := time.AfterFunc(2*time.Second, func() { fail("cloud_read_timeout"); rcancel() })
 			t, b, e := ws.Read(readctx)
+			timer.Stop()
 			rcancel()
-			if e != nil || t != websocket.MessageBinary || len(b) != media.FrameSize {
+			if e != nil {
+				fail(bridgeIOReason("cloud_read", e))
+				return
+			}
+			if t != websocket.MessageBinary || len(b) != media.FrameSize {
+				fail("cloud_invalid_frame")
 				return
 			}
 			f, gap, e := media.ReadFrame(bytes.NewReader(b), sessionID, 1, &sequence)
 			if e != nil {
+				fail("cloud_invalid_frame")
 				return
 			}
 			counts.cloud.Add(gap)
@@ -234,13 +267,16 @@ func bridgeFrames(ctx context.Context, cancel context.CancelFunc, ws *websocket.
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		var seq uint64
+		var sequences sequenceMapping
 		playPCM(ctx, down, clock, true, func(f media.Frame) error {
-			seq++
-			out := media.NewFrame(localID, 1, seq)
-			copy(out[40:], f[40:])
+			out := media.NewFrame(localID, 1, sequences.next(f))
+			copy(out[36:], f[36:])
 			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-			return writeFrame(conn, out[:])
+			e := writeFrame(conn, out[:])
+			if e != nil {
+				fail(bridgeIOReason("local_write", e))
+			}
+			return e
 		})
 	}()
 	go func() {
@@ -251,6 +287,11 @@ func bridgeFrames(ctx context.Context, cancel context.CancelFunc, ws *websocket.
 			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			f, gap, e := media.ReadFrame(conn, localID, 2, &seq)
 			if e != nil {
+				if errors.Is(e, media.ErrProtocol) {
+					fail("local_invalid_frame")
+				} else {
+					fail(bridgeIOReason("local_read", e))
+				}
 				return
 			}
 			counts.local.Add(gap)
@@ -260,21 +301,77 @@ func bridgeFrames(ctx context.Context, cancel context.CancelFunc, ws *websocket.
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		var seq uint64
+		var sequences sequenceMapping
 		playPCM(ctx, up, clock, false, func(f media.Frame) error {
-			seq++
-			out := media.NewFrame(sessionID, 2, seq)
-			copy(out[40:], f[40:])
-			wctx, wcancel := context.WithTimeout(ctx, 100*time.Millisecond)
+			out := media.NewFrame(sessionID, 2, sequences.next(f))
+			copy(out[36:], f[36:])
+			wctx, wcancel := context.WithCancel(ctx)
+			timer := time.AfterFunc(100*time.Millisecond, func() { fail("cloud_write_timeout"); wcancel() })
+			defer timer.Stop()
 			defer wcancel()
-			return ws.Write(wctx, websocket.MessageBinary, out[:])
+			e := ws.Write(wctx, websocket.MessageBinary, out[:])
+			if e != nil {
+				fail(bridgeIOReason("cloud_write", e))
+			}
+			return e
 		})
 	}()
 	<-ctx.Done()
 	conn.Close()
 	ws.CloseNow()
 	wg.Wait()
-	return "media_closed"
+	return reason
+}
+func mediaConnectReason(err error, response *http.Response) string {
+	var dns *net.DNSError
+	var cert *tls.CertificateVerificationError
+	var unknownCA x509.UnknownAuthorityError
+	var invalidCert x509.CertificateInvalidError
+	var hostname x509.HostnameError
+	var record tls.RecordHeaderError
+	var network net.Error
+	var operation *net.OpError
+	var stage *mediaDialStageError
+	timedOut := errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &network) && network.Timeout())
+	if timedOut && errors.As(err, &stage) {
+		switch stage.stage {
+		case "tcp":
+			return "media_connect_tcp_timeout"
+		case "tls":
+			return "media_connect_tls_timeout"
+		case "dns":
+			return "media_connect_dns"
+		}
+	}
+	switch {
+	case errors.As(err, &dns):
+		return "media_connect_dns"
+	case errors.As(err, &cert), errors.As(err, &unknownCA), errors.As(err, &invalidCert), errors.As(err, &hostname), errors.As(err, &record):
+		return "media_connect_tls"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "media_connect_refused"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &network) && network.Timeout():
+		return "media_connect_timeout"
+	case errors.Is(err, context.Canceled):
+		return "media_cancelled"
+	case response != nil:
+		return "media_connect_http"
+	case errors.As(err, &operation) && operation.Op == "dial":
+		return "media_connect_dial"
+	default:
+		return "media_connect_unknown"
+	}
+}
+
+func bridgeIOReason(direction string, err error) string {
+	var timeout net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &timeout) && timeout.Timeout()) {
+		return direction + "_timeout"
+	}
+	if strings.HasPrefix(direction, "cloud_") && websocket.CloseStatus(err) != -1 {
+		return "cloud_remote_closed"
+	}
+	return direction + "_closed"
 }
 func writeFrame(c net.Conn, b []byte) error {
 	for len(b) > 0 {

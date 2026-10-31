@@ -44,6 +44,8 @@ def main():
         for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"):
             shutil.copyfile(REPO / name, output / name)
             manifest["licenses"].append(artifact(output / name))
+        shutil.copyfile(REPO / "third_party/liblc3/LICENSE", output / "LC3-LICENSE.txt")
+        manifest["licenses"].append(artifact(output / "LC3-LICENSE.txt"))
         if platform == "eg25":
             manifest["platform"] = []
             for name in ("airsim_data11.ko", "qdc507_aprv3.ko", "qdc507_voice.ko", "COPYING-GPL-2.0", "MODULE-REPORT.md", "airsim_data11.c", "isrgrootx1.pem"):

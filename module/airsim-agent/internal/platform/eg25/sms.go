@@ -39,40 +39,44 @@ func decodeSMS(lines []string) ([]receivedSMS, error) {
 		if err != nil || len(data) < 2 {
 			return nil, at.ErrInvalid
 		}
-		offset := int(data[0]) + 1
-		if offset >= len(data) {
-			return nil, at.ErrInvalid
-		}
-		p, err := sms.Unmarshal(data[offset:])
-		if err != nil {
-			return nil, at.ErrInvalid
-		}
-		if p.SmsType() != tpdu.SmsDeliver {
+		// The AT framing is intact; a stored PDU the decoder cannot read is
+		// skipped so one message does not invalidate the control session.
+		message, ok := decodeDeliver(collector, data)
+		if !ok {
 			continue
 		}
-		segments, err := collector.Collect(*p)
-		if err != nil {
-			return nil, at.ErrInvalid
-		}
-		if len(segments) == 0 {
-			continue
-		}
-		body, err := sms.Decode(segments)
-		if err != nil {
-			return nil, at.ErrInvalid
-		}
-		var key strings.Builder
-		for _, part := range segments {
-			raw, err := part.MarshalBinary()
-			if err != nil {
-				return nil, at.ErrInvalid
-			}
-			key.WriteString(hex.EncodeToString(raw))
-			key.WriteByte(':')
-		}
-		out = append(out, receivedSMS{key: key.String(), sender: segments[0].OA.Number(), text: string(body)})
+		out = append(out, message)
 	}
 	return out, nil
+}
+
+func decodeDeliver(collector *sms.Collector, data []byte) (receivedSMS, bool) {
+	offset := int(data[0]) + 1
+	if offset >= len(data) {
+		return receivedSMS{}, false
+	}
+	p, err := sms.Unmarshal(data[offset:])
+	if err != nil || p.SmsType() != tpdu.SmsDeliver {
+		return receivedSMS{}, false
+	}
+	segments, err := collector.Collect(*p)
+	if err != nil || len(segments) == 0 {
+		return receivedSMS{}, false
+	}
+	body, err := sms.Decode(segments)
+	if err != nil {
+		return receivedSMS{}, false
+	}
+	var key strings.Builder
+	for _, part := range segments {
+		raw, err := part.MarshalBinary()
+		if err != nil {
+			return receivedSMS{}, false
+		}
+		key.WriteString(hex.EncodeToString(raw))
+		key.WriteByte(':')
+	}
+	return receivedSMS{key: key.String(), sender: segments[0].OA.Number(), text: string(body)}, true
 }
 
 func (s *Session) refreshSMS(ctx context.Context) error {
@@ -84,14 +88,16 @@ func (s *Session) refreshSMS(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	next := map[string]bool{}
-	for _, m := range messages {
-		next[m.key] = true
-		if !s.seenSMS[m.key] {
-			s.emit(hal.ControlEvent{Kind: "message.incoming", Sender: m.sender, Text: m.text})
-		}
+	keys := make([]string, len(messages))
+	byKey := make(map[string]receivedSMS, len(messages))
+	for i, m := range messages {
+		keys[i] = m.key
+		byKey[m.key] = m
 	}
-	s.seenSMS = next
+	for _, key := range s.sms.Reconcile(keys) {
+		m := byKey[key]
+		s.emit(hal.ControlEvent{Kind: "message.incoming", Sender: m.sender, Text: m.text})
+	}
 	return nil
 }
 
