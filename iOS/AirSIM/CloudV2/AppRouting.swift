@@ -41,7 +41,7 @@ final class ExpiredLegacyPushReporter: NSObject, CXProviderDelegate {
         NSLog("[AirSIM Push] rejected reason=%@", reason)
 #endif
         let id = UUID(); let update = CXCallUpdate()
-        update.remoteHandle = CXHandle(type: .generic, value: "AirSIM 旧版通知")
+        update.remoteHandle = CXHandle(type: .generic, value: "AirSIM 来电已失效")
         provider.reportNewIncomingCall(with: id, update: update) { [weak self] _ in
             Task { @MainActor in
                 self?.provider.reportCall(with: id, endedAt: Date(), reason: .failed)

@@ -150,8 +150,8 @@ final class V2CommandMachine {
         default: throw V2Error.busy
         }
     }
-    func clearDisconnectedOwnedCall() throws { try ownedStore?.clear(); ownedCall = nil }
-    func invalidateOwnedCall() { /* Keep identity until an explicit disconnected snapshot. */ }
+    func clearOwnedCall() throws { try ownedStore?.clear(); ownedCall = nil }
+    func invalidateOwnedCall() { /* Keep identity until a disconnected snapshot or verified module runtime replacement. */ }
 }
 
 

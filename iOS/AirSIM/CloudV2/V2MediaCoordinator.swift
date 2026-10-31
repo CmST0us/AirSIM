@@ -3,7 +3,7 @@ import Combine
 
 struct V2MediaStatistics {
     var received: UInt64 = 0, sent: UInt64 = 0, sequenceGaps: UInt64 = 0
-    var queueDrops: UInt64 = 0, skippedSlots: UInt64 = 0, playbackZero: UInt64 = 0
+    var queueDrops: UInt64 = 0, skippedSlots: UInt64 = 0, concealedPackets: UInt64 = 0
     var rendered: UInt64 = 0, captureFrames: UInt64 = 0, writeTimeouts: UInt64 = 0
     var diagnosticZero: UInt64 = 0
 #if DEBUG
@@ -43,7 +43,7 @@ enum V2MediaFailureCode: String {
     case timeout, handshake, stale, inactive, inputStopped, downlinkStopped, disconnected
     case audioPermission, audioFormat, audioConversion, audioVoiceProcessing, audioEngine
     case audioInterrupted, audioFormatChanged, audioSpeech
-    case urlSession, unknown
+    case urlSession, posix, cocoa, unknown
 }
 struct V2MediaFailureDiagnostic: Equatable {
     let code: V2MediaFailureCode
@@ -51,7 +51,14 @@ struct V2MediaFailureDiagnostic: Equatable {
     let numericCode: Int?
     let downlinkAgeMilliseconds: UInt64?
     // Fixed domain only; never retain NSError/userInfo or arbitrary descriptions.
-    var domain: String? { code == .urlSession ? NSURLErrorDomain : nil }
+    var domain: String? {
+        switch code {
+        case .urlSession: return NSURLErrorDomain
+        case .posix: return NSPOSIXErrorDomain
+        case .cocoa: return NSCocoaErrorDomain
+        default: return nil
+        }
+    }
     init(error: Error, stage: V2MediaFailureStage, downlinkAgeMilliseconds: UInt64?) {
         self.stage = stage; self.downlinkAgeMilliseconds = downlinkAgeMilliseconds
         var number: Int?
@@ -78,8 +85,12 @@ struct V2MediaFailureDiagnostic: Equatable {
             }
         } else {
             let nsError = error as NSError
-            if nsError.domain == NSURLErrorDomain { code = .urlSession; number = nsError.code }
-            else { code = .unknown }
+            switch nsError.domain {
+            case NSURLErrorDomain: code = .urlSession; number = nsError.code
+            case NSPOSIXErrorDomain: code = .posix; number = nsError.code
+            case NSCocoaErrorDomain: code = .cocoa; number = nsError.code
+            default: code = .unknown
+            }
         }
         numericCode = number
     }
@@ -105,7 +116,8 @@ final class V2MediaCoordinator: ObservableObject {
     private var generation = UUID()
     private var sessionID: String?
     private var startTask: Task<Void, Never>?, receiveTask: Task<Void, Never>?, tickTask: Task<Void, Never>?, sendTask: Task<Void, Never>?
-    private var up: V2PCMQueue?, down: V2PCMQueue?
+    private var up: V2MediaQueue?, down: V2MediaQueue?
+    private var codec: V2LC3Codec?
     private var sendSequence: UInt64 = 0, receiveSequence: UInt64 = 0
     private var lastCapture: UInt64 = 0, lastDownlink: UInt64 = 0, pairedAt: UInt64 = 0
     private var lastDownlinkFrame: UInt64?
@@ -145,10 +157,22 @@ final class V2MediaCoordinator: ObservableObject {
 #else
                 guard !diagnosticMode else { throw V2MediaFailure.inactive }
 #endif
+#if DEBUG
+                NSLog("[AirSIM Media] stage=prepareStart")
+#endif
                 try await self.audio.prepare(microphone: diagnostic == nil)
+#if DEBUG
+                NSLog("[AirSIM Media] stage=prepareComplete")
+#endif
                 guard self.generation == stamp, !Task.isCancelled, validate() else { throw V2MediaFailure.stale }
                 stage = .creatingSession
+#if DEBUG
+                NSLog("[AirSIM Media] stage=creatingSessionStart")
+#endif
                 let created = try await self.create(context, UUID().uuidString.lowercased())
+#if DEBUG
+                NSLog("[AirSIM Media] stage=creatingSessionComplete")
+#endif
                 guard self.generation == stamp, !Task.isCancelled else {
                     Task { await self.delete(context, created.session_id) }; return
                 }
@@ -165,7 +189,7 @@ final class V2MediaCoordinator: ObservableObject {
                 let auth = try JSONEncoder().encode(V2MediaHandshake(session_id: created.session_id, ticket: created.ticket))
                 stage = .sendingAuthentication
                 try await self.write(.string(String(decoding: auth, as: UTF8.self)), socket: socket)
-                let pairingDeadline = min(ticketDeadline, self.clock.now + 5_000_000_000)
+                let pairingDeadline = min(ticketDeadline, self.clock.now + 20_000_000_000)
                 stage = .waiting
                 let first = try await self.handshake(socket, deadline: min(pairingDeadline, self.clock.now + 3_000_000_000), id: created.session_id)
                 guard case .waiting = first else { throw V2MediaFailure.handshake }
@@ -173,15 +197,19 @@ final class V2MediaCoordinator: ObservableObject {
                 stage = .pairing
                 let second = try await self.handshake(socket, deadline: pairingDeadline, id: created.session_id)
                 guard case .paired = second, self.generation == stamp, !Task.isCancelled, validate() else { throw V2MediaFailure.handshake }
-                socket.limit(360)
+                socket.limit(120)
                 self.state = .paired; self.pairedAt = self.clock.now
+#if DEBUG
+                NSLog("[AirSIM Media] stage=paired")
+#endif
 #if DEBUG
                 self.diagnosticPairedAt = self.pairedAt
 #endif
                 self.lastCapture = self.pairedAt; self.lastDownlink = self.pairedAt
                 self.sendSequence = 0; self.receiveSequence = 0
-                self.up = V2PCMQueue(generation: stamp, emptyPolicy: .skip)
-                self.down = V2PCMQueue(generation: stamp, emptyPolicy: .silence)
+                self.codec = try V2LC3Codec()
+                self.up = V2MediaQueue.uplink(generation: stamp)
+                self.down = V2MediaQueue.downlink(generation: stamp)
                 diagnostic?.start(at: self.pairedAt)
                 self.beginReceive(socket, id: created.session_id, stamp: stamp)
                 self.beginTicks(socket, id: created.session_id, stamp: stamp, validate: validate)
@@ -205,14 +233,10 @@ final class V2MediaCoordinator: ObservableObject {
                     guard self.generation == stamp, !Task.isCancelled else { return }
                     guard case .data(let data) = message else { throw V2MediaFailure.handshake }
                     let result = try V2ASMPFrame.decode(data, sessionID: id, direction: 2, after: self.receiveSequence)
-#if DEBUG
-                    self.counters.receivedPCMEnergy.record(result.frame.pcm)
-#endif
                     self.receiveSequence = result.frame.sequence
                     self.counters.received += 1; self.counters.sequenceGaps += result.gaps
                     self.lastDownlink = self.clock.now; self.lastDownlinkFrame = self.lastDownlink
-                    try self.down?.enqueue(result.frame.pcm, at: self.clock.now, generation: stamp)
-                    self.diagnostic?.receive(result.frame.pcm, at: self.clock.now)
+                    try self.down?.enqueue(result.frame.payload, erasure: result.frame.erasure, sequence: result.frame.sequence, at: self.clock.now, generation: stamp)
                 }
             } catch { self.fail(error, stamp: stamp, stage: .receiving) }
         }
@@ -256,9 +280,12 @@ final class V2MediaCoordinator: ObservableObject {
                     }
                     guard now - self.lastCapture < 2_000_000_000 else { throw V2MediaFailure.inputStopped }
                     guard now - self.lastDownlink < 2_000_000_000 else { throw V2MediaFailure.downlinkStopped }
-                    if self.sendTask == nil, let pcm = self.up?.output(at: now, generation: stamp) {
+                    if self.sendTask == nil, let packet = self.up?.output(at: now, generation: stamp) {
+                        guard let codec = self.codec else { throw V2MediaFailure.stale }
+                        let pcm = packet.payload
+                        let payload = try codec.encode(pcm)
                         self.sendSequence += 1
-                        let binary = try V2ASMPFrame(sessionID: id, direction: 1, sequence: self.sendSequence, pcm: pcm).encode()
+                        let binary = try V2ASMPFrame(sessionID: id, direction: 1, sequence: self.sendSequence, payload: payload).encode()
                         self.sendTask = Task { [weak self] in
                             guard let self else { return }
                             defer { if self.generation == stamp { self.sendTask = nil } }
@@ -282,8 +309,15 @@ final class V2MediaCoordinator: ObservableObject {
                             }
                         }
                     }
-                    if let pcm = self.down?.output(at: now, generation: stamp) {
-                        _ = self.audio.play(pcm); self.down?.completed(at: self.clock.now, generation: stamp)
+                    if let packet = self.down?.output(at: now, generation: stamp) {
+                        guard let codec = self.codec else { throw V2MediaFailure.stale }
+                        let decoded = try codec.decode(packet.erasure ? nil : packet.payload, sequence: packet.sequence)
+                        if decoded.concealed { self.counters.concealedPackets += 1 }
+#if DEBUG
+                        if !packet.erasure && !decoded.concealed { self.counters.receivedPCMEnergy.record(decoded.pcm) }
+#endif
+                        if !packet.erasure && !decoded.concealed { self.diagnostic?.receive(decoded.pcm, at: now) }
+                        _ = self.audio.play(decoded.pcm); self.down?.completed(at: self.clock.now, generation: stamp)
                     }
                 } catch { self.fail(error, stamp: stamp, stage: .ticking); return }
                 if now >= nextPublish {
@@ -301,7 +335,6 @@ final class V2MediaCoordinator: ObservableObject {
         counters.captureFrames = audio.metrics.captured; counters.rendered = audio.metrics.rendered
         counters.queueDrops = (up?.queueDrops ?? 0) + (down?.queueDrops ?? 0) + audio.metrics.outputDrops + audio.metrics.playbackDrops + (diagnostic?.echoDrops ?? 0)
         counters.skippedSlots = (up?.skippedSlots ?? 0) + (down?.skippedSlots ?? 0)
-        counters.playbackZero = down?.zeroFrames ?? 0
 #if DEBUG
         if let paired = diagnosticPairedAt {
             let now = clock.now
@@ -323,6 +356,16 @@ final class V2MediaCoordinator: ObservableObject {
         let now = clock.now
         let age = lastDownlinkFrame.map { (now >= $0 ? now - $0 : 0) / 1_000_000 }
         lastFailure = V2MediaFailureDiagnostic(error: error, stage: stage, downlinkAgeMilliseconds: age)
+#if DEBUG
+        if let failure = lastFailure {
+            NSLog("[AirSIM Media] stage=fail failureStage=%@ code=%@ numericPresent=%d numeric=%ld received=%llu sent=%llu writeTimeouts=%llu downlinkAgePresent=%d downlinkAgeMs=%llu", failure.stage.rawValue, failure.code.rawValue, failure.numericCode != nil ? 1 : 0, failure.numericCode ?? 0, counters.received, counters.sent, counters.writeTimeouts, failure.downlinkAgeMilliseconds != nil ? 1 : 0, failure.downlinkAgeMilliseconds ?? 0)
+        }
+        if let failure = error as? V2HTTPFailure {
+            NSLog("[AirSIM Media] stage=httpFailure status=%ld", failure.status)
+        } else if let failure = error as? V2Error {
+            NSLog("[AirSIM Media] stage=validationFailure code=%@", failure.rawValue)
+        }
+#endif
         let message: String
         if let audio = error as? V2AudioError { message = audio.message }
         else if error is V2MediaFailure { message = "音频连接中断，请手动恢复音频" }
@@ -350,6 +393,9 @@ final class V2MediaCoordinator: ObservableObject {
         startTask = nil; receiveTask = nil; tickTask = nil; sendTask = nil
         tasks.forEach { $0.cancel() }; socket?.cancel(); socket = nil
         publish()
+#if DEBUG
+        if !statisticsFrozen, counters.received > 0 || counters.sent > 0 { recordLastCallStatistics() }
+#endif
         statisticsFrozen = true
         diagnostic?.stop(); diagnostic = nil
         if let context, let sessionID { Task { await delete(context, sessionID) } }
@@ -358,7 +404,7 @@ final class V2MediaCoordinator: ObservableObject {
         let task = Task { [self] in
             await audio.stop()
             for task in tasks { await task.value }
-            up = nil; down = nil; audioMetrics = audio.metrics
+            up = nil; down = nil; codec = nil; audioMetrics = audio.metrics
             state = keepFailure ? failed : .idle
             stopTask = nil
         }
@@ -371,5 +417,23 @@ final class V2MediaCoordinator: ObservableObject {
     }
 #if DEBUG && targetEnvironment(simulator)
     func disconnectForDiagnostics() { socket?.cancel() }
+#endif
+#if DEBUG
+    /// Counts only; read from the device container after a real call.
+    private func recordLastCallStatistics() {
+        let c = counters, a = audio.metrics
+        let values: [String: Any] = [
+            "received": c.received, "sent": c.sent, "sequence_gaps": c.sequenceGaps,
+            "concealed": c.concealedPackets, "rendered": c.rendered, "captured": c.captureFrames,
+            "up_queue_drops": c.upQueueDrops, "down_queue_drops": c.downQueueDrops,
+            "up_skipped": c.upSkippedSlots, "down_skipped": c.downSkippedSlots,
+            "playback_drops": c.playbackDrops, "capture_drops": a.inputDrops, "write_timeouts": c.writeTimeouts,
+            "ticks_over_20ms": c.tickIntervalsAtLeast20ms, "max_tick_ms": c.maxTickIntervalMilliseconds,
+            "max_write_ms": c.maxSuccessfulWriteMilliseconds, "paired_ms": c.pairedElapsedMilliseconds,
+            "sample_rate": a.sampleRate, "voice_processing": a.voiceProcessing,
+            "failure": lastFailure.map { "\($0.stage.rawValue):\($0.code.rawValue)" } ?? ""
+        ]
+        UserDefaults.standard.set(values, forKey: "airsim.v2.last-media-stats")
+    }
 #endif
 }

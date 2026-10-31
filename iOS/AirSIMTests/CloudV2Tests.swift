@@ -221,7 +221,8 @@ final class CloudV2Tests: XCTestCase {
         let session = try await pairing.claim(code: "00427193", device: device)
         XCTAssertEqual(session.name, "EG25 QDC507")
         XCTAssertEqual(claims.count, 2)
-        XCTAssertEqual(claims[0], claims[1])
+        XCTAssertEqual(try JSONSerialization.jsonObject(with: claims[0]) as? [String: String],
+                       try JSONSerialization.jsonObject(with: claims[1]) as? [String: String])
         XCTAssertEqual(session.configuration.persistentSession, true)
         XCTAssertNil(session.configuration.expiresAt)
         XCTAssertNil(session.configuration.refreshExpiresAt)
@@ -328,58 +329,85 @@ final class CloudV2Tests: XCTestCase {
     }
     func testASMPGoCompatibleVectorAndRejectsCorruption() throws {
         // Same header and payload as Fixtures/asmp-vector.go using Go encoding/binary.
-        let headerHex = "41534d500101280000112233445546778899aabbccddeeff01000000000000004001000000000000"
+        let headerHex = "41534d500201280000112233445546778899aabbccddeeff01000000000000005000000000000000"
         let header = Data(stride(from: 0, to: headerHex.count, by: 2).map { i -> UInt8 in
             let start = headerHex.index(headerHex.startIndex, offsetBy: i)
             return UInt8(headerHex[start..<headerHex.index(start, offsetBy: 2)], radix: 16)!
         })
-        let pcm = Data((0..<320).map { UInt8(truncatingIfNeeded: $0) })
+        let pcm = Data((0..<80).map { UInt8(truncatingIfNeeded: $0) })
         let vector = header + pcm
-        XCTAssertEqual(try V2ASMPFrame(sessionID: v2ID, direction: 1, sequence: 1, pcm: pcm).encode(), vector)
-        XCTAssertEqual(try V2ASMPFrame.decode(vector, sessionID: v2ID, direction: 1, after: 0).frame.pcm, pcm)
+        XCTAssertEqual(try V2ASMPFrame(sessionID: v2ID, direction: 1, sequence: 1, payload: pcm).encode(), vector)
+        XCTAssertEqual(try V2ASMPFrame.decode(vector, sessionID: v2ID, direction: 1, after: 0).frame.payload, pcm)
         for index in [0,4,5,6,7,8,32,36,39] {
             var bad = vector; bad[index] ^= 127
             XCTAssertThrowsError(try V2ASMPFrame.decode(bad, sessionID: v2ID, direction: 1, after: 0))
         }
         XCTAssertThrowsError(try V2ASMPFrame.decode(vector, sessionID: v2ID, direction: 1, after: 1))
         XCTAssertThrowsError(try V2ASMPFrame.decode(vector.dropLast(), sessionID: v2ID, direction: 1, after: 0))
-        let gap = try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 5, pcm: pcm).encode()
+        let gap = try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 5, payload: pcm).encode()
         XCTAssertEqual(try V2ASMPFrame.decode(gap, sessionID: v2ID, direction: 2, after: 1).gaps, 3)
     }
     func testQueueBoundsExpirationAndLateGeneration() throws {
-        let generation = UUID(); var queue = V2PCMQueue(generation: generation, emptyPolicy: .skip)
-        for i in 0..<6 { try queue.enqueue(Data(repeating: UInt8(i), count: 320), at: UInt64(i) * 1_000_000, generation: generation) }
+        let generation = UUID(); var queue = V2MediaQueue(generation: generation, emptyPolicy: .skip)
+        for i in 0..<6 { try queue.enqueue(Data(repeating: UInt8(i), count: 640), at: UInt64(i) * 1_000_000, generation: generation) }
         XCTAssertEqual(queue.count, 5); XCTAssertEqual(queue.queueDrops, 1)
         XCTAssertNil(queue.output(at: 39_000_000, generation: generation))
-        XCTAssertEqual(queue.output(at: 40_000_000, generation: generation)?.first, 1)
+        XCTAssertEqual(queue.output(at: 40_000_000, generation: generation)?.payload.first, 1)
         let oldDeadline = queue.nextDeadline
         XCTAssertNil(queue.output(at: 60_000_000, generation: UUID())); XCTAssertEqual(queue.nextDeadline, oldDeadline)
-        try queue.enqueue(Data(repeating: 0, count: 320), at: 70_000_000, generation: UUID()); XCTAssertEqual(queue.count, 4)
+        try queue.enqueue(Data(repeating: 0, count: 640), at: 70_000_000, generation: UUID()); XCTAssertEqual(queue.count, 4)
         XCTAssertNil(queue.output(at: 200_000_000, generation: generation)); XCTAssertEqual(queue.count, 0)
         XCTAssertEqual(queue.queueDrops, 5); XCTAssertEqual(queue.nextDeadline, 220_000_000)
     }
+    func testCatchUpQueueDrainsAfterLateTickInsteadOfSkipping() throws {
+        let generation = UUID(); var queue = V2MediaQueue.uplink(generation: generation)
+        for i in 0..<5 { try queue.enqueue(Data(repeating: 1, count: 640), sequence: UInt64(i + 1), at: 0, generation: generation) }
+        // A 54 ms main-thread stall: every queued frame still goes out, one per tick.
+        XCTAssertEqual(queue.output(at: 94_000_000, generation: generation)?.sequence, 1)
+        XCTAssertEqual(queue.output(at: 99_000_000, generation: generation)?.sequence, 2)
+        XCTAssertEqual(queue.output(at: 104_000_000, generation: generation)?.sequence, 3)
+        queue.completed(at: 150_000_000, generation: generation)
+        XCTAssertEqual(queue.output(at: 109_000_000, generation: generation)?.sequence, 4)
+        XCTAssertEqual(queue.skippedSlots, 0); XCTAssertEqual(queue.queueDrops, 0)
+        // Beyond the age bound the grid resynchronizes instead of draining stale audio.
+        XCTAssertNil(queue.output(at: 400_000_000, generation: generation))
+        XCTAssertGreaterThan(queue.skippedSlots, 0)
+    }
+    func testDownlinkJitterBufferStartsAt100msAndKeepsDelayedBurst() throws {
+        let generation = UUID(); var queue = V2MediaQueue.downlink(generation: generation)
+        for i in 0..<12 { try queue.enqueue(Data(repeating: UInt8(i + 1), count: 80), sequence: UInt64(i + 1), at: UInt64(i) * 1_000_000, generation: generation) }
+        XCTAssertNil(queue.output(at: 99_000_000, generation: generation))
+        XCTAssertEqual(queue.output(at: 100_000_000, generation: generation)?.sequence, 1)
+        XCTAssertEqual(queue.queueDrops, 0)
+        XCTAssertEqual(queue.output(at: 120_000_000, generation: generation)?.sequence, 2)
+        // 138 ms in the queue exceeds the uplink age bound but is still played here.
+        XCTAssertEqual(queue.output(at: 140_000_000, generation: generation)?.sequence, 3)
+        XCTAssertEqual(queue.queueDrops, 0)
+        for i in 12..<23 { try queue.enqueue(Data(repeating: 1, count: 80), sequence: UInt64(i + 1), at: 141_000_000, generation: generation) }
+        XCTAssertEqual(queue.queueDrops, 8)
+    }
     func testQueueClockDoesNotAccumulateDelayOrCatchUp() throws {
-        let generation = UUID(); var queue = V2PCMQueue(generation: generation, emptyPolicy: .silence)
-        try queue.enqueue(Data(repeating: 1, count: 320), at: 0, generation: generation)
+        let generation = UUID(); var queue = V2MediaQueue(generation: generation, emptyPolicy: .erasure, payloadSize: 80)
+        try queue.enqueue(Data(repeating: 1, count: 80), at: 0, generation: generation)
         for i in 0..<100 {
             let target = UInt64(40 + i * 20) * 1_000_000
             XCTAssertNotNil(queue.output(at: target + 3_000_000, generation: generation))
             XCTAssertEqual(queue.nextDeadline, target + 20_000_000)
         }
-        XCTAssertEqual(queue.zeroFrames, 99)
+        XCTAssertEqual(queue.erasureFrames, 99)
         queue.completed(at: 2_081_000_000, generation: generation)
         XCTAssertEqual(queue.nextDeadline, 2_100_000_000)
         XCTAssertNil(queue.output(at: 2_081_000_001, generation: generation))
     }
     func testMinimumOutputSpacingAndCaptureDoesNotInventPCM() throws {
-        let generation = UUID(); var queue = V2PCMQueue(generation: generation, emptyPolicy: .silence)
-        try queue.enqueue(Data(repeating: 1, count: 320), at: 0, generation: generation)
+        let generation = UUID(); var queue = V2MediaQueue(generation: generation, emptyPolicy: .erasure, payloadSize: 80)
+        try queue.enqueue(Data(repeating: 1, count: 80), at: 0, generation: generation)
         XCTAssertNotNil(queue.output(at: 59_000_000, generation: generation))
         XCTAssertNil(queue.output(at: 60_000_000, generation: generation)); XCTAssertEqual(queue.nextDeadline, 80_000_000)
-        var capture = V2PCMQueue(generation: generation, emptyPolicy: .skip)
-        try capture.enqueue(Data(repeating: 1, count: 320), at: 0, generation: generation)
+        var capture = V2MediaQueue(generation: generation, emptyPolicy: .skip)
+        try capture.enqueue(Data(repeating: 1, count: 640), at: 0, generation: generation)
         XCTAssertNotNil(capture.output(at: 40_000_000, generation: generation))
-        XCTAssertNil(capture.output(at: 60_000_000, generation: generation)); XCTAssertEqual(capture.zeroFrames, 0)
+        XCTAssertNil(capture.output(at: 60_000_000, generation: generation)); XCTAssertEqual(capture.erasureFrames, 0)
     }
 }
 
@@ -513,10 +541,10 @@ extension CloudV2Tests {
         XCTAssertThrowsError(try snapshot(age: 0, boot: v2OtherID))
     }
     func testMediaHandshakeRejectsIdentityFormatAndUnknownFields() throws {
-        let paired: [String: Any] = ["type": "paired", "session_id": v2ID, "format": ["sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160]]
+        let paired: [String: Any] = ["type": "paired", "session_id": v2ID, "format": ["codec": "lc3", "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320, "codec_frame_us": 10000, "codec_frame_bytes": 40]]
         XCTAssertNoThrow(try V2MediaServerMessage.parse(v2Data(paired), sessionID: v2ID))
         XCTAssertThrowsError(try V2MediaServerMessage.parse(v2Data(paired), sessionID: v2OtherID))
-        var bad = paired; bad["format"] = ["sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 160]
+        var bad = paired; bad["format"] = ["sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160]
         XCTAssertThrowsError(try V2MediaServerMessage.parse(v2Data(bad), sessionID: v2ID))
         bad = paired; bad["extra"] = true
         XCTAssertThrowsError(try V2MediaServerMessage.parse(v2Data(bad), sessionID: v2ID))
@@ -691,7 +719,7 @@ extension CloudV2Tests {
         client.stop(); _ = try await client.connect(v2Config(client: v2OtherID))
         XCTAssertThrowsError(try client.restoreOwnership(context, snapshot: fresh))
         XCTAssertEqual(restarted.ownedCall, context)
-        try restarted.clearDisconnectedOwnedCall(); XCTAssertNil(owned.value)
+        try restarted.clearOwnedCall(); XCTAssertNil(owned.value)
     }
     @MainActor func testAcceptedDialWithoutCallIDStaysPendingAcrossRestart() async throws {
         let pending = V2TestPending()
@@ -993,6 +1021,86 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
+    @MainActor func testV2PhysicalDeviceLocalCallKitAudioWithoutNetwork() async throws {
+#if targetEnvironment(simulator)
+        throw XCTSkip("Requires physical CallKit audio activation")
+#else
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["AIRSIM_OPT_IN_HARDWARE_AUDIO_TEST"] == "1", "Explicit hardware audio test invocation required")
+        let configuration = CXProviderConfiguration()
+        configuration.maximumCallGroups = 1; configuration.maximumCallsPerCallGroup = 1
+        configuration.supportedHandleTypes = [.phoneNumber]
+        configuration.supportsVideo = false; configuration.includesCallsInRecents = false
+        let system = CallKitController(configuration: configuration)
+        let audio = V2AudioEngine(), socket = V2TestMediaSocket()
+        socket.messages = v2HandshakeMessages()
+        var created = 0
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, now: { v2Now }, create: { _, _ in
+            created += 1
+            return try v2MediaCreated()
+        }, delete: { _, _ in })
+        let fixture = try V2PollFixture(media: media, pushController: nil)
+        addTeardownBlock { @MainActor in
+            if system.managesCurrentCall { try? await system.endCurrentCall() }
+            system.reportCurrentCallEnded(reason: .remoteEnded)
+            await fixture.close()
+            await audio.stop()
+        }
+        fixture.commandHTTPStatus = 200
+        var incoming = v2CallObject(state: "incoming")
+        incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"; incoming["number"] = ""
+        fixture.snapshotCalls = [incoming]
+        fixture.model.activateSystemIntegration(calls: system)
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { system.managesCurrentCall }
+        XCTAssertTrue(system.managesCurrentCall)
+        do { try await system.answerCurrentCall(presentInApp: true) }
+        catch { XCTFail("Local CallKit answer transaction failed"); return }
+        try await v2PollWait { fixture.model.ownedCall != nil }
+        incoming["state"] = "active"; incoming["ownership"] = "managed"; fixture.snapshotCalls = [incoming]
+        try await v2PollWait { fixture.model.systemAudioActive && media.state == .paired && audio.metrics.captured > 0 }
+        XCTAssertTrue(system.audioSessionIsActive)
+        XCTAssertTrue(fixture.model.systemAudioActive)
+        XCTAssertEqual(media.state, .paired)
+        XCTAssertEqual(created, 1)
+        XCTAssertTrue(audio.metrics.running); XCTAssertTrue(audio.metrics.voiceProcessing)
+        XCTAssertGreaterThan(audio.metrics.captured, 0)
+        NSLog("[AirSIM Media] stage=localCallKitComplete systemAudio=%d running=%d voiceProcessing=%d captured=%llu", fixture.model.systemAudioActive ? 1 : 0, audio.metrics.running ? 1 : 0, audio.metrics.voiceProcessing ? 1 : 0, audio.metrics.captured)
+        do { try await system.endCurrentCall() }
+        catch { XCTFail("Local CallKit end transaction failed") }
+        incoming["state"] = "disconnected"; fixture.snapshotCalls = [incoming]
+        try await v2PollWait { !system.managesCurrentCall && !audio.metrics.running }
+        await fixture.close()
+#endif
+    }
+
+    @MainActor func testV2PhysicalDeviceAudioCaptureWithoutNetwork() async throws {
+#if targetEnvironment(simulator)
+        throw XCTSkip("Requires a physical device")
+#else
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["AIRSIM_OPT_IN_HARDWARE_AUDIO_TEST"] == "1", "Explicit hardware audio test invocation required")
+        let audio = V2AudioEngine()
+        addTeardownBlock { await audio.stop() }
+        do {
+            try await audio.prepare(microphone: true)
+            XCTAssertTrue(audio.metrics.running)
+            XCTAssertTrue(audio.metrics.voiceProcessing)
+            for _ in 0..<50 {
+                _ = audio.takeCaptured()
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            _ = audio.takeCaptured()
+            XCTAssertGreaterThan(audio.metrics.captured, 0)
+            NSLog("[AirSIM Media] stage=localCaptureComplete running=%d voiceProcessing=%d captured=%llu", audio.metrics.running ? 1 : 0, audio.metrics.voiceProcessing ? 1 : 0, audio.metrics.captured)
+        } catch {
+            let failure = V2MediaFailureDiagnostic(error: error, stage: .preparing, downlinkAgeMilliseconds: nil)
+            NSLog("[AirSIM Media] stage=localCaptureFail code=%@ numericPresent=%d numeric=%ld", failure.code.rawValue, failure.numericCode != nil ? 1 : 0, failure.numericCode ?? 0)
+            XCTFail("Local audio capture failed: \(failure.code.rawValue), numeric=\(failure.numericCode ?? 0)")
+        }
+        await audio.stop()
+        XCTAssertFalse(audio.metrics.running)
+#endif
+    }
+
     @MainActor func testV2RealSimulatorEnginePrepareAndStopWithoutNetwork() async throws {
 #if targetEnvironment(simulator)
         guard ProcessInfo.processInfo.environment["AIRSIM_OPT_IN_HARDWARE_AUDIO_TEST"] == "1" else {
@@ -1038,12 +1146,13 @@ extension CloudV2Tests {
     var onFailure: ((V2AudioError) -> Void)?
     var prepares = 0, stops = 0, plays = 0
     var frames: [Data] = []
+    var played: [Data] = []
     var prepareError: Error?
     var prepareBlock: (() async -> Void)?
     var stopBlock: (() async -> Void)?
     func prepare(microphone: Bool) async throws { prepares += 1; await prepareBlock?(); if let prepareError { throw prepareError }; metrics.running = true }
     func takeCaptured() -> [Data] { let result = frames; frames.removeAll(); metrics.captured += UInt64(result.count); return result }
-    func play(_ pcm: Data) -> Bool { plays += 1; return true }
+    func play(_ pcm: Data) -> Bool { plays += 1; played.append(pcm); return true }
     func setMuted(_ value: Bool) {}
     func setSpeaker(_ value: Bool) throws {}
     func stop() async { stops += 1; await stopBlock?(); metrics.running = false }
@@ -1076,11 +1185,11 @@ extension CloudV2Tests {
         reader?.resume(throwing: CancellationError()); writer?.resume(throwing: CancellationError())
     }
 }
-private func v2MediaCreated(id: String = v2ID) throws -> V2MediaCreated {
-    try V2JSON.decode(V2MediaCreated.self, from: v2Data(["session_id": id, "ticket": String(repeating: "a", count: 64), "expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(30)), "media_url": "wss://media.example.invalid/v2/media", "format": ["sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160]]), limit: 4096)
+private func v2MediaCreated(id: String = v2ID, expiresAfter: TimeInterval = 30) throws -> V2MediaCreated {
+    try V2JSON.decode(V2MediaCreated.self, from: v2Data(["session_id": id, "ticket": String(repeating: "a", count: 64), "expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(expiresAfter)), "media_url": "wss://media.example.invalid/v2/media", "format": ["codec": "lc3", "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320, "codec_frame_us": 10000, "codec_frame_bytes": 40]]), limit: 4096)
 }
 private func v2HandshakeMessages() -> [URLSessionWebSocketTask.Message] {
-    [.string("{\"type\":\"waiting\",\"session_id\":\"\(v2ID)\"}"), .string("{\"type\":\"paired\",\"session_id\":\"\(v2ID)\",\"format\":{\"sample_rate\":8000,\"channels\":1,\"sample_format\":\"s16le\",\"frame_samples\":160}}")]
+    [.string("{\"type\":\"waiting\",\"session_id\":\"\(v2ID)\"}"), .string("{\"type\":\"paired\",\"session_id\":\"\(v2ID)\",\"format\":{\"codec\":\"lc3\",\"sample_rate\":16000,\"channels\":1,\"sample_format\":\"s16le\",\"frame_samples\":320,\"codec_frame_us\":10000,\"codec_frame_bytes\":40}}")]
 }
 @MainActor private func v2Yield(_ count: Int = 40) async { for _ in 0..<count { await Task.yield() } }
 
@@ -1098,21 +1207,22 @@ extension CloudV2Tests {
                 return stride(from: 0, to: output.count, by: 2).map { Int16(bitPattern: UInt16(output[$0]) | UInt16(output[$0 + 1]) << 8) }
             }
             let fragmented = try converted(chunk: 257), regular = try converted(chunk: Int(rate * 0.02))
-            XCTAssertGreaterThanOrEqual(fragmented.count, 7840); XCTAssertLessThanOrEqual(fragmented.count, 8000)
+            XCTAssertGreaterThanOrEqual(fragmented.count, 15680); XCTAssertLessThanOrEqual(fragmented.count, 16000)
             XCTAssertEqual(fragmented.count, regular.count)
             let delta = zip(fragmented, regular).map { abs(Int($0) - Int($1)) }.max() ?? 0
             XCTAssertLessThan(delta, 20)
-            let samples = Array(fragmented.dropFirst(320))
+            let samples = Array(fragmented.dropFirst(640))
             let rising = zip(samples, samples.dropFirst()).filter { $0 <= 0 && $1 > 0 }.count
-            XCTAssertEqual(Double(rising) / (Double(samples.count) / 8000), 400, accuracy: 3)
+            XCTAssertEqual(Double(rising) / (Double(samples.count) / 16000), 400, accuracy: 3)
         }
     }
-    func testV2PlaybackWindowRejectsFourthBufferAndStaleCompletions() {
+    func testV2PlaybackWindowRejectsSeventhBufferAndStaleCompletions() {
         var window = V2PlaybackWindow()
         let first = window.reserve()!
-        XCTAssertNotNil(window.reserve()); XCTAssertNotNil(window.reserve()); XCTAssertNil(window.reserve())
-        XCTAssertEqual(window.pending, 3)
-        XCTAssertTrue(window.complete(first)); XCTAssertEqual(window.pending, 2)
+        for _ in 0..<5 { XCTAssertNotNil(window.reserve()) }
+        XCTAssertNil(window.reserve())
+        XCTAssertEqual(window.pending, 6)
+        XCTAssertTrue(window.complete(first)); XCTAssertEqual(window.pending, 5)
         window.reset(); _ = window.reserve()
         XCTAssertFalse(window.complete(first)); XCTAssertEqual(window.pending, 1)
     }
@@ -1120,8 +1230,8 @@ extension CloudV2Tests {
 #if DEBUG
         var pcm = Data()
         // Alternating -32768 and +256 verifies signed little endian and safe abs.
-        for _ in 0..<80 { pcm.append(contentsOf: [0, 128, 0, 1]) }
-        let silence = Data(repeating: 0, count: 320)
+        for _ in 0..<160 { pcm.append(contentsOf: [0, 128, 0, 1]) }
+        let silence = Data(repeating: 0, count: 640)
         let diagnostic = V2DiagnosticAudio()
         diagnostic.start(at: 0)
         diagnostic.receive(pcm, at: 0); diagnostic.receive(silence, at: 0)
@@ -1146,7 +1256,7 @@ extension CloudV2Tests {
 #endif
     }
     @MainActor func testV2DiagnosticEchoDoesNotStarveOrReplayPromptPeriodAndIsBounded() {
-        let pcm = Data(repeating: 17, count: 320), prompt = Data(repeating: 31, count: 320)
+        let pcm = Data(repeating: 17, count: 640), prompt = Data(repeating: 31, count: 640)
         let diagnostic = V2DiagnosticAudio(prompt: [prompt, prompt])
         diagnostic.start(at: 0)
         diagnostic.receive(pcm, at: 0); XCTAssertEqual(diagnostic.echoCount, 0)
@@ -1205,13 +1315,70 @@ extension CloudV2Tests {
         XCTAssertEqual(creates, 1); XCTAssertGreaterThan(socket.cancelled, 0)
         await media.stop()
     }
+    @MainActor func testV2PairingAcceptsAgentAfterFiveSeconds() async throws {
+        let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
+        socket.messages = [v2HandshakeMessages()[0]]
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
+        media.start(context: V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID), diagnosticMode: false, validate: { true })
+        await v2Yield(100); XCTAssertEqual(media.state, .waiting)
+        clock.advance(6_250_000_000); await v2Yield(100)
+        XCTAssertEqual(media.state, .waiting); XCTAssertEqual(socket.cancelled, 0)
+        socket.deliver(v2HandshakeMessages()[1]); await v2Yield(100)
+        XCTAssertEqual(media.state, .paired)
+        await media.stop()
+    }
+
+    @MainActor func testV2PairingDeadlineIsTwentySecondsOrEarlierTicketExpiry() async throws {
+        for expiry: TimeInterval in [30, 8] {
+            let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
+            socket.messages = [v2HandshakeMessages()[0]]
+            var creates = 0
+            let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in creates += 1; return try v2MediaCreated(expiresAfter: expiry) }, delete: { _, _ in })
+            media.start(context: V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID), diagnosticMode: false, validate: { true })
+            await v2Yield(100)
+            let deadline = UInt64(min(20, expiry) * 1_000_000_000)
+            clock.advance(deadline - 1); await v2Yield(100)
+            XCTAssertEqual(media.state, .waiting)
+            clock.advance(deadline); await v2Yield(100)
+            XCTAssertEqual(media.lastFailure?.stage, .pairing)
+            XCTAssertEqual(media.lastFailure?.code, .timeout)
+            XCTAssertFalse(media.active); XCTAssertFalse(audio.metrics.running)
+            XCTAssertGreaterThan(socket.cancelled, 0); XCTAssertEqual(creates, 1)
+            await media.stop()
+        }
+    }
+
+    @MainActor func testV2StoppingPairingCancelsImmediatelyAndCannotAffectReplacement() async throws {
+        let oldSocket = V2TestMediaSocket(), newSocket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
+        oldSocket.messages = [v2HandshakeMessages()[0]]; newSocket.messages = [v2HandshakeMessages()[0]]
+        var opens = 0
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { opens += 1; return opens == 1 ? oldSocket : newSocket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
+        media.start(context: V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID), diagnosticMode: false, validate: { true })
+        await v2Yield(100)
+        clock.advance(6_000_000_000); await v2Yield(100)
+        await media.stop()
+        XCTAssertEqual(clock.now, 6_000_000_000)
+        XCTAssertEqual(media.state, .idle); XCTAssertFalse(audio.metrics.running)
+        XCTAssertGreaterThan(oldSocket.cancelled, 0)
+        let replacement = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2OtherID)
+        media.start(context: replacement, diagnosticMode: false, validate: { true })
+        await v2Yield(100); XCTAssertEqual(media.state, .waiting)
+        oldSocket.deliver(v2HandshakeMessages()[1])
+        clock.advance(20_000_000_000); await v2Yield(100)
+        XCTAssertEqual(media.state, .waiting); XCTAssertEqual(media.context, replacement)
+        XCTAssertEqual(newSocket.cancelled, 0)
+        newSocket.deliver(v2HandshakeMessages()[1]); await v2Yield(100)
+        XCTAssertEqual(media.state, .paired)
+        await media.stop()
+    }
+
     @MainActor func testV2SerialWriteDeadlineCancelsAndKeepsOneInFlight() async throws {
         let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
         socket.messages = v2HandshakeMessages()
         let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
         media.start(context: V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID), diagnosticMode: false, validate: { true })
         await v2Yield(); XCTAssertEqual(media.state, .paired)
-        socket.blockWrites = true; audio.frames = [Data(repeating: 1, count: 320)]
+        socket.blockWrites = true; audio.frames = [Data(repeating: 1, count: 640)]
         clock.advance(5_000_000); await v2Yield()
         clock.advance(45_000_000); await v2Yield()
         XCTAssertEqual(socket.writes, 1)
@@ -1228,9 +1395,9 @@ extension CloudV2Tests {
         media.start(context: context, diagnosticMode: false, validate: { true })
         await v2Yield(); XCTAssertEqual(media.state, .paired)
         clock.advance(500_000_000)
-        socket.deliver(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, pcm: Data(repeating: 0, count: 320)).encode()))
+        socket.deliver(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, payload: V2LC3Codec().encode(Data(repeating: 0, count: 640))).encode()))
         await v2Yield()
-        audio.frames = [Data(repeating: 0, count: 320)]
+        audio.frames = [Data(repeating: 0, count: 640)]
         clock.advance(2_500_000_000); await v2Yield(100)
         let failure = try XCTUnwrap(media.lastFailure)
         XCTAssertEqual(failure.code, .downlinkStopped)
@@ -1264,16 +1431,17 @@ extension CloudV2Tests {
         let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
         media.start(context: context, diagnosticMode: false, validate: { true })
         await v2Yield()
-        audio.frames = [Data(repeating: 0, count: 320)]
-        socket.deliver(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, pcm: Data(repeating: 1, count: 320)).encode()))
+        audio.frames = [Data(repeating: 0, count: 640)]
+        socket.deliver(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, payload: V2LC3Codec().encode(Data(repeating: 1, count: 640))).encode()))
         clock.advance(5_000_000); await v2Yield()
         clock.advance(45_000_000); await v2Yield()
+        clock.advance(105_000_000); await v2Yield()
         await media.stop()
         let sent = media.statistics.sentPCMEnergy, received = media.statistics.receivedPCMEnergy
         XCTAssertEqual(sent.frames, 1); XCTAssertEqual(sent.nonzeroFrames, 0)
         XCTAssertEqual(sent.rms, 0); XCTAssertEqual(sent.peak, 0)
         XCTAssertEqual(received.frames, 1); XCTAssertEqual(received.nonzeroFrames, 1)
-        XCTAssertEqual(received.rms, 257); XCTAssertEqual(received.peak, 257)
+        XCTAssertGreaterThan(received.rms, 0); XCTAssertGreaterThan(received.peak, 0)
         await media.stop(); media.requestStop(); await v2Yield(100)
         XCTAssertEqual(media.statistics.sentPCMEnergy, sent); XCTAssertEqual(media.statistics.receivedPCMEnergy, received)
         socket.messages = v2HandshakeMessages()
@@ -1321,24 +1489,26 @@ extension CloudV2Tests {
 
     @MainActor func testV2RepeatedStopPreservesNonzeroFinalQueueStatistics() async throws {
         let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
-        let pcm = Data(repeating: 1, count: 320)
+        let pcm = Data(repeating: 1, count: 640)
         socket.messages = v2HandshakeMessages()
-        for sequence in 1...7 {
-            socket.messages.append(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: UInt64(sequence), pcm: pcm).encode()))
+        for sequence in 1...14 {
+            socket.messages.append(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: UInt64(sequence), payload: V2LC3Codec().encode(pcm)).encode()))
         }
-        audio.frames = Array(repeating: pcm, count: 7)
+        audio.frames = Array(repeating: pcm, count: 14)
         let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
         let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
         media.start(context: context, diagnosticMode: false, validate: { true })
         await v2Yield(100); XCTAssertEqual(media.state, .paired)
-        // Overflow both five-frame queues, then skip expired slots and render silence.
+        // Overflow both queues, expire the backlog and conceal, then resync after a long stall.
         clock.advance(200_000_000); await v2Yield()
         clock.advance(220_000_000); await v2Yield()
+        clock.advance(241_000_000); await v2Yield()
+        clock.advance(600_000_000); await v2Yield()
         await media.stop()
         let final = media.statistics
         XCTAssertGreaterThan(final.queueDrops, 0)
         XCTAssertGreaterThan(final.skippedSlots, 0)
-        XCTAssertGreaterThan(final.playbackZero, 0)
+        XCTAssertGreaterThan(final.concealedPackets, 0)
 #if DEBUG
         XCTAssertGreaterThan(final.upQueueDrops, 0); XCTAssertGreaterThan(final.downQueueDrops, 0)
         XCTAssertEqual(final.queueDrops, final.upQueueDrops + final.downQueueDrops + final.captureOutputDrops + final.playbackDrops)
@@ -1346,7 +1516,7 @@ extension CloudV2Tests {
 #endif
         func counts(_ value: V2MediaStatistics) -> [UInt64] {
             var result = [value.received, value.sent, value.sequenceGaps, value.queueDrops, value.skippedSlots,
-                          value.playbackZero, value.rendered, value.captureFrames, value.writeTimeouts, value.diagnosticZero]
+                          value.concealedPackets, value.rendered, value.captureFrames, value.writeTimeouts, value.diagnosticZero]
 #if DEBUG
             result += [value.upQueueDrops, value.downQueueDrops, value.upSkippedSlots, value.downSkippedSlots, value.captureOutputDrops, value.playbackDrops]
 #endif
@@ -1371,8 +1541,8 @@ extension CloudV2Tests {
             let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
             media.start(context: V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID), diagnosticMode: false, validate: { true })
             await v2Yield()
-            if missingInput { socket.deliver(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, pcm: Data(repeating: 0, count: 320)).encode())) }
-            else { audio.frames = [Data(repeating: 0, count: 320)] }
+            if missingInput { socket.deliver(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, payload: V2LC3Codec().encode(Data(repeating: 0, count: 640))).encode())) }
+            else { audio.frames = [Data(repeating: 0, count: 640)] }
             clock.advance(1_000_000_000); await v2Yield()
             clock.advance(2_000_000_000); await v2Yield(100)
             if case .failed = media.state {} else { XCTFail() }
@@ -1421,6 +1591,60 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
+    @MainActor func testRestoredOwnerFromPreviousRuntimeReleasesAndAllowsIncomingAnswer() async throws {
+        for changedBoot in [true, false] {
+            let old = V2CallContext(binding: v2Binding(), callID: v2ID, generation: v2ID)
+            let fixture = try V2PollFixture(pushController: nil, restoredOwner: old)
+            XCTAssertEqual(fixture.model.ownedCall, old)
+            if changedBoot { fixture.bootID = v2OtherID } else { fixture.backendEpoch = v2OtherID }
+            fixture.commandHTTPStatus = 200
+            var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+            fixture.snapshotCalls = [incoming]
+            let system = TestSystemCalls()
+            fixture.model.activateSystemIntegration(calls: system)
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { fixture.model.ownedCall == nil && system.reports == 1 }
+            XCTAssertEqual(fixture.model.activeCall?.call_id, v2OtherID)
+            XCTAssertNil(try V2FileOwnedCallStore(file: V2ProtectedFile(url: fixture.root.appendingPathComponent("owned-call.json"))).load())
+            try await fixture.model.systemCalls?.callKitAnswer(origin: .app)
+            XCTAssertEqual(fixture.writes, 1)
+            XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.answer")
+            XCTAssertEqual(fixture.model.ownedCall?.binding.bootID, fixture.bootID)
+            XCTAssertEqual(fixture.model.ownedCall?.binding.backendEpoch, fixture.backendEpoch)
+            await fixture.close()
+        }
+    }
+
+    @MainActor func testRestoredOwnerSurvivesConnectionChangeStaleSnapshotAndDirectoryMismatch() async throws {
+        for scenario in 0..<3 {
+            let old = V2CallContext(binding: v2Binding(), callID: v2ID, generation: v2ID)
+            let fixture = try V2PollFixture(pushController: nil, restoredOwner: old)
+            if scenario == 0 { fixture.connectionEpoch = v2OtherID }
+            else { fixture.bootID = v2OtherID }
+            if scenario == 1 { fixture.snapshotAge = 30 }
+            if scenario == 2 { fixture.directoryBootID = v2ID }
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { fixture.counts["snapshot", default: 0] >= 2 && fixture.counts["directory", default: 0] > 0 }
+            XCTAssertEqual(fixture.model.ownedCall, old)
+            XCTAssertEqual(try V2FileOwnedCallStore(file: V2ProtectedFile(url: fixture.root.appendingPathComponent("owned-call.json"))).load(), old)
+            XCTAssertEqual(fixture.writes, 0)
+            await fixture.close()
+        }
+    }
+
+    @MainActor func testRuntimeReplacementDoesNotClearOrReplayPendingCommand() async throws {
+        let old = V2CallContext(binding: v2Binding(), callID: v2ID, generation: v2ID)
+        let pending = V2PendingCommand(binding: old.binding, commandID: v2ID, action: "call.dial", generation: v2ID, callID: old.callID)
+        let fixture = try V2PollFixture(pushController: nil, restoredOwner: old, restoredPending: pending)
+        fixture.bootID = v2OtherID; fixture.commandHTTPStatus = 503
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.ownedCall == nil && fixture.counts["snapshot", default: 0] >= 2 }
+        XCTAssertTrue(fixture.model.hasUnresolvedCommand)
+        XCTAssertEqual(try V2FilePendingStore(url: fixture.root.appendingPathComponent("pending.json")).load(), pending)
+        XCTAssertEqual(fixture.writes, 0)
+        await fixture.close()
+    }
+
     @MainActor func testV2RestoredOwnedActiveCallNeverAutomaticallyCreatesMedia() async throws {
         let suite = "airsim.restored.audio.\(UUID())", root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let defaults = UserDefaults(suiteName: suite)!, tokens = V2TestTokens()
@@ -1532,7 +1756,7 @@ extension CloudV2Tests {
         for channel in 0..<2 {
             for i in 0..<48000 {
                 let magnitude: Float = channel == 0 ? 0.8 : 0.2
-                buffer.floatChannelData![channel][i] = i.isMultiple(of: 2) ? magnitude : -magnitude
+                buffer.floatChannelData![channel][i] = magnitude * Float(sin(Double(i) * 2 * .pi * 400 / 48000))
             }
         }
         let capture = try V2CaptureBuffer(rate: 48000)
@@ -1542,8 +1766,8 @@ extension CloudV2Tests {
         let muted = capture.pull()
         XCTAssertGreaterThan(muted.metrics.inputDrops, 0)
         XCTAssertGreaterThan(muted.metrics.captured, 0)
-        XCTAssertLessThanOrEqual(muted.frames.count, 5)
-        XCTAssertTrue(muted.frames.allSatisfy { $0 == Data(repeating: 0, count: 320) })
+        XCTAssertLessThanOrEqual(muted.frames.count, 15)
+        XCTAssertTrue(muted.frames.allSatisfy { $0 == Data(repeating: 0, count: 640) })
 #if DEBUG
         var mutedEnergy = V2PCMEnergySummary()
         muted.frames.forEach { mutedEnergy.record($0) }
@@ -1554,8 +1778,8 @@ extension CloudV2Tests {
         capture.setMuted(false); capture.push(buffer)
         try await Task.sleep(for: .milliseconds(20))
         let unmuted = capture.pull()
-        XCTAssertFalse(unmuted.frames.isEmpty); XCTAssertLessThanOrEqual(unmuted.frames.count, 5)
-        XCTAssertTrue(unmuted.frames.contains { $0 != Data(repeating: 0, count: 320) })
+        XCTAssertFalse(unmuted.frames.isEmpty); XCTAssertLessThanOrEqual(unmuted.frames.count, 15)
+        XCTAssertTrue(unmuted.frames.contains { $0 != Data(repeating: 0, count: 640) })
         await capture.stop(); capture.push(buffer)
         try await Task.sleep(for: .milliseconds(10))
         XCTAssertTrue(capture.pull().frames.isEmpty)
@@ -1606,6 +1830,9 @@ extension CloudV2Tests {
     var signals: [String: [String: Any]] = [:]
     var offlineModules = Set<String>()
     var connectionEpoch = v2ID
+    var bootID = v2ID, backendEpoch = v2ID
+    var directoryBootID: String?
+    var snapshotAge: TimeInterval = 0
     var writes = 0
     var commandHTTPStatus: Int?
     var delayedReceipts = false
@@ -1614,10 +1841,12 @@ extension CloudV2Tests {
     var receiptFails = false
     var receiptUnknown = false
     var commands: [[String: Any]] = []
-    init(media: V2MediaCoordinator? = nil) throws {
+    init(media: V2MediaCoordinator? = nil, pushController: V2PushController? = .shared, restoredOwner: V2CallContext? = nil, restoredPending: V2PendingCommand? = nil) throws {
         defaults = UserDefaults(suiteName: suite)!
         _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
         defaults.set(v2ID, forKey: V2LocalPaths.selectionKey(v2Config().identity))
+        if let restoredOwner { try V2FileOwnedCallStore(file: V2ProtectedFile(url: root.appendingPathComponent("owned-call.json"))).save(restoredOwner) }
+        if let restoredPending { try V2FilePendingStore(url: root.appendingPathComponent("pending.json")).save(restoredPending) }
         transport = V2TestTransport { [unowned self] request in
             if request.httpMethod != "GET" { writes += 1 }
             let path = request.url!.path
@@ -1664,21 +1893,27 @@ extension CloudV2Tests {
             if failed.contains(lane) { throw V2Error.transport }
             return try response(lane, module: path.contains(v2OtherID) ? v2OtherID : v2ID)
         }
-        model = CloudV2Model(client: V2Client(transport: transport, tokens: tokens, now: { [unowned self] in currentNow }), media: media, defaults: defaults, root: root, tokens: tokens, now: { [unowned self] in currentNow })
+        model = CloudV2Model(client: V2Client(transport: transport, tokens: tokens, now: { [unowned self] in currentNow }), media: media, defaults: defaults, root: root, tokens: tokens, pushController: pushController, now: { [unowned self] in currentNow })
     }
     func response(_ lane: String, module: String = v2ID) throws -> V2HTTPResponse {
         let body: Data
         if lane == "directory" {
             body = try v2Data(["server_id": v2ID, "modules": [v2ID, v2OtherID].map { id -> [String: Any] in
-                var value: [String: Any] = ["module_id": id, "online": !offlineModules.contains(id), "last_seen": V2Validation.timestamp(currentNow), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": connectionEpoch]
+                var value: [String: Any] = ["module_id": id, "online": !offlineModules.contains(id), "last_seen": V2Validation.timestamp(currentNow), "agent_boot_id": directoryBootID ?? bootID, "backend_epoch": backendEpoch, "connection_epoch": connectionEpoch]
                 value["signal"] = signals[id]
                 return value
             }])
-        } else if lane == "snapshot" { var value = try JSONSerialization.jsonObject(with: v2SnapshotData(module: module, age: -currentNow.timeIntervalSince(v2Now), calls: snapshotCalls)) as! [String: Any]
+        } else if lane == "snapshot" { var value = try JSONSerialization.jsonObject(with: v2SnapshotData(module: module, age: snapshotAge - currentNow.timeIntervalSince(v2Now), calls: snapshotCalls)) as! [String: Any]
             value["connection_epoch"] = connectionEpoch
             value["online"] = !offlineModules.contains(module)
             var snapshot = value["snapshot"] as! [String: Any]
             snapshot["signal"] = signals[module]
+            snapshot["agent_boot_id"] = bootID; snapshot["backend_epoch"] = backendEpoch
+            for section in ["control", "calls"] {
+                var value = snapshot[section] as! [String: Any]
+                value["agent_boot_id"] = bootID; value["backend_epoch"] = backendEpoch
+                snapshot[section] = value
+            }
             value["snapshot"] = snapshot
             body = try v2Data(value) }
         else { body = try v2Data(["server_id": v2ID, "module_id": module, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": snapshotMessages]) }
@@ -1983,6 +2218,68 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
+    @MainActor func testForegroundAnswerReceiptAndMediaDoNotWaitForMessages() async throws {
+        for messagesBlocked in [true, false] {
+            let audio = V2TestAudioIO(), socket = V2TestMediaSocket(), clock = V2TestMediaClock()
+            socket.messages = v2HandshakeMessages()
+            var creates = 0
+            let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in creates += 1; return try v2MediaCreated() }, delete: { _, _ in })
+            let fixture = try V2PollFixture(media: media, pushController: nil)
+            addTeardownBlock { await fixture.close() }
+            if messagesBlocked { fixture.blocked.insert("messages") } else { fixture.failed.insert("messages") }
+            fixture.delayedReceipts = true; fixture.receiptCompletionAfter = 0
+            var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+            fixture.snapshotCalls = [incoming]
+            let system = TestSystemCalls()
+            fixture.model.activateSystemIntegration(calls: system)
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { system.reports == 1 }
+            await fixture.model.systemCalls?.callKitAudioSessionDidActivate()
+            let answer = Task { try await fixture.model.systemCalls?.callKitAnswer(origin: .system) }
+            try await v2PollWait { fixture.commands.count == 1 }
+            incoming["state"] = "active"; incoming["ownership"] = "managed"; fixture.snapshotCalls = [incoming]
+            try await v2PollWait { media.state == .paired }
+            try await answer.value
+            XCTAssertNotNil(fixture.model.ownedCall)
+            XCTAssertEqual(fixture.receiptReads, 1)
+            XCTAssertEqual(fixture.writes, 1); XCTAssertEqual(fixture.commands.count, 1)
+            XCTAssertEqual(creates, 1); XCTAssertEqual(audio.prepares, 1)
+            XCTAssertFalse(fixture.model.hasUnresolvedCommand)
+            if messagesBlocked { XCTAssertNotNil(fixture.pending["messages"]) }
+            await fixture.close()
+        }
+    }
+
+    @MainActor func testIncomingAudioActivationBeforeAnswerReceiptStartsMediaWhenOwnershipArrives() async throws {
+        for background in [false, true] {
+            let audio = V2TestAudioIO(), socket = V2TestMediaSocket(), clock = V2TestMediaClock()
+            socket.messages = v2HandshakeMessages()
+            var created = 0
+            let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in created += 1; return try v2MediaCreated() }, delete: { _, _ in })
+            let fixture = try V2PollFixture(media: media)
+            fixture.delayedReceipts = true; fixture.receiptCompletionAfter = 1
+            var incoming = v2CallObject(state: "incoming"); incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+            fixture.snapshotCalls = [incoming]
+            let system = TestSystemCalls()
+            fixture.model.activateSystemIntegration(calls: system)
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { system.reports == 1 }
+            if background { await fixture.model.sceneChanged(.background) }
+            // CallKit activates after fulfilling answer, before the asynchronous backend receipt.
+            await fixture.model.systemCalls?.callKitAudioSessionDidActivate()
+            XCTAssertTrue(fixture.model.systemAudioActive)
+            XCTAssertEqual(audio.prepares, 0)
+            let answer = Task { try await fixture.model.systemCalls?.callKitAnswer(origin: .system) }
+            try await v2PollWait { !fixture.commands.isEmpty }
+            incoming["state"] = "active"; incoming["ownership"] = "managed"; fixture.snapshotCalls = [incoming]
+            try await answer.value
+            try await v2PollWait { media.state == .paired }
+            XCTAssertEqual(created, 1)
+            XCTAssertEqual(audio.prepares, 1)
+            await fixture.close()
+        }
+    }
+
     @MainActor func testSystemIncomingDedupAudioActivationAndBackgroundScope() async throws {
         let audio = V2TestAudioIO(), socket = V2TestMediaSocket(), clock = V2TestMediaClock()
         socket.messages = v2HandshakeMessages()
@@ -2767,4 +3064,221 @@ private func v2Signal(rssi: Int?) -> [String: Any] {
     ["available": rssi != nil, "observed_at": V2Validation.timestamp(v2Now),
      "rssi": rssi.map { $0 as Any } ?? NSNull(),
      "dbm": rssi.map { (-113 + 2 * $0) as Any } ?? NSNull()]
+}
+
+extension CloudV2Tests {
+    func testLC3RoundTripPLCAndNewSessionReset() throws {
+        var pcm = Data()
+        for i in 0..<320 {
+            let value = UInt16(bitPattern: Int16(10000 * sin(2 * .pi * 400 * Double(i) / 16000)))
+            pcm.append(UInt8(truncatingIfNeeded: value)); pcm.append(UInt8(truncatingIfNeeded: value >> 8))
+        }
+        let codec = try V2LC3Codec()
+        let first = try codec.encode(pcm)
+        XCTAssertEqual(first.count, 80)
+        XCTAssertNotEqual(first, Data(repeating: 0, count: 80))
+        var energy = V2PCMEnergySummary()
+        for _ in 0..<20 {
+            let decoded = try codec.decode(codec.encode(pcm))
+            XCTAssertEqual(decoded.pcm.count, 640)
+            XCTAssertFalse(decoded.concealed)
+            energy.record(decoded.pcm)
+        }
+        XCTAssertGreaterThan(energy.rms, 4000)
+        XCTAssertLessThan(energy.rms, 10000)
+        let concealed = try codec.decode(nil)
+        XCTAssertTrue(concealed.concealed)
+        XCTAssertEqual(concealed.pcm.count, 640)
+        XCTAssertFalse(try codec.decode(codec.encode(pcm)).concealed)
+        let fresh = try V2LC3Codec()
+        XCTAssertEqual(try fresh.encode(pcm), first)
+        XCTAssertThrowsError(try codec.encode(Data(count: 319)))
+        XCTAssertThrowsError(try codec.decode(Data()))
+        XCTAssertThrowsError(try codec.decode(Data(count: 79)))
+        XCTAssertThrowsError(try codec.decode(Data(count: 640)))
+    }
+
+    func testASMPLC3ErasureAndLegacyPCMRejection() throws {
+        let frame = V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, payload: Data(count: 80), erasure: true)
+        let encoded = try frame.encode()
+        XCTAssertEqual(encoded.count, 120)
+        XCTAssertEqual(encoded[36], 1)
+        XCTAssertEqual(try V2ASMPFrame.decode(encoded, sessionID: v2ID, direction: 2, after: 0).frame, frame)
+        for index in [4, 32, 36, 37, 38, 39, 40, 119] {
+            var invalid = encoded
+            invalid[index] = index == 4 ? 1 : 2
+            XCTAssertThrowsError(try V2ASMPFrame.decode(invalid, sessionID: v2ID, direction: 2, after: 0))
+        }
+        XCTAssertThrowsError(try V2ASMPFrame(sessionID: v2ID, direction: 1, sequence: 1, payload: Data(count: 640)).encode())
+        XCTAssertThrowsError(try V2ASMPFrame(sessionID: v2ID, direction: 1, sequence: 1, payload: Data(), erasure: true).encode())
+        XCTAssertThrowsError(try V2ASMPFrame(sessionID: v2ID, direction: 1, sequence: 1, payload: Data(repeating: 1, count: 80), erasure: true).encode())
+    }
+
+    func testLC3FormatRequiresEveryNegotiatedField() throws {
+        let valid: [String: Any] = ["codec": "lc3", "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320, "codec_frame_us": 10000, "codec_frame_bytes": 40]
+        for field in valid.keys {
+            var missing = valid; missing.removeValue(forKey: field)
+            XCTAssertThrowsError(try V2JSON.decode(V2MediaFormat.self, from: v2Data(missing), limit: 2048))
+        }
+        for (key, value) in ["codec": "pcm", "sample_rate": 8000, "channels": 2, "sample_format": "float32", "frame_samples": 80, "codec_frame_us": 7500, "codec_frame_bytes": 80] as [String: Any] {
+            var invalid = valid; invalid[key] = value
+            XCTAssertThrowsError(try V2JSON.decode(V2MediaFormat.self, from: v2Data(invalid), limit: 2048))
+        }
+        var unknown = valid; unknown["extra"] = 0
+        XCTAssertThrowsError(try V2JSON.decode(V2MediaFormat.self, from: v2Data(unknown), limit: 2048))
+    }
+
+    func testCompressedQueuePreservesErasureAndConcealsEmptySlots() throws {
+        let generation = UUID()
+        var queue = V2MediaQueue(generation: generation, emptyPolicy: .erasure, payloadSize: 80)
+        try queue.enqueue(Data(count: 80), erasure: true, sequence: 7, at: 0, generation: generation)
+        let actual = try XCTUnwrap(queue.output(at: 40_000_000, generation: generation))
+        XCTAssertTrue(actual.erasure); XCTAssertEqual(actual.sequence, 7)
+        let empty = try XCTUnwrap(queue.output(at: 60_000_000, generation: generation))
+        XCTAssertTrue(empty.erasure); XCTAssertEqual(empty.payload.count, 80); XCTAssertEqual(empty.sequence, 0)
+        XCTAssertEqual(queue.erasureFrames, 1)
+        XCTAssertThrowsError(try queue.enqueue(Data(count: 640), at: 80_000_000, generation: generation))
+    }
+}
+
+extension CloudV2Tests {
+    func testLC3SharedCVectorDecodesWithVoiceQuality() throws {
+        struct Vector: Decodable { let algorithmic_delay_samples: Int; let packets: [String] }
+        let url = try XCTUnwrap(Bundle(for: CloudV2Tests.self).url(forResource: "interop", withExtension: "json"))
+        let vector = try JSONDecoder().decode(Vector.self, from: Data(contentsOf: url))
+        let tone = [0, 3090, 5878, 8090, 9511, 10000, 9511, 8090, 5878, 3090, 0, -3090, -5878, -8090, -9511, -10000, -9511, -8090, -5878, -3090]
+        let codec = try V2LC3Codec()
+        var signal = 0.0, error = 0.0
+        for (packetIndex, hex) in vector.packets.enumerated() {
+            let chars = Array(hex)
+            let payload = try Data(stride(from: 0, to: chars.count, by: 2).map { try XCTUnwrap(UInt8(String(chars[$0...($0 + 1)]), radix: 16)) })
+            let decoded = try codec.decode(payload)
+            XCTAssertFalse(decoded.concealed)
+            if packetIndex > 4 {
+                let bytes = Array(decoded.pcm)
+                for i in 0..<320 {
+                    let expected = Double(tone[(packetIndex * 320 + i - vector.algorithmic_delay_samples) % 20])
+                    let actual = Double(Int16(bitPattern: UInt16(bytes[2*i]) | UInt16(bytes[2*i+1]) << 8))
+                    signal += expected * expected; error += (actual - expected) * (actual - expected)
+                }
+            }
+        }
+        XCTAssertGreaterThan(10 * log10(signal / error), 15)
+        XCTAssertTrue(try codec.decode(nil).concealed)
+    }
+
+    @MainActor func testMediaCreationRequestsLC3Only() async throws {
+        let format: [String: Any] = ["codec": "lc3", "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320, "codec_frame_us": 10000, "codec_frame_bytes": 40]
+        let transport = V2TestTransport { request in
+            if request.url!.path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            XCTAssertEqual(request.httpMethod, "POST")
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: String])
+            XCTAssertEqual(body["codec"], "lc3")
+            XCTAssertEqual(Set(body.keys), Set(["codec", "request_id", "connection_epoch", "generation"]))
+            return V2HTTPResponse(status: 201, body: try v2Data(["session_id": v2ID, "ticket": String(repeating: "a", count: 64), "expires_at": V2Validation.timestamp(v2Now.addingTimeInterval(30)), "media_url": "wss://media.example.invalid/v2/media", "format": format]))
+        }
+        let client = V2Client(transport: transport, tokens: V2TestTokens(), now: { v2Now })
+        _ = try await client.connect(v2Config())
+        let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        let snapshot = try V2JSON.decode(V2SnapshotResponse.self, from: v2SnapshotData(calls: [v2CallObject()]), limit: 262144)
+        try client.restoreOwnership(context, snapshot: snapshot)
+        let created = try await client.createMedia(context: context, requestID: v2ID)
+        XCTAssertEqual(created.format.codec, "lc3")
+    }
+
+    func testHelperActualAcceptsLC3Metadata() throws {
+        let event = try V2JSON.decode(V2HelperEvent.self, from: v2Data(["type": "ready", "codec": "lc3", "codec_frame_us": 10000, "codec_frame_bytes": 40, "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320]), limit: 2048)
+        XCTAssertEqual(event.codec, "lc3"); XCTAssertEqual(event.codec_frame_us, 10000); XCTAssertEqual(event.codec_frame_bytes, 40)
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testLC3DecoderFollowsPlayoutQueueAndResetsAcrossSessions() async throws {
+        let socket = V2TestMediaSocket(), clock = V2TestMediaClock(), audio = V2TestAudioIO()
+        let media = V2MediaCoordinator(audio: audio, socketFactory: { socket }, clock: clock, now: { v2Now }, create: { _, _ in try v2MediaCreated() }, delete: { _, _ in })
+        let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        for cycle in 0..<2 {
+            let base = UInt64(cycle) * 1_000_000_000
+            clock.advance(base)
+            let encoder = try V2LC3Codec(), expectedDecoder = try V2LC3Codec()
+            let packets = try (0..<8).map { try encoder.encode(Data(repeating: UInt8($0 + 1), count: 640)) }
+            socket.messages = v2HandshakeMessages()
+            socket.messages.append(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: 1, payload: packets[0]).encode()))
+            audio.played.removeAll()
+            media.start(context: context, diagnosticMode: false, validate: { true })
+            await v2Yield(100)
+            XCTAssertEqual(media.state, .paired)
+            XCTAssertTrue(audio.played.isEmpty)
+            clock.advance(base + 100_000_000); await v2Yield()
+            XCTAssertEqual(audio.played.last, try expectedDecoder.decode(packets[0]).pcm)
+            for i in 1..<8 {
+                socket.deliver(.data(try V2ASMPFrame(sessionID: v2ID, direction: 2, sequence: UInt64(i + 1), payload: packets[i]).encode()))
+            }
+            await v2Yield(100)
+            // The 100 ms jitter buffer holds the burst; every packet plays in order.
+            for i in 1..<8 {
+                clock.advance(base + UInt64(100 + 20 * i) * 1_000_000); await v2Yield()
+                XCTAssertEqual(audio.played.count, i + 1)
+                XCTAssertEqual(audio.played.last, try expectedDecoder.decode(packets[i]).pcm)
+            }
+            clock.advance(base + 260_000_000); await v2Yield()
+            XCTAssertEqual(audio.played.last, try expectedDecoder.decode(nil).pcm)
+            await media.stop()
+            XCTAssertEqual(media.statistics.concealedPackets, 1)
+            XCTAssertEqual(media.statistics.downQueueDrops, 0)
+        }
+    }
+
+    func testLC3PacketSequenceCreditsAndBoundedReset() throws {
+        let encoder = try V2LC3Codec()
+        let packets = try (0..<10).map { try encoder.encode(Data(repeating: UInt8($0 + 11), count: 640)) }
+        let decoder = try V2LC3Codec(), expected = try V2LC3Codec()
+        // A new session starts at its first received packet, without concealing pre-session history.
+        XCTAssertEqual(try decoder.decode(packets[0], sequence: 20).pcm, try expected.decode(packets[0]).pcm)
+        XCTAssertEqual(try decoder.decode(nil, sequence: 0).pcm, try expected.decode(nil).pcm)
+        // One scheduled PLC already accounts for sequence 21.
+        XCTAssertEqual(try decoder.decode(packets[2], sequence: 22).pcm, try expected.decode(packets[2]).pcm)
+        // An explicit erasure is an actual packet and advances the source sequence.
+        XCTAssertEqual(try decoder.decode(nil, sequence: 23).pcm, try expected.decode(nil).pcm)
+        for _ in 0..<5 { _ = try expected.decode(nil) }
+        XCTAssertEqual(try decoder.decode(packets[8], sequence: 29).pcm, try expected.decode(packets[8]).pcm)
+        let fresh = try V2LC3Codec()
+        XCTAssertEqual(try decoder.decode(packets[9], sequence: 36).pcm, try fresh.decode(packets[9]).pcm)
+    }
+
+    func testLC3ExpiredCompressedPacketAdvancesDecoderBeforeNextPacket() throws {
+        let encoder = try V2LC3Codec(), decoder = try V2LC3Codec(), expected = try V2LC3Codec()
+        let packets = try (0..<3).map { try encoder.encode(Data(repeating: UInt8($0 + 21), count: 640)) }
+        let generation = UUID()
+        var queue = V2MediaQueue(generation: generation, emptyPolicy: .erasure, payloadSize: 80)
+        try queue.enqueue(packets[0], sequence: 1, at: 0, generation: generation)
+        let first = try XCTUnwrap(queue.output(at: 40_000_000, generation: generation))
+        XCTAssertEqual(try decoder.decode(first.payload, sequence: first.sequence).pcm, try expected.decode(packets[0]).pcm)
+        try queue.enqueue(packets[1], sequence: 2, at: 40_000_000, generation: generation)
+        // A late wake drops the expired packet and skips its playback slots.
+        XCTAssertNil(queue.output(at: 160_000_000, generation: generation))
+        try queue.enqueue(packets[2], sequence: 3, at: 160_000_000, generation: generation)
+        let next = try XCTUnwrap(queue.output(at: 180_000_000, generation: generation))
+        XCTAssertEqual(queue.queueDrops, 1)
+        _ = try expected.decode(nil)
+        XCTAssertEqual(try decoder.decode(next.payload, sequence: next.sequence).pcm, try expected.decode(packets[2]).pcm)
+    }
+}
+
+
+extension CloudV2Tests {
+    func testMediaFailureDiagnosticClassifiesOnlyAllowedOSDomains() {
+        for (domain, number, code) in [(NSURLErrorDomain, -1005, V2MediaFailureCode.urlSession), (NSPOSIXErrorDomain, 54, .posix), (NSCocoaErrorDomain, 4097, .cocoa)] {
+            let error = NSError(domain: domain, code: number, userInfo: [NSLocalizedDescriptionKey: "private payload must not be retained"])
+            let diagnostic = V2MediaFailureDiagnostic(error: error, stage: .receiving, downlinkAgeMilliseconds: 20)
+            XCTAssertEqual(diagnostic.code, code); XCTAssertEqual(diagnostic.domain, domain)
+            XCTAssertEqual(diagnostic.numericCode, number)
+            XCTAssertEqual(diagnostic.stage, .receiving); XCTAssertEqual(diagnostic.downlinkAgeMilliseconds, 20)
+        }
+        let unrecognized = V2MediaFailureDiagnostic(error: NSError(domain: "private-domain", code: 123, userInfo: [NSLocalizedDescriptionKey: "private payload"]), stage: .receiving, downlinkAgeMilliseconds: nil)
+        XCTAssertEqual(unrecognized.code, .unknown)
+        XCTAssertNil(unrecognized.domain); XCTAssertNil(unrecognized.numericCode)
+        let audio = V2MediaFailureDiagnostic(error: V2AudioError.engine(-1), stage: .audio, downlinkAgeMilliseconds: nil)
+        XCTAssertEqual(audio.code, .audioEngine); XCTAssertEqual(audio.numericCode, -1); XCTAssertNil(audio.domain)
+    }
 }

@@ -3,6 +3,19 @@ import CallKit
 import AVFoundation
 
 enum V2SystemCommandOutcome { case completed, pending, failed }
+
+#if DEBUG
+/// Stage names and flags only; read from the device container after a failed call.
+enum V2DebugTrace {
+    private static let key = "airsim.v2.debug-trace"
+    static func record(_ event: String) {
+        var items = UserDefaults.standard.stringArray(forKey: key) ?? []
+        items.append("\(ISO8601DateFormatter().string(from: Date())) \(event)")
+        if items.count > 60 { items.removeFirst(items.count - 60) }
+        UserDefaults.standard.set(items, forKey: key)
+    }
+}
+#endif
 @MainActor
 final class V2SystemCommandSubmission {
     let commandID: String?
@@ -83,6 +96,7 @@ final class V2SystemCallController: CallKitActionHandling {
                   let binding = try? response.controlBinding(configuration: configuration, module: selected, now: model.currentTime, usbLocal: model.usingUSB) else {
 #if DEBUG
                 let response = model.snapshot
+                V2DebugTrace.record("pushVerifyFailed expiry=\(model.currentTime < push.expiresAt) deadline=\(incomingAssociationDeadline.map { ContinuousClock.now < $0 } == true) uuid=\(calls.currentSystemCallUUID == incomingSystemUUID) config=\(model.configuration != nil) module=\(model.selectedModuleID == push.domain.moduleID) server=\(response?.server_id == push.domain.serverID) responseModule=\(response?.module_id == push.domain.moduleID) connection=\(response.map { model.pushConnectionMatches(push, response: $0) } == true) boot=\(response?.snapshot?.agent_boot_id == push.domain.agentBootID) backend=\(response?.snapshot?.backend_epoch == push.domain.backendEpoch) call=\(response?.snapshot?.calls.calls.contains(where: { $0.call_id == push.callID && $0.state != "disconnected" }) == true) selected=\(model.selectedModule != nil)")
                 NSLog("[AirSIM Push] verification failed expiry=%d uuid=%d server=%d module=%d connection=%d boot=%d backend=%d call=%d fresh=%d",
                       model.currentTime < push.expiresAt,
                       calls.currentSystemCallUUID == incomingSystemUUID,
@@ -202,6 +216,9 @@ final class V2SystemCallController: CallKitActionHandling {
     func callKitDidReceiveIncoming(_ call: IncomingVoIPCall) {
         guard let push = call.v2Push, let systemUUID = calls.currentSystemCallUUID,
               systemUUID == push.callUUID || currentCallID == push.callID else {
+#if DEBUG
+            V2DebugTrace.record("incomingMismatch push=\(call.v2Push != nil) uuid=\(calls.currentSystemCallUUID != nil)")
+#endif
             calls.reportCurrentCallEnded(reason: .failed)
             return
         }
@@ -232,9 +249,18 @@ final class V2SystemCallController: CallKitActionHandling {
     }
     func callKitAnswer(origin: CallAnswerOrigin) async throws {
         guard let uuid = calls.currentSystemCallUUID else { throw V2Error.stale }
+#if DEBUG
+        V2DebugTrace.record("answerStart verified=\(verifiedBinding != nil) pendingPush=\(incomingPush != nil)")
+        do { try await waitForIncomingVerification(uuid: uuid) }
+        catch { V2DebugTrace.record("answerVerificationTimeout"); throw error }
+#else
         try await waitForIncomingVerification(uuid: uuid)
+#endif
         guard let binding = verifiedBinding, let id = currentCallID else { throw V2Error.stale }
         let ticket = await model.systemCommand("call.answer", args: ["call_id": id], binding: binding) { self.association = $0 }
+#if DEBUG
+        V2DebugTrace.record("answerSubmitted outcome=\(ticket.outcome) command=\(ticket.commandID != nil)")
+#endif
         do {
             let owned = try await waitForAssociation(ticket, uuid: uuid, binding: binding, timeout: associationTimeout)
             guard isCurrent(uuid, binding: binding) else { return }
@@ -271,12 +297,28 @@ final class V2SystemCallController: CallKitActionHandling {
         if result.outcome == .failed { throw V2Error.stale }
     }
     func callKitAudioSessionDidActivate() async {
+#if DEBUG
+        NSLog("[AirSIM Media] stage=callKitActivate")
+#endif
         audioGeneration &+= 1; let stamp = audioGeneration
         await model.media.stop()
-        guard hasSystemCall, audioGeneration == stamp else { return }
+        guard hasSystemCall, audioGeneration == stamp else {
+#if DEBUG
+            NSLog("[AirSIM Media] stage=callKitActivateSkipped hasSystemCall=%d currentGeneration=%d", hasSystemCall ? 1 : 0, audioGeneration == stamp ? 1 : 0)
+#endif
+            return
+        }
+#if DEBUG
+        NSLog("[AirSIM Media] stage=callKitActivateAccepted")
+#endif
         model.systemAudioActive = true; model.connectAudio()
     }
-    func callKitAudioSessionDidDeactivate() { audioGeneration &+= 1; model.systemAudioActive = false; model.media.requestStop() }
+    func callKitAudioSessionDidDeactivate() {
+#if DEBUG
+        NSLog("[AirSIM Media] stage=callKitDeactivate")
+#endif
+        audioGeneration &+= 1; model.systemAudioActive = false; model.media.requestStop()
+    }
     func callKitProviderDidReset() async {
         model.systemAudioActive = false; await model.media.stop()
         if let owned = model.ownedCall, resetHangups.insert(owned.callID).inserted {

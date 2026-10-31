@@ -118,6 +118,9 @@ struct V2PCMConfig: Decodable {
 struct V2HelperEvent: Decodable {
     let type: String
     let code: String?
+    let codec: String?
+    let codec_frame_us: UInt32?
+    let codec_frame_bytes: UInt32?
     let sample_rate: UInt32?
     let channels: UInt32?
     let sample_format: String?
@@ -138,9 +141,12 @@ struct V2HelperEvent: Decodable {
     let capture_progress_ms: UInt64?
     let playback_progress_ms: UInt64?
     init(from decoder: Decoder) throws {
-        let c = try decoder.v2Fields("type", optional: "code sample_rate channels sample_format frame_samples capture playback capture_samples playback_samples capture_xruns playback_xruns capture_drops playback_drops input_drops sequence_gaps silence_samples queue_peak elapsed_ms capture_progress_ms playback_progress_ms")
+        let c = try decoder.v2Fields("type", optional: "code codec codec_frame_us codec_frame_bytes sample_rate channels sample_format frame_samples capture playback capture_samples playback_samples capture_xruns playback_xruns capture_drops playback_drops input_drops sequence_gaps silence_samples queue_peak elapsed_ms capture_progress_ms playback_progress_ms")
         type = try c.get("type")
         code = try c.optional("code")
+        codec = try c.optional("codec")
+        codec_frame_us = try c.optional("codec_frame_us")
+        codec_frame_bytes = try c.optional("codec_frame_bytes")
         sample_rate = try c.optional("sample_rate")
         channels = try c.optional("channels")
         sample_format = try c.optional("sample_format")
@@ -228,17 +234,24 @@ struct V2AudioStatus: Decodable {
 }
 
 struct V2MediaFormat: Decodable {
+    let codec: String
     let sample_rate: Int
     let channels: Int
     let sample_format: String
     let frame_samples: Int
+    let codec_frame_us: Int
+    let codec_frame_bytes: Int
     init(from decoder: Decoder) throws {
-        let c = try decoder.v2Fields("sample_rate channels sample_format frame_samples", optional: "")
+        let c = try decoder.v2Fields("codec sample_rate channels sample_format frame_samples codec_frame_us codec_frame_bytes", optional: "")
+        codec = try c.get("codec")
         sample_rate = try c.get("sample_rate")
         channels = try c.get("channels")
         sample_format = try c.get("sample_format")
         frame_samples = try c.get("frame_samples")
-        guard sample_rate == 8000, channels == 1, sample_format == "s16le", frame_samples == 160 else { throw V2Error.protocolViolation }
+        codec_frame_us = try c.get("codec_frame_us")
+        codec_frame_bytes = try c.get("codec_frame_bytes")
+        guard codec == "lc3", sample_rate == Int(V2PCM.sampleRate), channels == 1, sample_format == "s16le", frame_samples == V2PCM.frameSamples,
+              codec_frame_us == 10000, codec_frame_bytes == 40 else { throw V2Error.protocolViolation }
     }
 }
 

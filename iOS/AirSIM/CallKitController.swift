@@ -127,13 +127,17 @@ final class CallKitController: NSObject {
     private var incomingDeduplicator = IncomingCallDeduplicator()
     private(set) var currentIncomingPush: IncomingVoIPCall?
 
-    override init() {
+    override convenience init() {
         let configuration = CXProviderConfiguration()
         configuration.maximumCallGroups = 1
         configuration.maximumCallsPerCallGroup = 1
         configuration.supportedHandleTypes = [.phoneNumber]
         configuration.supportsVideo = false
         configuration.includesCallsInRecents = true
+        self.init(configuration: configuration)
+    }
+
+    init(configuration: CXProviderConfiguration) {
         provider = CXProvider(configuration: configuration)
         super.init()
         provider.setDelegate(self, queue: .main)
@@ -213,6 +217,13 @@ final class CallKitController: NSObject {
             debugLog("忽略已结束通话的晚到 PushKit 事件")
             completion(nil)
             return
+        }
+        // 模块在响铃期间重建通话对象会得到新的 call_id；未接听的 v2 来电由新推送接替，
+        // 不保留已失效的旧 call_id。
+        if currentUUID != nil, call.v2Push != nil, currentDirection == "incoming",
+           ["incoming", "ringing", "waiting"].contains(currentState ?? ""),
+           !call.matches(backendID: currentBackendID, uuid: currentUUID) {
+            finishCurrentCall(previous: nil, reason: .unanswered)
         }
         if currentUUID != nil {
             guard call.matches(backendID: currentBackendID, uuid: currentUUID) else {
@@ -747,10 +758,18 @@ extension CallKitController: CXProviderDelegate {
         _ provider: CXProvider,
         didActivate audioSession: AVAudioSession
     ) {
+#if DEBUG
+        NSLog("[AirSIM Media] stage=providerDidActivate")
+#endif
         let stamp = actionGate.generation
         Task { @MainActor [weak self] in
-            guard self?.acceptsAction(stamp) == true else { return }
             guard let self else { return }
+            guard self.acceptsAction(stamp) else {
+#if DEBUG
+                self.logAudioGateRejection(stage: "providerActivateRejected", stamp: stamp)
+#endif
+                return
+            }
             self.audioSessionIsActive = true
             await AgentVerboseTraceRecorder.shared.recordEvent(
                 source: "APP",
@@ -759,7 +778,12 @@ extension CallKitController: CXProviderDelegate {
                 title: "CallKit 音频会话已激活",
                 fields: self.audioTraceFields(audioSession)
             )
-            guard self.acceptsAction(stamp), self.audioSessionIsActive else { return }
+            guard self.acceptsAction(stamp), self.audioSessionIsActive else {
+#if DEBUG
+                self.logAudioGateRejection(stage: "providerActivateDeliverySkipped", stamp: stamp)
+#endif
+                return
+            }
             await self.handler?.callKitAudioSessionDidActivate()
         }
     }
@@ -768,10 +792,18 @@ extension CallKitController: CXProviderDelegate {
         _ provider: CXProvider,
         didDeactivate audioSession: AVAudioSession
     ) {
+#if DEBUG
+        NSLog("[AirSIM Media] stage=providerDidDeactivate")
+#endif
         let stamp = actionGate.generation
         Task { @MainActor [weak self] in
-            guard self?.acceptsAction(stamp) == true else { return }
             guard let self else { return }
+            guard self.acceptsAction(stamp) else {
+#if DEBUG
+                self.logAudioGateRejection(stage: "providerDeactivateRejected", stamp: stamp)
+#endif
+                return
+            }
             self.audioSessionIsActive = false
             await AgentVerboseTraceRecorder.shared.recordEvent(
                 source: "APP",
@@ -780,10 +812,21 @@ extension CallKitController: CXProviderDelegate {
                 title: "CallKit 音频会话已停用",
                 fields: self.audioTraceFields(audioSession)
             )
-            guard self.acceptsAction(stamp), !self.audioSessionIsActive else { return }
+            guard self.acceptsAction(stamp), !self.audioSessionIsActive else {
+#if DEBUG
+                self.logAudioGateRejection(stage: "providerDeactivateDeliverySkipped", stamp: stamp)
+#endif
+                return
+            }
             self.handler?.callKitAudioSessionDidDeactivate()
         }
     }
+
+#if DEBUG
+    private func logAudioGateRejection(stage: String, stamp: UInt64) {
+        NSLog("[AirSIM Media] stage=%@ generationMatches=%d isAvailable=%d hasHandler=%d isV2=%d audioActive=%d", stage, actionGate.accepts(stamp) ? 1 : 0, isAvailable ? 1 : 0, handler != nil ? 1 : 0, handler is V2SystemCallController ? 1 : 0, audioSessionIsActive ? 1 : 0)
+    }
+#endif
 
     private func audioTraceFields(_ audioSession: AVAudioSession) -> [String: String] {
         let inputs = audioSession.currentRoute.inputs.map { $0.portType.rawValue }.joined(separator: ",")

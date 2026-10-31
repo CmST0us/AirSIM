@@ -358,7 +358,7 @@ final class V2Client {
     func createMedia(context: V2CallContext, requestID: String) async throws -> V2MediaCreated {
         let stamp = try activeStamp(); try validate(context, stamp: stamp); try V2Validation.uuid(requestID)
         guard ownedCalls.contains(context) else { throw V2Error.invalidIdentity }
-        let body = try JSONSerialization.data(withJSONObject: ["request_id": requestID, "connection_epoch": context.binding.connectionEpoch, "generation": context.generation])
+        let body = try JSONSerialization.data(withJSONObject: ["request_id": requestID, "connection_epoch": context.binding.connectionEpoch, "generation": context.generation, "codec": "lc3"])
         let response = try await request(path: mediaPath(context), method: "POST", body: body, limit: 256 * 1024, stamp: stamp)
         guard [200,201].contains(response.status), let config = configuration else { throw V2Error.protocolViolation }
         let result = try V2JSON.decode(V2MediaCreated.self, from: response.body, limit: 256 * 1024)

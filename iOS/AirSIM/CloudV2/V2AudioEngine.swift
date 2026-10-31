@@ -11,7 +11,7 @@ final class V2PCMConverter {
     private var tail = Data()
     init(rate: Double, capacity: AVAudioFrameCount = 8192) throws {
         guard rate > 0, let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false),
-              let pcm = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 8000, channels: 1, interleaved: true),
+              let pcm = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: V2PCM.sampleRate, channels: 1, interleaved: true),
               let converter = AVAudioConverter(from: mono, to: pcm),
               let input = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: capacity),
               let output = AVAudioPCMBuffer(pcmFormat: pcm, frameCapacity: 4096) else { throw V2AudioError.format }
@@ -33,7 +33,7 @@ final class V2PCMConverter {
             if error != nil || status == .error { throw V2AudioError.conversion }
             if output.frameLength > 0 {
                 tail.append(Data(bytes: output.int16ChannelData![0], count: Int(output.frameLength) * 2))
-                while tail.count >= 320 { frames.append(Data(tail.prefix(320))); tail.removeFirst(320) }
+                while tail.count >= V2PCM.frameBytes { frames.append(Data(tail.prefix(V2PCM.frameBytes))); tail.removeFirst(V2PCM.frameBytes) }
             }
             if status == .inputRanDry || status == .endOfStream || output.frameLength == 0 { break }
         }
@@ -105,31 +105,29 @@ struct V2AudioMetrics {
 #endif
 }
 
-// Use the established v1 voice-bandlimited encoder directly from the audio tap.
-// The queue keeps at most five complete 20 ms frames and never drops frames by age.
+// The tap resamples to 16 kHz with AVAudioConverter, whose anti-aliasing filter
+// keeps the wideband voice band flat. The queue holds 300 ms, above one tap callback.
 final class V2CaptureBuffer: @unchecked Sendable {
     private let lock = NSLock()
-    private let encoder = VoicePCMEncoder()
-    private var tail = Data()
+    private let converter: V2PCMConverter
     private var stopped = false
+    private var muted = false
     private var frames: [Data] = []
     private var metrics = V2AudioMetrics()
     let capacity: Int
     init(rate: Double) throws {
         guard rate > 0 else { throw V2AudioError.format }
         capacity = max(1, Int(rate * 0.02))
+        converter = try V2PCMConverter(rate: rate, capacity: AVAudioFrameCount(max(8192, rate)))
     }
+    // Called serially from the input tap; the converter keeps filter history between calls.
     func push(_ buffer: AVAudioPCMBuffer) {
-        guard buffer.floatChannelData != nil, buffer.format.commonFormat == .pcmFormatFloat32 else { return }
-        let encoded = encoder.encode(buffer)
-        guard !encoded.isEmpty else { return }
+        guard let converted = try? converter.convert(buffer), !converted.isEmpty else { return }
         lock.lock()
         guard !stopped else { lock.unlock(); return }
-        tail.append(encoded)
-        while tail.count >= 320 {
-            let frame = Data(tail.prefix(320))
-            tail.removeFirst(320)
-            if frames.count == 5 {
+        for converted in converted {
+            let frame = muted ? Data(count: V2PCM.frameBytes) : converted
+            if frames.count == 15 {
                 frames.removeFirst()
                 metrics.inputDrops += 1
             }
@@ -144,20 +142,22 @@ final class V2CaptureBuffer: @unchecked Sendable {
         frames.removeAll(keepingCapacity: true)
         return (result, metrics, nil)
     }
-    func setMuted(_ value: Bool) { encoder.setMuted(value) }
+    func setMuted(_ value: Bool) { lock.lock(); muted = value; lock.unlock() }
     func stop() async {
         lock.lock()
         stopped = true
         frames.removeAll()
-        tail.removeAll()
         lock.unlock()
     }
 }
 
+// Playback starts once two 20 ms buffers are queued and re-primes after the
+// node drains, so tick jitter does not underrun the hardware render cycle.
 struct V2PlaybackWindow {
+    static let startDepth = 2
     private(set) var pending = 0
     private(set) var generation = UUID()
-    mutating func reserve() -> UUID? { guard pending < 3 else { return nil }; pending += 1; return generation }
+    mutating func reserve() -> UUID? { guard pending < 6 else { return nil }; pending += 1; return generation }
     mutating func complete(_ stamp: UUID) -> Bool { guard stamp == generation, pending > 0 else { return false }; pending -= 1; return true }
     mutating func reset() { generation = UUID(); pending = 0 }
 }
@@ -208,7 +208,13 @@ final class V2AudioEngine: V2AudioIO {
                 let granted = try await withTaskCancellationHandler {
                     try await withCheckedThrowingContinuation { continuation in
                         permission = continuation
+#if DEBUG
+                        NSLog("[AirSIM Media] stage=permissionRequest")
+#endif
                         requestPermission { [weak self] granted in
+#if DEBUG
+                            NSLog("[AirSIM Media] stage=permissionResult granted=%d", granted ? 1 : 0)
+#endif
                             Task { @MainActor in
                                 guard let self, self.generation == stamp else { return }
                                 let pending = self.permission; self.permission = nil
@@ -230,7 +236,7 @@ final class V2AudioEngine: V2AudioIO {
             let engine = AVAudioEngine(), player = AVAudioPlayerNode()
             self.engine = engine; self.player = player
             engine.attach(player)
-            let playback = AVAudioFormat(standardFormatWithSampleRate: 8000, channels: 1)!
+            let playback = AVAudioFormat(standardFormatWithSampleRate: V2PCM.sampleRate, channels: 1)!
             engine.connect(player, to: engine.mainMixerNode, format: playback)
             if microphone {
                 do { try engine.inputNode.setVoiceProcessingEnabled(true) }
@@ -248,7 +254,6 @@ final class V2AudioEngine: V2AudioIO {
             outputFormat = engine.outputNode.inputFormat(forBus: 0)
             engine.prepare()
             do { try engine.start() } catch { throw V2AudioError.engine((error as NSError).code) }
-            player.play()
             metrics.running = true
 #if DEBUG
             updateRoute()
@@ -281,22 +286,23 @@ final class V2AudioEngine: V2AudioIO {
         return result.frames
     }
     func play(_ pcm: Data) -> Bool {
-        guard metrics.running, let player, pcm.count == 320 else { return false }
+        guard metrics.running, let player, pcm.count == V2PCM.frameBytes else { return false }
         guard let playbackStamp = playbackWindow.reserve() else { metrics.playbackDrops += 1; return false }
-        let format = AVAudioFormat(standardFormatWithSampleRate: 8000, channels: 1)!
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 160)!
-        buffer.frameLength = 160
+        let format = AVAudioFormat(standardFormatWithSampleRate: V2PCM.sampleRate, channels: 1)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(V2PCM.frameSamples))!
+        buffer.frameLength = AVAudioFrameCount(V2PCM.frameSamples)
         let bytes = Array(pcm)
-        for i in 0..<160 { buffer.floatChannelData![0][i] = Float(Int16(bitPattern: UInt16(bytes[i * 2]) | UInt16(bytes[i * 2 + 1]) << 8)) / 32768 }
+        for i in 0..<V2PCM.frameSamples { buffer.floatChannelData![0][i] = Float(Int16(bitPattern: UInt16(bytes[i * 2]) | UInt16(bytes[i * 2 + 1]) << 8)) / 32768 }
         let stamp = generation
         metrics.queuedPlayback += 1
-        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+        player.scheduleBuffer(buffer, completionCallbackType: .dataRendered) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.generation == stamp, self.playbackWindow.complete(playbackStamp) else { return }
                 self.metrics.queuedPlayback = self.playbackWindow.pending; self.metrics.rendered += 1
+                if self.playbackWindow.pending == 0 { self.player?.pause() }
             }
         }
-        if !player.isPlaying, metrics.queuedPlayback >= 2 { player.play() }
+        if !player.isPlaying, playbackWindow.pending >= V2PlaybackWindow.startDepth { player.play() }
         return true
     }
     func setMuted(_ value: Bool) { capture?.setMuted(value) }

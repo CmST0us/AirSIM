@@ -46,7 +46,7 @@ struct V2PCMEnergySummary: Equatable {
     private var energy: Double = 0
     var rms: Double { samples == 0 ? 0 : sqrt(energy / Double(samples)) }
     mutating func record(_ pcm: Data) {
-        guard pcm.count == 320 else { return }
+        guard pcm.count == V2PCM.frameBytes else { return }
         var framePeak = 0
         pcm.withUnsafeBytes { bytes in
             let bytes = bytes.bindMemory(to: UInt8.self)
@@ -56,7 +56,7 @@ struct V2PCMEnergySummary: Equatable {
                 energy += Double(sample) * Double(sample)
             }
         }
-        frames += 1; samples += 160
+        frames += 1; samples += UInt64(V2PCM.frameSamples)
         if framePeak > 0 { nonzeroFrames += 1 }
         peak = max(peak, framePeak)
     }
@@ -105,7 +105,7 @@ final class V2DiagnosticAudio {
 #endif
     }
     func receive(_ pcm: Data, at now: UInt64) {
-        guard deadline != nil, pcm.count == 320 else { return }
+        guard deadline != nil, pcm.count == V2PCM.frameBytes else { return }
 #if DEBUG
         receivedEnergy.record(pcm)
 #endif
@@ -131,7 +131,7 @@ final class V2DiagnosticAudio {
 #endif
             return first.1
         }
-        zeroFrames += 1; return Data(repeating: 0, count: 320)
+        zeroFrames += 1; return Data(repeating: 0, count: V2PCM.frameBytes)
     }
     private func discardExpired(at now: UInt64) {
         while let first = echoes.first, now > first.0, now - first.0 > 500_000_000 { echoes.removeFirst(); echoDrops += 1 }

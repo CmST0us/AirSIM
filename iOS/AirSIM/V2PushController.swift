@@ -405,8 +405,11 @@ extension V2PushController: PKPushRegistryDelegate {
                     if let error {
                         self.recordIncomingDiagnostic("callkit_rejected:\((error as NSError).code)")
                         switch error as? CallKitBridgeError {
-                        case .unavailable, .callInProgress:
+                        case .unavailable:
                             ExpiredLegacyPushReporter.shared.report(reason: "v2_report_unavailable", completion: completion)
+                        case .callInProgress:
+                            // 已有系统通话在进行，满足 PushKit 上报要求，不再插入占位来电。
+                            completion()
                         default:
                             completion()
                         }

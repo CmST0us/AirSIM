@@ -39,7 +39,12 @@ final class V2URLMediaSocket: NSObject, V2MediaSocket, URLSessionWebSocketDelega
                 Task { @MainActor in
                     guard let self, let socket, self.socket === socket, let pending = self.writing else { return }
                     self.writing = nil
-                    if let error { pending.resume(throwing: error) } else { pending.resume() }
+                    if let error {
+#if DEBUG
+                        self.logSocket(event: "socketSendFailure", task: socket, error: error)
+#endif
+                        pending.resume(throwing: error)
+                    } else { pending.resume() }
                 }
             }
         }
@@ -51,12 +56,18 @@ final class V2URLMediaSocket: NSObject, V2MediaSocket, URLSessionWebSocketDelega
             socket.receive { [weak self, weak socket] result in
                 Task { @MainActor in
                     guard let self, let socket, self.socket === socket, let pending = self.reading else { return }
+#if DEBUG
+                    if case .failure(let error) = result { self.logSocket(event: "socketReceiveFailure", task: socket, error: error) }
+#endif
                     self.reading = nil; pending.resume(with: result)
                 }
             }
         }
     }
     func cancel() {
+#if DEBUG
+        if let socket { logSocket(event: "socketLocalCancel", task: socket, error: nil) }
+#endif
         socket?.cancel(with: .goingAway, reason: nil); socket = nil
         session?.invalidateAndCancel(); session = nil
         let open = opening, write = writing, read = reading
@@ -70,11 +81,28 @@ final class V2URLMediaSocket: NSObject, V2MediaSocket, URLSessionWebSocketDelega
         }
     }
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        Task { @MainActor in if socket === task { cancel() } }
+        Task { @MainActor in
+#if DEBUG
+            logSocket(event: "socketCompleted", task: task, error: error)
+#endif
+            if socket === task { cancel() }
+        }
     }
     nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        Task { @MainActor in if socket === webSocketTask { cancel() } }
+        Task { @MainActor in
+#if DEBUG
+            NSLog("[AirSIM Media] stage=socketClosed current=%d closeCode=%ld taskState=%ld", socket === webSocketTask ? 1 : 0, closeCode.rawValue, webSocketTask.state.rawValue)
+#endif
+            if socket === webSocketTask { cancel() }
+        }
     }
+#if DEBUG
+    private func logSocket(event: String, task: URLSessionTask, error: Error?) {
+        let failure = error.map { V2MediaFailureDiagnostic(error: $0, stage: .receiving, downlinkAgeMilliseconds: nil) }
+        let closeCode = (task as? URLSessionWebSocketTask)?.closeCode.rawValue ?? 0
+        NSLog("[AirSIM Media] stage=%@ current=%d taskState=%ld closeCode=%ld errorPresent=%d code=%@ numericPresent=%d numeric=%ld", event, socket === task ? 1 : 0, task.state.rawValue, closeCode, error != nil ? 1 : 0, failure?.code.rawValue ?? "none", failure?.numericCode != nil ? 1 : 0, failure?.numericCode ?? 0)
+    }
+#endif
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
 }
 

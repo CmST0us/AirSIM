@@ -81,6 +81,22 @@
 		A91000000000000000000006 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000006 /* OFL.txt */; };
 		A91000000000000000000009 /* A1CardsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000009 /* A1CardsView.swift */; };
 		A91000000000000000000010 /* A1CallStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000010 /* A1CallStateTests.swift */; };
+		A1C300000000000000000001 /* V2LC3Codec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000001 /* V2LC3Codec.swift */; };
+		A1C300000000000000000002 /* attdet.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000002 /* attdet.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C300000000000000000003 /* bits.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000003 /* bits.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C300000000000000000004 /* bwdet.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000004 /* bwdet.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C300000000000000000005 /* energy.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000005 /* energy.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C300000000000000000006 /* lc3.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000006 /* lc3.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C300000000000000000007 /* ltpf.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000007 /* ltpf.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C300000000000000000008 /* mdct.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000008 /* mdct.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C300000000000000000009 /* plc.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000009 /* plc.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C30000000000000000000A /* sns.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C30000000000000000000A /* sns.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C30000000000000000000B /* spec.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C30000000000000000000B /* spec.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C30000000000000000000C /* tables.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C30000000000000000000C /* tables.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C30000000000000000000D /* tns.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C30000000000000000000D /* tns.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C30000000000000000000E /* airsim_lc3.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C30000000000000000000E /* airsim_lc3.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
+		A1C3000000000000000000F0 /* LC3-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B1C3000000000000000000F0 /* LC3-LICENSE.txt */; };
+		A1C3000000000000000000F1 /* interop.json in Resources */ = {isa = PBXBuildFile; fileRef = B1C3000000000000000000F1 /* interop.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -217,6 +233,22 @@
 		B91000000000000000000006 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/OFL.txt"; sourceTree = "<group>"; };
 		B91000000000000000000009 /* A1CardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1CardsView.swift"; sourceTree = "<group>"; };
 		B91000000000000000000010 /* A1CallStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1CallStateTests.swift"; sourceTree = "<group>"; };
+		B1C300000000000000000001 /* V2LC3Codec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AirSIM/CloudV2/V2LC3Codec.swift"; sourceTree = SOURCE_ROOT; };
+		B1C300000000000000000002 /* attdet.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/attdet.c"; sourceTree = SOURCE_ROOT; };
+		B1C300000000000000000003 /* bits.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/bits.c"; sourceTree = SOURCE_ROOT; };
+		B1C300000000000000000004 /* bwdet.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/bwdet.c"; sourceTree = SOURCE_ROOT; };
+		B1C300000000000000000005 /* energy.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/energy.c"; sourceTree = SOURCE_ROOT; };
+		B1C300000000000000000006 /* lc3.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/lc3.c"; sourceTree = SOURCE_ROOT; };
+		B1C300000000000000000007 /* ltpf.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/ltpf.c"; sourceTree = SOURCE_ROOT; };
+		B1C300000000000000000008 /* mdct.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/mdct.c"; sourceTree = SOURCE_ROOT; };
+		B1C300000000000000000009 /* plc.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/plc.c"; sourceTree = SOURCE_ROOT; };
+		B1C30000000000000000000A /* sns.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/sns.c"; sourceTree = SOURCE_ROOT; };
+		B1C30000000000000000000B /* spec.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/spec.c"; sourceTree = SOURCE_ROOT; };
+		B1C30000000000000000000C /* tables.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/tables.c"; sourceTree = SOURCE_ROOT; };
+		B1C30000000000000000000D /* tns.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/tns.c"; sourceTree = SOURCE_ROOT; };
+		B1C30000000000000000000E /* airsim_lc3.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../shared/lc3/airsim_lc3.c"; sourceTree = SOURCE_ROOT; };
+		B1C3000000000000000000F0 /* LC3-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "AirSIM/Resources/LC3-LICENSE.txt"; sourceTree = SOURCE_ROOT; };
+		B1C3000000000000000000F1 /* interop.json */ = {isa = PBXFileReference; lastKnownFileType = text; path = "../shared/lc3/tests/interop.json"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -274,6 +306,21 @@
 		D10000000000000000000002 /* AirSIM */ = {
 			isa = PBXGroup;
 			children = (
+                B1C3000000000000000000F0 /* LC3-LICENSE.txt */,
+				B1C300000000000000000001 /* V2LC3Codec.swift */,
+				B1C300000000000000000002 /* attdet.c */,
+				B1C300000000000000000003 /* bits.c */,
+				B1C300000000000000000004 /* bwdet.c */,
+				B1C300000000000000000005 /* energy.c */,
+				B1C300000000000000000006 /* lc3.c */,
+				B1C300000000000000000007 /* ltpf.c */,
+				B1C300000000000000000008 /* mdct.c */,
+				B1C300000000000000000009 /* plc.c */,
+				B1C30000000000000000000A /* sns.c */,
+				B1C30000000000000000000B /* spec.c */,
+				B1C30000000000000000000C /* tables.c */,
+				B1C30000000000000000000D /* tns.c */,
+				B1C30000000000000000000E /* airsim_lc3.c */,
 				B50000000000000000000001 /* V2Client.swift */,
  B5B000000000000000000001 /* V2USB.swift */,
 				B50000000000000000000002 /* V2Commands.swift */,
@@ -370,6 +417,7 @@
 		D30000000000000000000001 /* AirSIMTests */ = {
 			isa = PBXGroup;
 			children = (
+                B1C3000000000000000000F1 /* interop.json */,
 				B500000000000000000000FF /* CloudV2Tests.swift */,
 				B30000000000000000000001 /* AirSIMTests.swift */,
 			);
@@ -540,6 +588,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                A1C3000000000000000000F0 /* LC3-LICENSE.txt in Resources */,
 				A91000000000000000000004 /* Assets.xcassets in Resources */,
 				A91000000000000000000005 /* NotoSansSC-VF.ttf in Resources */,
 				A91000000000000000000006 /* OFL.txt in Resources */,
@@ -558,6 +607,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                A1C3000000000000000000F1 /* interop.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -583,6 +633,20 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1C300000000000000000001 /* V2LC3Codec.swift in Sources */,
+				A1C300000000000000000002 /* attdet.c in Sources */,
+				A1C300000000000000000003 /* bits.c in Sources */,
+				A1C300000000000000000004 /* bwdet.c in Sources */,
+				A1C300000000000000000005 /* energy.c in Sources */,
+				A1C300000000000000000006 /* lc3.c in Sources */,
+				A1C300000000000000000007 /* ltpf.c in Sources */,
+				A1C300000000000000000008 /* mdct.c in Sources */,
+				A1C300000000000000000009 /* plc.c in Sources */,
+				A1C30000000000000000000A /* sns.c in Sources */,
+				A1C30000000000000000000B /* spec.c in Sources */,
+				A1C30000000000000000000C /* tables.c in Sources */,
+				A1C30000000000000000000D /* tns.c in Sources */,
+				A1C30000000000000000000E /* airsim_lc3.c in Sources */,
 				A50000000000000000000001 /* V2Client.swift in Sources */,
  A5B000000000000000000001 /* V2USB.swift in Sources */,
 				A50000000000000000000002 /* V2Commands.swift in Sources */,
@@ -750,6 +814,8 @@
 				AIRSIM_V2_PAIRING_ORIGIN = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "AirSIM/Info.plist";
+                SWIFT_OBJC_BRIDGING_HEADER = "AirSIM/AirSIM-Bridging-Header.h";
+                HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../shared/lc3", "$(SRCROOT)/../third_party/liblc3/include", "$(SRCROOT)/../third_party/liblc3/src");
 				IPHONEOS_DEPLOYMENT_TARGET = 16.3;
 				MARKETING_VERSION = 0.9.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eric3u.airsim2;
@@ -777,6 +843,8 @@
 				AIRSIM_V2_PAIRING_ORIGIN = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "AirSIM/Info.plist";
+                SWIFT_OBJC_BRIDGING_HEADER = "AirSIM/AirSIM-Bridging-Header.h";
+                HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../shared/lc3", "$(SRCROOT)/../third_party/liblc3/include", "$(SRCROOT)/../third_party/liblc3/src");
 				IPHONEOS_DEPLOYMENT_TARGET = 16.3;
 				MARKETING_VERSION = 0.9.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eric3u.airsim2;

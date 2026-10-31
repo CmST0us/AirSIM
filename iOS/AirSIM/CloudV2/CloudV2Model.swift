@@ -48,6 +48,9 @@ final class CloudV2Model: ObservableObject {
     private var runtimeCallCommandID: String?
     private var newlyOwnedCall: V2CallContext?
     private var attemptedAudioCall: V2CallContext?
+#if DEBUG
+    private var lastMediaEligibilityLog: String?
+#endif
 
     @Published private(set) var foreground = false
     @Published private(set) var notificationPermission: UNAuthorizationStatus = .notDetermined
@@ -65,15 +68,17 @@ final class CloudV2Model: ObservableObject {
     private let configurationStore: V2ConfigurationStore
     private let historyFile: V2ProtectedFile<V2History>
     private var historyDirty = false
+    private let pushController: V2PushController?
     private let defaults: UserDefaults
     private let now: () -> Date
     private enum PollLane: CaseIterable {
-        case snapshot, messages, directory
+        case snapshot, messages, directory, commands
         var title: String {
             switch self {
             case .snapshot: return "通话状态"
             case .messages: return "短信"
             case .directory: return "模块列表"
+            case .commands: return "命令回执"
             }
         }
     }
@@ -99,9 +104,10 @@ final class CloudV2Model: ObservableObject {
         tokens: V2TokenStore = V2KeychainTokenStore(),
         pairings: V2PairingStore? = nil,
         pairingClient: V2PairingClient? = nil,
+        pushController: V2PushController? = .shared,
         now: @escaping () -> Date = Date.init
     ) {
-        self.defaults = defaults; self.now = now
+        self.defaults = defaults; self.now = now; self.pushController = pushController
         // Injected token stores are test or embedded hosts; they must also inject
         // the matching pairing store instead of sharing another app's Keychain.
         let activePairings = pairings ?? (tokens is V2KeychainTokenStore ? V2KeychainPairingStore() : nil)
@@ -154,7 +160,7 @@ final class CloudV2Model: ObservableObject {
         media.useCallKitAudioSession()
         systemCalls = V2SystemCallController(model: self, calls: calls ?? CallKitController.shared, associationTimeout: associationTimeout, endAssociationTimeout: endAssociationTimeout)
         systemCalls?.start()
-        V2PushController.shared.attach(self)
+        self.pushController?.attach(self)
     }
     var isV2Runtime: Bool { true }
     var notificationPermissionText: String {
@@ -193,21 +199,21 @@ final class CloudV2Model: ObservableObject {
         }
         guard !initialPermissionsRequested else {
             await refreshPermissionPresentation()
-            V2PushController.shared.start(model: self)
+            self.pushController?.start(model: self)
             return
         }
         initialPermissionsRequested = true
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            V2PushController.shared.attach(self)
-            V2PushController.shared.start(model: self)
-            notificationPermission = await V2PushController.shared.requestNotificationPermission()
+            self.pushController?.attach(self)
+            self.pushController?.start(model: self)
+            notificationPermission = await self.pushController?.requestNotificationPermission() ?? .notDetermined
             if Self.microphonePermissionIsUndetermined {
                 _ = await Self.requestMicrophonePermission()
             }
             await Self.requestContactsPermissionIfNeeded()
             await refreshPermissionPresentation()
-            V2PushController.shared.requestRegistrationSync()
+            self.pushController?.requestRegistrationSync()
         }
         permissionTask = task
         await task.value
@@ -384,7 +390,7 @@ final class CloudV2Model: ObservableObject {
         selectedModuleID = moduleID; snapshot = nil; messagesResponse = nil
         number = ""; smsNumber = ""; smsText = ""; tones = ""
         if persistSelection, let configuration { defaults.set(moduleID, forKey: V2LocalPaths.selectionKey(configuration.identity)) }
-        V2PushController.shared.requestRegistrationSync()
+        self.pushController?.requestRegistrationSync()
         if foreground && connected { startPolling() }
     }
     func importFile(_ url: URL) async {
@@ -398,8 +404,8 @@ final class CloudV2Model: ObservableObject {
             configuration = try configurationStore.importConfiguration(data, now: now())
             selectedModuleID = defaults.string(forKey: V2LocalPaths.selectionKey(imported.configuration.identity))
             modules = []; snapshot = nil; messagesResponse = nil
-            V2PushController.shared.attach(self)
-            V2PushController.shared.requestRegistrationSync()
+            self.pushController?.attach(self)
+            self.pushController?.requestRegistrationSync()
             if foreground { await connect() }
         } catch { self.error = "无法导入连接配置，请确认文件有效且未过期。" }
     }
@@ -431,8 +437,8 @@ final class CloudV2Model: ObservableObject {
             modules = []; snapshot = nil; messagesResponse = nil
             number = ""; smsNumber = ""; smsText = ""; tones = ""
             error = nil
-            V2PushController.shared.attach(self)
-            V2PushController.shared.requestRegistrationSync()
+            self.pushController?.attach(self)
+            self.pushController?.requestRegistrationSync()
             if foreground { await connect() }
             return true
         } catch {
@@ -527,9 +533,9 @@ final class CloudV2Model: ObservableObject {
                 self.discovery = result; self.connected = true; self.syncStatus = nil
                 _ = self.connectionBackoff.succeeded()
                 self.debugLog("connected profile=\(result.profile)")
-                V2PushController.shared.attach(self)
-                V2PushController.shared.start(model: self)
-                V2PushController.shared.requestRegistrationSync()
+                self.pushController?.attach(self)
+                self.pushController?.start(model: self)
+                self.pushController?.requestRegistrationSync()
                 self.startPolling()
             } catch {
                 guard self.connectionEpoch == stamp, !Task.isCancelled else { return }
@@ -600,7 +606,7 @@ final class CloudV2Model: ObservableObject {
         switch phase {
         case .active:
             foreground = true
-            V2PushController.shared.start(model: self)
+            self.pushController?.start(model: self)
             Task { await refreshPermissionPresentation() }
             if pollingInvalidated { await cancelPolling() }
             guard foreground else { return }
@@ -620,7 +626,7 @@ final class CloudV2Model: ObservableObject {
         let stamp = generation, module = selectedModuleID
         pollingInvalidated = false
         pollFailures.removeAll()
-        for lane in PollLane.allCases where foreground || lane == .snapshot {
+        for lane in PollLane.allCases where foreground || lane == .snapshot || lane == .commands {
             pollTasks[lane] = Task { [weak self] in
                 guard let self else { return }
                 var backoff = V2PollBackoff()
@@ -648,9 +654,6 @@ final class CloudV2Model: ObservableObject {
                                 try self.consumeSnapshot(snapshot)
                                 self.updateMediaEligibility()
                                 self.systemCalls?.observeSnapshot()
-                                if !self.foreground, self.machine?.pending != nil, !self.busy {
-                                    try await self.machine?.recover(); try self.finishResolvedCommand()
-                                }
                             }
                         case .messages:
                             if let module {
@@ -659,10 +662,18 @@ final class CloudV2Model: ObservableObject {
                                 self.messagesResponse = messages
                                 try self.consumeMessages(messages)
                             }
+                        case .commands:
                             if self.machine?.pending != nil, !self.busy {
+#if DEBUG
+                                NSLog("[AirSIM Media] stage=commandRecoveryStart")
+#endif
                                 try await self.machine?.recover()
                                 guard self.acceptsPoll(stamp, module: module) else { return }
                                 try self.finishResolvedCommand()
+#if DEBUG
+                                NSLog("[AirSIM Media] stage=commandRecoveryFinished pending=%d owned=%d", self.machine?.pending != nil ? 1 : 0, self.ownedCall != nil ? 1 : 0)
+#endif
+                                self.updateMediaEligibility()
                             }
                         }
                         guard self.acceptsPoll(stamp, module: module) else { return }
@@ -703,13 +714,22 @@ final class CloudV2Model: ObservableObject {
            snapshot.calls.calls.contains(where: { $0.call_id == pending.callID && $0.state == "disconnected" }) {
             if case .receipt = machine?.phase { try machine?.acknowledgeResolved() }
         }
+        if let context = ownedCall, context.binding.identity == config.identity,
+           context.binding.moduleID == response.module_id,
+           let module = selectedModule, module.module_id == response.module_id,
+           let fresh = try? response.controlBinding(configuration: config, module: module, now: now(), usbLocal: client.usingUSB),
+           fresh.bootID != context.binding.bootID || fresh.backendEpoch != context.binding.backendEpoch {
+            // A verified new module runtime cannot own the previous runtime's call.
+            try machine?.clearOwnedCall()
+            newlyOwnedCall = nil; attemptedAudioCall = nil
+        }
         guard let context = ownedCall, context.binding.identity == config.identity,
               context.binding.moduleID == response.module_id, response.online,
               response.connection_epoch == context.binding.connectionEpoch,
               snapshot.agent_boot_id == context.binding.bootID, snapshot.backend_epoch == context.binding.backendEpoch,
               (-3...8).contains(now().timeIntervalSince(snapshot.observedAt)),
               let call = snapshot.calls.calls.first(where: { $0.call_id == context.callID }) else { return }
-        if call.state == "disconnected" { try machine?.clearDisconnectedOwnedCall() }
+        if call.state == "disconnected" { try machine?.clearOwnedCall() }
         else { try client.restoreOwnership(context, snapshot: response) }
     }
     private func consumeMessages(_ response: V2MessagesResponse) throws {
@@ -785,6 +805,11 @@ final class CloudV2Model: ObservableObject {
     }
     @discardableResult
     private func perform(action: String, args: [String: String], expectedBinding: V2ControlBinding? = nil, submitted: ((V2SystemCommandSubmission) -> Void)? = nil) async -> Bool {
+#if DEBUG
+        if action.hasPrefix("call.") {
+            V2DebugTrace.record("perform \(action) canAct=\(canAct) busy=\(busy) unresolved=\(hasUnresolvedCommand) persistence=\(!persistenceFailed) foreground=\(foreground) systemCall=\(systemCalls?.hasSystemCall == true) fresh=\(freshBinding != nil) telephony=\(telephonyReady) expectedMatches=\(expectedBinding == nil || expectedBinding == freshBinding)")
+        }
+#endif
         guard canAct, let machine else { return false }
         guard foreground || (systemCalls?.hasSystemCall == true && ["call.answer", "call.hangup", "call.dtmf"].contains(action) && args["call_id"] == (ownedCall?.callID ?? systemCalls?.currentCallID)) else { return false }
         let binding: V2ControlBinding
@@ -801,7 +826,13 @@ final class CloudV2Model: ObservableObject {
             let command = try V2Command(binding: binding, action: action, args: args, now: now())
             if action == "call.dial" || action == "call.answer" { runtimeCallCommandID = command.command_id }
             submitted?(V2SystemCommandSubmission(commandID: command.command_id, binding: binding, outcome: .pending))
+#if DEBUG
+            NSLog("[AirSIM Media] stage=commandSubmitStart callCommand=%d", ["call.dial", "call.answer"].contains(action) ? 1 : 0)
+#endif
             try await machine.submit(command, binding: binding)
+#if DEBUG
+            NSLog("[AirSIM Media] stage=commandSubmitFinished pending=%d owned=%d", machine.pending != nil ? 1 : 0, machine.ownedCall != nil ? 1 : 0)
+#endif
             let succeeded: Bool
             if case let .receipt(server, state) = machine.phase { succeeded = server == "completed" && ["accepted", "observed"].contains(state) }
             else { succeeded = false }
@@ -811,6 +842,9 @@ final class CloudV2Model: ObservableObject {
             }
             return succeeded
         } catch {
+#if DEBUG
+            V2DebugTrace.record("performFailed \(action) error=\(String(describing: type(of: error))) status=\((error as? V2HTTPFailure).map { String($0.status) } ?? "-") code=\((error as? V2Error)?.rawValue ?? "-") pending=\(machine.pending != nil)")
+#endif
             if submitted != nil, machine.pending == nil { systemSubmission?.outcome = .failed }
             if machine.pending == nil {
                 self.error = "操作未成功，请核对连接与模块能力后重试。"
@@ -873,8 +907,8 @@ final class CloudV2Model: ObservableObject {
             do {
                 try await audio.prepare(microphone: true)
                 var pcm = Data()
-                for i in 0..<160 {
-                    let sample = Int16(sin(Double(i) * 2 * .pi * 400 / 8000) * 1200)
+                for i in 0..<V2PCM.frameSamples {
+                    let sample = Int16(sin(Double(i) * 2 * .pi * 400 / V2PCM.sampleRate) * 1200)
                     pcm.append(UInt8(truncatingIfNeeded: sample)); pcm.append(UInt8(truncatingIfNeeded: sample >> 8))
                 }
                 let deadline = DispatchTime.now().uptimeNanoseconds + 3_000_000_000
@@ -906,7 +940,19 @@ final class CloudV2Model: ObservableObject {
               activeCall?.state == "active" else { return false }
         return true
     }
+#if DEBUG
+    private func logMediaEligibility() {
+        guard activeCall != nil else { lastMediaEligibilityLog = nil; return }
+        let fields = "experimental=\(experimentalAudio) foreground=\(foreground) systemBinding=\(systemBinding != nil) systemCalls=\(systemCalls != nil) systemAudio=\(systemAudioActive) ownedReady=\(ownedControlReady) capability=\(discovery?.capabilities.experimental_audio == true) available=\(snapshot?.snapshot?.audio.available == true) activeCall=\(activeCall?.state == "active") owned=\(ownedCall != nil) newlyOwned=\(ownedCall != nil && newlyOwnedCall == ownedCall) attempted=\(ownedCall != nil && attemptedAudioCall == ownedCall) mediaActive=\(media.active)"
+        guard fields != lastMediaEligibilityLog else { return }
+        lastMediaEligibilityLog = fields
+        NSLog("[AirSIM Media] stage=eligibility %@", fields)
+    }
+#endif
     private func updateMediaEligibility() {
+#if DEBUG
+        logMediaEligibility()
+#endif
         if media.active, (!audioReady || media.context != ownedCall) {
             media.requestStop(); return
         }
@@ -914,7 +960,18 @@ final class CloudV2Model: ObservableObject {
         connectAudio()
     }
     func connectAudio() {
-        guard audioReady, let ownedCall, !media.active else { return }
+#if DEBUG
+        logMediaEligibility()
+#endif
+        guard audioReady, let ownedCall, !media.active else {
+#if DEBUG
+            NSLog("[AirSIM Media] stage=connectSkipped ready=%d owned=%d mediaActive=%d", audioReady ? 1 : 0, self.ownedCall != nil ? 1 : 0, media.active ? 1 : 0)
+#endif
+            return
+        }
+#if DEBUG
+        NSLog("[AirSIM Media] stage=connectStart")
+#endif
         attemptedAudioCall = ownedCall
         lastEligibilityFailure = nil
         media.start(context: ownedCall, diagnosticMode: diagnosticAudio) { [weak self] in

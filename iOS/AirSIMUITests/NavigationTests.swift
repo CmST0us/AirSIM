@@ -314,7 +314,7 @@ final class RealRuntimeDiagnosticTests: XCTestCase {
         let predicate = NSPredicate(format: "label IN %@", ["接听", "接受", "Answer", "Accept"])
         print("AIRSIM_INCOMING_TEST_READY")
         if backgroundCall { sleep(20) }
-        let deadline = Date().addingTimeInterval(180)
+        let deadline = Date().addingTimeInterval(600)
         var answer: XCUIElement?
         while Date() < deadline, answer == nil {
             for surface in surfaces {
@@ -329,7 +329,7 @@ final class RealRuntimeDiagnosticTests: XCTestCase {
             XCTAssertTrue(incomingAnswer.exists && incomingAnswer.isHittable, "System incoming call disappeared before answering")
         }
         incomingAnswer.tap()
-        sleep(20)
+        sleep(40)
         app.activate()
         let end = app.buttons["挂断"]
         if end.waitForExistence(timeout: 5) { end.tap() }
