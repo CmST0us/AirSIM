@@ -34,6 +34,7 @@ type peer struct {
 	conn                         *websocket.Conn
 	module, epoch, boot, backend string
 	platform                     string
+	mediaCodec                   string
 	ctx                          context.Context
 	cancel                       context.CancelFunc
 	queue                        chan Envelope
@@ -138,19 +139,13 @@ func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 	typ, b, e := c.Read(ctx)
 	cancel()
 	var env Envelope
-	var hello struct {
-		Boot     string `json:"agent_boot_id"`
-		Backend  string `json:"backend_epoch"`
-		Version  string `json:"agent_version"`
-		Platform string `json:"platform,omitempty"`
-		USBLocal bool   `json:"usb_local,omitempty"`
-	}
-	if e != nil || typ != websocket.MessageText || wire.Decode(b, &env, "type", "protocol_version", "module_id", "connection_epoch", "sequence", "payload") != nil || env.Type != "hello" || env.Version != 2 || env.Module != module || env.Epoch != "" || env.Sequence != 1 || wire.Decode(env.Payload, &hello, "agent_boot_id", "backend_epoch", "agent_version") != nil || !wire.UUID.MatchString(hello.Boot) || (hello.Backend != "" && !wire.UUID.MatchString(hello.Backend)) {
+	var hello agentHello
+	if e != nil || typ != websocket.MessageText || wire.Decode(b, &env, "type", "protocol_version", "module_id", "connection_epoch", "sequence", "payload") != nil || env.Type != "hello" || env.Version != 2 || env.Module != module || env.Epoch != "" || env.Sequence != 1 || !decodeAgentHello(env.Payload, &hello) {
 		return
 	}
 	ctx, cancel = context.WithDeadline(r.Context(), certificateExpiry)
 	defer cancel()
-	p := &peer{conn: c, module: module, epoch: wire.ID(), boot: hello.Boot, backend: hello.Backend, platform: hello.Platform, usbLocal: hello.USBLocal, ctx: ctx, cancel: cancel, queue: make(chan Envelope, 32), last: time.Now()}
+	p := &peer{conn: c, module: module, epoch: wire.ID(), boot: hello.Boot, backend: hello.Backend, platform: hello.Platform, mediaCodec: hello.MediaCodec, usbLocal: hello.USBLocal, ctx: ctx, cancel: cancel, queue: make(chan Envelope, 32), last: time.Now()}
 	s.mu.Lock()
 	if old := s.peers[module]; old != nil {
 		for _, m := range s.sessions {
@@ -351,4 +346,17 @@ func Secret(path string) (string, error) {
 		return "", wire.ErrInvalid
 	}
 	return v, nil
+}
+
+type agentHello struct {
+	Boot       string `json:"agent_boot_id"`
+	Backend    string `json:"backend_epoch"`
+	Version    string `json:"agent_version"`
+	Platform   string `json:"platform,omitempty"`
+	USBLocal   bool   `json:"usb_local,omitempty"`
+	MediaCodec string `json:"media_codec,omitempty"`
+}
+
+func decodeAgentHello(payload []byte, hello *agentHello) bool {
+	return wire.Decode(payload, hello, "agent_boot_id", "backend_epoch", "agent_version") == nil && wire.UUID.MatchString(hello.Boot) && (hello.Backend == "" || wire.UUID.MatchString(hello.Backend)) && (hello.MediaCodec == "" || hello.MediaCodec == "lc3")
 }

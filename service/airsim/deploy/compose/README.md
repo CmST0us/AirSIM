@@ -25,6 +25,8 @@ Create a new deployment directory and external protected directory (0700, owner 
 
 API and device hostnames must differ. `AIRSIM_MEDIA_ORIGIN` may equal the API origin, or use a third hostname. The production renderer serves the pairing page and assets on the API host, directs `/v2/pairing`, `/v2/client-sessions/refresh`, `/v2/media`, discovery and module APIs to their existing services, and routes real device control only through the separate device mTLS host. The edge has its own ordinary ingress/ACME-egress network; database/control/media networks remain internal with no published ports.
 
+Use a DNS-only record for the media hostname so real-time WebSocket frames reach the edge directly with ordinary TLS certificate verification. The EG25 cellular path through the Cloudflare proxy reproduced frame timeouts; the same host and TLS identity connected directly to the origin sustained the full 20-second probe. See [LC3 network evidence](../../../../docs/LC3_AUDIO.md). If API and media share a hostname, this DNS choice applies to both. The device hostname remains separate because its entire TLS listener requires a module client certificate.
+
 ## Initialize on the authorized host
 
 After loading/validating images and exporting configuration, run the following from this directory. These are instructions, not evidence that ECS deployment has occurred.

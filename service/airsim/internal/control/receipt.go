@@ -75,8 +75,17 @@ func (s *Server) receipt(p *peer, b []byte) bool {
 	return tx.Commit(ctx) == nil
 }
 func (s *Server) releaseDisconnected(p *peer) {
+	now := time.Now()
+	snap := p.snapshot
+	if snap == nil || !snap.Control.Ready || !snap.Calls.Available || !wire.UUID.MatchString(snap.Boot) || !wire.UUID.MatchString(snap.Backend) || now.Sub(snap.Observed) > 8*time.Second || snap.Observed.After(now.Add(3*time.Second)) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(p.ctx, time.Second)
 	defer cancel()
+	// A confirmed new Agent/backend generation cannot retain the old call owner.
+	if _, err := s.db.Exec(ctx, "DELETE FROM reservations WHERE module_id=$1 AND (agent_boot_id<>$2 OR backend_epoch<>$3)", p.module, snap.Boot, snap.Backend); err != nil {
+		return
+	}
 	for _, c := range p.snapshot.Calls.Calls {
 		if c.State == "disconnected" {
 			_, _ = s.db.Exec(ctx, "DELETE FROM reservations WHERE module_id=$1 AND call_id=$2 AND agent_boot_id=$3 AND backend_epoch=$4", p.module, c.ID, p.boot, p.backend)

@@ -19,6 +19,8 @@ The same transport can install or update the persistent RM500U or EG25 QDC507 En
 
 An installed Engine that has not yet created its local sockets is shown as `Engine 正在启动`, with a recheck action. RM500U firmware can spend more than two minutes initializing its kernel random source, so absence of the socket during that window is not treated as a missing installation.
 
+LC3 Engine artifacts contain a matching Agent and native audio helper plus `LC3-LICENSE.txt`. Update the v2 App and both ECS control/media services in the same idle window; PCM-only media components cannot exchange LC3 frames. The codec profile and rollback requirements are documented in [LC3 audio](../../../docs/LC3_AUDIO.md).
+
 `src/pairing.ts` is the page-facing transport interface. The transport owns the polling secret in `sessionStorage`, while the view sees only the operation ID, device identity and eight-digit confirmation code. Wire behavior is frozen in [pairing](../../../protocol/v2/PAIRING.md). See [frontend notes](../../../docs/PAIRING_WEB_FRONTEND.md).
 
 The production build is served by the existing API-domain edge. `AIRSIM_WEB_DIR` points the Compose edge at the built `dist` directory. For a separate development API, set `VITE_AIRSIM_PAIRING_ORIGIN` only at build time; users never enter an address.

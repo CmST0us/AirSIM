@@ -267,9 +267,9 @@ export function validEngineManifest(value: unknown): value is EngineManifest {
     && typeof manifest.profile === 'string' && isPlatform(manifest.profile)
     && manifest.arch === platforms[manifest.profile].arch
     && (manifest.profile === 'rm500u-embedded' ? manifest.platform === undefined : Array.isArray(manifest.platform) && manifest.platform.length === 7 && manifest.platform.every(validEngineArtifact) && ['airsim_data11.ko', 'qdc507_aprv3.ko', 'qdc507_voice.ko', 'COPYING-GPL-2.0', 'MODULE-REPORT.md', 'airsim_data11.c', 'isrgrootx1.pem'].every(name => (manifest.platform as EngineArtifact[]).some(file => file.path === name)))
-    && Array.isArray(manifest.licenses) && manifest.licenses.length === 3
+    && Array.isArray(manifest.licenses) && manifest.licenses.length === 4
     && manifest.licenses.every(validEngineArtifact)
-    && ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md'].every(name => (manifest.licenses as EngineArtifact[]).some(file => file.path === name))
+    && ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'LC3-LICENSE.txt'].every(name => (manifest.licenses as EngineArtifact[]).some(file => file.path === name))
     && validEngineArtifact(manifest.agent)
     && validEngineArtifact(manifest.launcher)
     && validEngineArtifact(manifest.audio)

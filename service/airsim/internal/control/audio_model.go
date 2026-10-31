@@ -9,6 +9,9 @@ type PCMConfig struct {
 	BufferFrames uint32 `json:"buffer_frames"`
 }
 type HelperEvent struct {
+	Codec              string     `json:"codec,omitempty"`
+	CodecFrameUS       int        `json:"codec_frame_us,omitempty"`
+	CodecFrameBytes    int        `json:"codec_frame_bytes,omitempty"`
 	Type               string     `json:"type"`
 	Code               string     `json:"code,omitempty"`
 	SampleRate         uint32     `json:"sample_rate,omitempty"`

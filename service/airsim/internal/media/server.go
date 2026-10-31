@@ -2,11 +2,13 @@
 package media
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,18 +18,31 @@ import (
 	"github.com/coder/websocket"
 )
 
+type AudioFormat struct {
+	Codec           string `json:"codec"`
+	SampleRate      int    `json:"sample_rate"`
+	Channels        int    `json:"channels"`
+	SampleFormat    string `json:"sample_format"`
+	FrameSamples    int    `json:"frame_samples"`
+	CodecFrameUS    int    `json:"codec_frame_us"`
+	CodecFrameBytes int    `json:"codec_frame_bytes"`
+}
+
+const PacketBytes = 120
+
 type Spec struct {
-	ID         string    `json:"session_id"`
-	Module     string    `json:"module_id"`
-	Call       string    `json:"call_id"`
-	Boot       string    `json:"agent_boot_id"`
-	Backend    string    `json:"backend_epoch"`
-	Connection string    `json:"connection_epoch"`
-	Client     string    `json:"client_installation_id"`
-	Generation string    `json:"generation"`
-	AgentHash  string    `json:"agent_ticket_hash"`
-	ClientHash string    `json:"client_ticket_hash"`
-	Expires    time.Time `json:"expires_at"`
+	Format     AudioFormat `json:"format"`
+	ID         string      `json:"session_id"`
+	Module     string      `json:"module_id"`
+	Call       string      `json:"call_id"`
+	Boot       string      `json:"agent_boot_id"`
+	Backend    string      `json:"backend_epoch"`
+	Connection string      `json:"connection_epoch"`
+	Client     string      `json:"client_installation_id"`
+	Generation string      `json:"generation"`
+	AgentHash  string      `json:"agent_ticket_hash"`
+	ClientHash string      `json:"client_ticket_hash"`
+	Expires    time.Time   `json:"expires_at"`
 }
 type Stats struct {
 	State   string    `json:"state"`
@@ -39,6 +54,7 @@ type Stats struct {
 type session struct {
 	spec                    Spec
 	stats                   Stats
+	pairedAt                time.Time
 	renewed, created, first time.Time
 	peers                   [2]*websocket.Conn
 	used                    [2]bool
@@ -56,7 +72,7 @@ type Server struct {
 	handshakes chan struct{}
 }
 
-var Format = map[string]any{"sample_rate": 8000, "channels": 1, "sample_format": "s16le", "frame_samples": 160}
+var Format = AudioFormat{Codec: "lc3", SampleRate: 16000, Channels: 1, SampleFormat: "s16le", FrameSamples: 320, CodecFrameUS: 10000, CodecFrameBytes: 40}
 
 func New(token string) *Server {
 	return &Server{sessions: map[string]*session{}, token: token, handshakes: make(chan struct{}, 32)}
@@ -82,26 +98,30 @@ func (s *Server) Run(ctx context.Context) {
 			s.mu.Unlock()
 			return
 		case now := <-t.C:
-			s.mu.Lock()
-			for _, v := range s.sessions {
-				reason := ""
-				switch {
-				case now.Sub(v.renewed) > 3*time.Second:
-					reason = "lease_expired"
-				case now.Sub(v.created) >= 30*time.Minute:
-					reason = "duration_expired"
-				case v.stats.State != "paired" && now.After(v.spec.Expires):
-					reason = "ticket_expired"
-				case !v.first.IsZero() && v.stats.State != "paired" && now.Sub(v.first) > 5*time.Second:
-					reason = "pair_timeout"
-				case v.stats.State == "paired" && (now.Sub(v.last[0]) > 2*time.Second || now.Sub(v.last[1]) > 2*time.Second):
-					reason = "frame_timeout"
-				}
-				if reason != "" {
-					s.close(v, reason)
-				}
-			}
-			s.mu.Unlock()
+			s.expire(now)
+		}
+	}
+}
+
+func (s *Server) expire(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, v := range s.sessions {
+		reason := ""
+		switch {
+		case now.Sub(v.renewed) > 3*time.Second:
+			reason = "lease_expired"
+		case now.Sub(v.created) >= 30*time.Minute:
+			reason = "duration_expired"
+		case v.stats.State != "paired" && !now.Before(v.spec.Expires):
+			reason = "ticket_expired"
+		case !v.first.IsZero() && v.stats.State != "paired" && now.Sub(v.first) >= 20*time.Second:
+			reason = "pair_timeout"
+		case v.stats.State == "paired" && (now.Sub(v.last[0]) > 2*time.Second || now.Sub(v.last[1]) > 2*time.Second):
+			reason = "frame_timeout"
+		}
+		if reason != "" {
+			s.close(v, reason)
 		}
 	}
 }
@@ -111,6 +131,19 @@ func (s *Server) close(v *session, reason string) {
 	if v.stats.State == "closed" {
 		return
 	}
+	switch reason {
+	case "shutdown", "lease_expired", "duration_expired", "ticket_expired", "pair_timeout", "frame_timeout", "revoked", "write_failed", "write_timeout", "peer_closed", "invalid_frame":
+	default:
+		reason = "unknown"
+	}
+	now := time.Now()
+	age := func(at time.Time) int64 {
+		if at.IsZero() {
+			return -1
+		}
+		return now.Sub(at).Milliseconds()
+	}
+	log.Printf("media_closed reason=%s paired_ms=%d lease_age_ms=%d agent_frame_age_ms=%d client_frame_age_ms=%d agent_frames=%d client_frames=%d", reason, age(v.pairedAt), age(v.renewed), age(v.last[0]), age(v.last[1]), v.stats.Frames[0], v.stats.Frames[1])
 	v.stats.State = "closed"
 	v.stats.Reason = reason
 	v.cancel()
@@ -131,7 +164,7 @@ func (s *Server) internal(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimPrefix(r.URL.Path, "/internal/sessions")
 	if p == "" && r.Method == "POST" {
 		var spec Spec
-		if wire.Body(w, r, &spec, 4096, "session_id", "module_id", "call_id", "agent_boot_id", "backend_epoch", "connection_epoch", "client_installation_id", "generation", "agent_ticket_hash", "client_ticket_hash", "expires_at") != nil {
+		if wire.Body(w, r, &spec, 4096, "session_id", "module_id", "call_id", "agent_boot_id", "backend_epoch", "connection_epoch", "client_installation_id", "generation", "agent_ticket_hash", "client_ticket_hash", "expires_at", "format") != nil || spec.Format != Format {
 			wire.Error(w, 400, "invalid_parameters")
 			return
 		}
@@ -271,6 +304,7 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	if v.peers[0] != nil && v.peers[1] != nil && v.stats.State == "waiting" {
 		v.stats.State = "paired"
+		v.pairedAt = time.Now()
 		v.last = [2]time.Time{time.Now(), time.Now()}
 		close(v.paired)
 	}
@@ -281,10 +315,10 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 		return
 	case <-v.paired:
 	}
-	if write(c, v.ctx, map[string]any{"type": "paired", "session_id": auth.ID, "format": Format}, time.Second) != nil {
+	if write(c, v.ctx, map[string]any{"type": "paired", "session_id": auth.ID, "format": v.spec.Format}, time.Second) != nil {
 		return
 	}
-	c.SetReadLimit(360)
+	c.SetReadLimit(PacketBytes)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -351,7 +385,11 @@ func write(c *websocket.Conn, ctx context.Context, value any, d time.Duration) e
 	return c.Write(ctx, websocket.MessageText, b)
 }
 func ValidateFrame(b []byte, id string, direction byte, last uint64) (uint64, bool) {
-	if len(b) != 360 || string(b[:4]) != "ASMP" || b[4] != 1 || b[5] != direction || binary.LittleEndian.Uint16(b[6:8]) != 40 || binary.LittleEndian.Uint32(b[32:36]) != 320 || binary.LittleEndian.Uint32(b[36:40]) != 0 {
+	if len(b) != PacketBytes || string(b[:4]) != "ASMP" || b[4] != 2 || b[5] != direction || binary.LittleEndian.Uint16(b[6:8]) != 40 || binary.LittleEndian.Uint32(b[32:36]) != 80 {
+		return 0, false
+	}
+	flags := binary.LittleEndian.Uint32(b[36:40])
+	if flags > 1 || (flags == 1 && !bytes.Equal(b[40:], make([]byte, 80))) {
 		return 0, false
 	}
 	sid, e := hex.DecodeString(strings.ReplaceAll(id, "-", ""))

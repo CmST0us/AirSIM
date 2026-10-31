@@ -160,14 +160,15 @@ func (s *Server) mediaAPI(w http.ResponseWriter, r *http.Request, user, client, 
 		Request    string `json:"request_id"`
 		Connection string `json:"connection_epoch"`
 		Generation string `json:"generation"`
+		Codec      string `json:"codec"`
 	}
-	if wire.Body(w, r, &b, 8192, "request_id", "connection_epoch", "generation") != nil || !wire.UUID.MatchString(b.Request) || !wire.UUID.MatchString(b.Connection) || !wire.UUID.MatchString(b.Generation) {
+	if wire.Body(w, r, &b, 8192, "request_id", "connection_epoch", "generation", "codec") != nil || b.Codec != "lc3" || !wire.UUID.MatchString(b.Request) || !wire.UUID.MatchString(b.Connection) || !wire.UUID.MatchString(b.Generation) {
 		wire.Error(w, 400, "invalid_parameters")
 		return
 	}
 	s.mu.Lock()
 	if old := s.sessions[b.Request]; old != nil {
-		if old.Spec.Client != client || old.Spec.Module != module || old.Spec.Call != parts[2] || old.Spec.Connection != b.Connection || old.Spec.Generation != b.Generation {
+		if old.Spec.Client != client || old.Spec.Module != module || old.Spec.Call != parts[2] || old.Spec.Connection != b.Connection || old.Spec.Generation != b.Generation || old.Spec.Format.Codec != b.Codec {
 			s.mu.Unlock()
 			wire.Error(w, 409, "session_conflict")
 			return
@@ -198,6 +199,11 @@ func (s *Server) mediaAPI(w http.ResponseWriter, r *http.Request, user, client, 
 	if p == nil || p.snapshot == nil {
 		s.mu.Unlock()
 		wire.Error(w, 503, "module_offline")
+		return
+	}
+	if p.mediaCodec != "lc3" {
+		s.mu.Unlock()
+		wire.Error(w, 409, "media_unavailable")
 		return
 	}
 	if p.epoch != b.Connection {
@@ -248,7 +254,7 @@ func (s *Server) mediaAPI(w http.ResponseWriter, r *http.Request, user, client, 
 		return
 	}
 	m := &mediaSession{Request: b.Request, Ticket: wire.Token(), AgentTicket: wire.Token(), busy: true, ready: make(chan struct{})}
-	m.Spec = media.Spec{ID: wire.ID(), Module: module, Call: parts[2], Boot: p.boot, Backend: p.backend, Connection: p.epoch, Client: client, Generation: gen, AgentHash: wire.Hash(m.AgentTicket), ClientHash: wire.Hash(m.Ticket), Expires: time.Now().UTC().Add(30 * time.Second)}
+	m.Spec = media.Spec{Format: media.Format, ID: wire.ID(), Module: module, Call: parts[2], Boot: p.boot, Backend: p.backend, Connection: p.epoch, Client: client, Generation: gen, AgentHash: wire.Hash(m.AgentTicket), ClientHash: wire.Hash(m.Ticket), Expires: time.Now().UTC().Add(30 * time.Second)}
 	s.sessions[b.Request] = m
 	if e = tx.Commit(r.Context()); e != nil {
 		m.busy = false
@@ -289,7 +295,7 @@ func (s *Server) mediaAPI(w http.ResponseWriter, r *http.Request, user, client, 
 		wire.Error(w, 409, "call_conflict")
 		return
 	}
-	if !s.enqueue(p, "media_start", map[string]any{"request_id": m.Request, "session_id": m.Spec.ID, "call_id": m.Spec.Call, "agent_boot_id": m.Spec.Boot, "backend_epoch": m.Spec.Backend, "client_installation_id": client, "generation": gen, "ticket": m.AgentTicket, "expires_at": m.Spec.Expires}) {
+	if !s.enqueue(p, "media_start", map[string]any{"request_id": m.Request, "session_id": m.Spec.ID, "call_id": m.Spec.Call, "agent_boot_id": m.Spec.Boot, "backend_epoch": m.Spec.Backend, "client_installation_id": client, "generation": gen, "ticket": m.AgentTicket, "expires_at": m.Spec.Expires, "format": m.Spec.Format}) {
 		s.stopMedia(r.Context(), m, "control_closed")
 		s.mu.Unlock()
 		wire.Error(w, 503, "module_offline")
@@ -305,7 +311,7 @@ func (s *Server) mediaAPI(w http.ResponseWriter, r *http.Request, user, client, 
 	s.mu.Unlock()
 }
 func (s *Server) mediaResult(w http.ResponseWriter, status int, m *mediaSession) {
-	wire.JSON(w, status, map[string]any{"session_id": m.Spec.ID, "ticket": m.Ticket, "expires_at": m.Spec.Expires, "media_url": "wss" + strings.TrimPrefix(s.cfg.Media, "https") + "/v2/media", "format": media.Format})
+	wire.JSON(w, status, map[string]any{"session_id": m.Spec.ID, "ticket": m.Ticket, "expires_at": m.Spec.Expires, "media_url": "wss" + strings.TrimPrefix(s.cfg.Media, "https") + "/v2/media", "format": m.Spec.Format})
 }
 func (s *Server) Run(ctx context.Context) {
 	defer s.mediaHTTP.CloseIdleConnections()

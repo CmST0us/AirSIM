@@ -13,7 +13,7 @@ const manifest = {
   schema_version: 1, version: '2.0.0-dev.eg25', os: 'linux', arch: 'arm', profile: 'eg25-qdc507',
   agent: file('airsim-agent'), launcher: file('run-agent.sh'), audio: file('airsim-audiod'),
   platform: ['airsim_data11.ko', 'qdc507_aprv3.ko', 'qdc507_voice.ko', 'COPYING-GPL-2.0', 'MODULE-REPORT.md', 'airsim_data11.c', 'isrgrootx1.pem'].map(file),
-  licenses: ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md'].map(file),
+  licenses: ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'LC3-LICENSE.txt'].map(file),
 };
 describe('module platform selection', () => {
   it('recognizes the connected QDC507 firmware and rejects other ARMv7 firmware', () => {
