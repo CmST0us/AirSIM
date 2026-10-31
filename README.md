@@ -8,7 +8,7 @@
 
 模块信号由 Agent 采样，经 ECS 目录和快照或 USB 本地接口传入 App；所有模块名称和选择入口使用同一信号图标。离线、采样过期或未知信号显示不可用，蜂窝强度与云端连接状态分别处理。
 
-v2 音频采用固定 32 kbps LC3，由模块原生 helper 与 App 编解码，ECS 透传；每个 20 ms 包的音频载荷为 80 bytes，采样为 16 kHz 单声道。App、ECS control／media、Agent 与 helper 需配套更新。格式、构建、性能和实机验收边界见 [LC3 音频](docs/LC3_AUDIO.md)。
+v2 音频采用固定 32 kbps LC3，由模块原生 helper 与 App 编解码，ECS 透传；每个 20 ms 包的音频载荷为 80 bytes，采样为 16 kHz 单声道。App、ECS control／media、Agent 与 helper 需配套更新。EG25 经 ECS 与 iPad 的真实来电已实测宽带双向通话连贯；RM500 需通过网页安装器更新 Engine 后使用 16 kHz 媒体。格式、构建、性能和实机验收边界见 [LC3 音频](docs/LC3_AUDIO.md)。
 
 2026-10-31 已更新 EG25 Agent、ECS control 与 iPad App，并通过真实云端信号显示测试：App 显示 3 格，随后模块采样为 CSQ 18／−77 dBm。USB 直连的实体信号显示尚待验证。
 
@@ -248,7 +248,7 @@ xcodebuild -project iOS/AirSIM.xcodeproj -scheme AirSIM \
 
 ## 项目状态
 
-AirSIM 当前处于主动开发阶段。仓库已整合 Android Standalone、旧 AVF Agent / Installer、iOS / watchOS 与 Cloudflare Relay 源码，并提供本地自动化验证。Android Standalone 已在小米 HyperOS 真机完成默认电话角色、VoWLAN 配对和双向通话音频验证；Apple 正式签名、更多 Android 厂商兼容性、后台推送与长期稳定性仍需各部署者在自己的环境中验证。
+AirSIM 当前处于主动开发阶段。仓库已整合 Android Standalone、旧 AVF Agent / Installer、iOS / watchOS 与 Cloudflare Relay 源码，并提供本地自动化验证。Android Standalone 已在小米 HyperOS 真机完成默认电话角色、VoWLAN 配对和双向通话音频验证；v2 的 EG25 模块已在 iPad 上完成真实来电、CallKit 接听和 16 kHz 双向通话音频验证；Apple 正式签名、更多 Android 厂商兼容性、后台推送与长期稳定性仍需各部署者在自己的环境中验证。
 
 ## 项目趋势
 

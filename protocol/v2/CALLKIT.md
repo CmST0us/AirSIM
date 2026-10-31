@@ -25,6 +25,8 @@
 - 远端结束、凭据撤销、网络失败及 provider reset 完成定向清理；provider reset 对已拥有通话只提交一次定向挂断。保留快照时效、设备代次、命令幂等和媒体票据限制，未知结果按原收据恢复。
 - App 接受关闭推送的 `airsim-v2-r4.1` 与完整配置 APNs 的 `airsim-v2-callkit`，继续拒绝未知 profile 和身份不符的 discovery。CallKit 接入不依赖 APNs 注册；推送配置缺失时前台连接、版本和模块切换仍正常，设置明确显示后台推送未就绪。
 - v2 空闲后台或被系统终止后的来电使用独立 PushKit token 与持久化注册唤醒。App 先按推送中的 server/client/registration/module 匹配本机域并立即上报 CallKit，再用原客户端凭据获取新鲜目录和快照，核对 boot/backend/connection/call 后才能接听、拒接或挂断。普通 APNs 短信通知只显示固定提示，点击后同步原短信会话。
+- 模块在响铃中重建通话对象会产生新的 call_id 和推送。尚未接听的 v2 系统来电由新推送接替：先以未接结束原系统通话，再按新推送的 UUID 上报，不保留失效 call_id。已有系统通话进行中时，其他推送直接确认，不再插入占位来电。
+- PushKit 要求每个 VoIP 推送都上报来电。CallKit 不可用、推送无效或身份域不符时，上报显示为“AirSIM 来电已失效”的占位来电并立即结束，不进入任何运行时。
 
 服务端 provider 配置、payload、去重和真机验收条件见 [APNs 扩展](APNS_EXTENSION.md)。
 

@@ -2,7 +2,7 @@
 
 ## v2 建设覆盖说明（2026-10-24）
 
-v2 LC3 固定 16 kHz 单声道、32 kbps、每 20 ms 两个编码帧。原生 helper 与 App 编解码，Go Agent/ECS 透传；App、control／media、Agent/helper 必须配套更新和回滚。源码、构建与当前实测边界见 [LC3 音频](docs/LC3_AUDIO.md)。
+v2 LC3 固定 16 kHz 单声道、32 kbps、每 20 ms 两个编码帧。原生 helper 与 App 编解码，Go Agent/ECS 透传；App、control／media、Agent/helper 必须配套更新和回滚。ECS、EG25 与 iPad mini 已部署 16 kHz 版本并完成真实来电实测；RM500 须经网页安装器更新 Engine 后才恢复通话音频。接收端抖动缓冲、追播参数与现场诊断入口见 LC3 文档。源码、构建与当前实测边界见 [LC3 音频](docs/LC3_AUDIO.md)。
 
 EG25 QDC507 v2 使用 `eg25-qdc507`、ARMv7、`/usrdata/airsim-v2` 与 init respawn。精确固件、DATA11、校准、网页安装及验收边界见 [EG25 说明](module/eg25/README.md) 和 [实机记录](module/eg25/TESTING.md)。ECS 配对按认证连接的 platform 显示型号，iOS 仍使用公共 v2 协议。
 

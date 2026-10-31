@@ -34,6 +34,10 @@ LC3 版 App、ECS control／media、Agent 和 helper 必须配套更新，不能
 
 更新前确认无活动通话并保留回滚：服务器保存原 control／media 镜像与部署配置，模块保留配套的 Agent 和 helper。模块切换 `current` 与 `audio-current` 后由既有 init 监督恢复；失败时两个链接一并恢复，保留身份、配对、平台驱动和状态。网页安装资源包含两个平台的新 Agent、helper 与 `LC3-LICENSE.txt`。
 
+当前线上组合为 ECS 业务镜像 `airsim-business:lc3-wb-20261031`、Agent `2.0.0-dev.lc3` 与 helper `0.5.0-lc3-wb`；网页安装资源与 EG25 运行版本逐字节一致。ECS 更新只替换部署配置中的 `AIRSIM_BUSINESS_IMAGE` 并重建 control 与 media，原配置保存在 `backups/deployment.env.before-<版本>`；网页目录由 edge 直接挂载，须原地替换内容并先备份。EG25 用户分区放不下两个以上 Agent，替换时先切回保留的回滚版本释放旧文件。helper 由 Agent 按通话启动，切换 `audio-current` 无需重启 Agent。
+
+现场诊断：模块 `control.sock` 的 `/v2/local/cloud/media-stats` 与 `/v2/local/audio` 提供当前或上一次通话的桥接与 helper 计数，Agent 重启后清空，需在通话期间或结束后、重启前读取；iPad Debug 构建的 `airsim.v2.last-media-stats` 记录 App 侧收发、补偿、丢弃与计时延迟。统计只含计数，不含音频或号码。
+
 ## 验证
 
 `sh shared/lc3/test.sh` 使用合成音频验证连续编解码、PLC、会话重置及内存访问；开启 AddressSanitizer 和 UndefinedBehaviorSanitizer。`shared/lc3/tests/interop.json` 是同一实现生成的合成 LC3 向量，用于 iOS 互通测试，不含实际通话录音。

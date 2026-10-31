@@ -26,7 +26,11 @@ R1 AT 只读采样与精确 RM500 profile 校验继续保留。R2 新增长期�
 
 待处理接听命令经定时轮询或 `receipt_query` 返回 `accepted`／`observed` 时，统一更新通话声明和媒体所有权，后续 `media_start` 使用同一客户端与 generation。回执查询即使状态未变化也返回结果。
 
-缺包通过 erasure 标志传给解码端执行 PLC；桥接重写 session/sequence 时保留该标志及未补偿的源序号缺口；已补PLC的空槽抵扣后续缺口，避免重复补偿。`zero_frames` 统计桥接补出的 erasure 包，helper 的 `silence_samples` 仍只统计实际全零 PCM。硬件路由、音频 lease、队列期限与 PCM 配置保持既有约束。Agent 与 helper 必须配套构建、切换和回滚；当前 LC3 尚未完成实机通话验收。
+缺包通过 erasure 标志传给解码端执行 PLC；桥接重写 session/sequence 时保留该标志及未补偿的源序号缺口；已补PLC的空槽抵扣后续缺口，避免重复补偿。`zero_frames` 统计桥接补出的 erasure 包，helper 的 `silence_samples` 仍只统计实际全零 PCM。硬件路由、音频 lease、队列期限与 PCM 配置保持既有约束。Agent 与 helper 必须配套构建、切换和回滚。EG25 的 16 kHz LC3 已完成 iPad 真实来电双向实测，结果见 [EG25 验收记录](../eg25/TESTING.md)；RM500 尚未部署 16 kHz 版本。
+
+云端→本机方向承接蜂窝网络抖动：首包后 100 ms 起播、最多 12 包、超过 240 ms 丢弃；本机→云端方向保持 40 ms、5 包、100 ms。两个方向在唤醒或写入晚于时隙时逐包追播，相邻输出至少间隔 5 ms，落后超过过期时间才重新对齐网格。Agent 按 helper 播放队列容量（4 包）校验 `queue_peak`。
+
+本机诊断经 `control.sock` 提供：`/v2/local/cloud/media-stats` 返回当前或上一次云端媒体桥的缺口、丢弃与补零计数，`/v2/local/audio` 返回媒体会话、helper 实际 PCM 配置与统计。统计仅在内存中保存，Agent 重启后清空。EG25 控制后端的断开原因以固定类别写入 `agent.log`。
 
 ## 本机验证与构建
 

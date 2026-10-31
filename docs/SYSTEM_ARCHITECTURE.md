@@ -55,7 +55,7 @@ flowchart TB
 | [Relay 注册与命令](../push-relay-worker/src/index.mjs) 以 device_id 组织认证、命令 DO 和推送字段；命令入队未绑定独立 module_id | 多 Agent 状态可见，不等于命令能安全地定向到多个模块 |
 | 注册记录保存一组 voip_token / alert_token / watch_voip_token | 同一用户多个手机必须分别保存客户端安装实例和推送 token，不能互相覆盖 |
 | Relay 使用 KV、Durable Objects、WebSocketPair | ECS 迁移需要替换状态所有权和运行时适配，不能直接把 Worker 放进容器就算完成 |
-| 旧 Agent 的 main 仅允许 AVF；新 `module/airsim-agent` 已完成 RM500 R1/R2 与 R3 当前 16 kHz 厂商时钟的本地音频闭环，长稳及云端/App 端到端尚未验收，见 [R3 主控记录](RM500_AGENT_R3.md) | Web 安装器必须按平台及已验收能力检查，不能把“文件传输成功”展示为安装完成 |
+| 旧 Agent 的 main 仅允许 AVF；新 `module/airsim-agent` 已完成 RM500 R1/R2 与 R3 本地音频闭环；EG25 经 ECS 与 iPad 的 16 kHz LC3 真实来电已实测双向连贯，长时间通话与 RM500 云端端到端尚未验收，见 [R3 主控记录](RM500_AGENT_R3.md) 与 [EG25 验收记录](../module/eg25/TESTING.md) | Web 安装器必须按平台及已验收能力检查，不能把“文件传输成功”展示为安装完成 |
 
 ## 3. 身份与归属：一个主人、多个模块
 
@@ -215,15 +215,15 @@ APN、RAT、USB 模式、Relay 地址等可能切断管理链路的设置需准�
 | App/Web 控制与查询 | HTTPS + JSON，版本化 schema/OpenAPI | 体积上限、错误码、幂等 key、预期 revision、明确目标模块 |
 | 模块在线控制 | 主动出站 WSS，类型化 JSON 命令/事件，断线退避重连 | 模块不需要公网入站；服务端连接身份绑定 module_id，禁止消息自报冒充另一模块 |
 | App 前台实时状态 | 一条账户级 WSS，多模块订阅 | 后台恢复后 cursor/快照同步，不保留每模块一条常驻手机连接 |
-| 通话媒体 | 与控制连接分离的 binary WSS；先兼容现有 8 kHz mono S16LE、20 ms 帧 | 每通电话独立授权、序号、epoch 和有界缓冲；不落盘 |
-| 模块本地原生适配 | Unix socket：小型控制消息 + 独立 PCM 通道 | 业务仍在 Go；隐藏厂商 C ABI/ALSA，限定消息大小 |
+| 通话媒体 | 与控制连接分离的 binary WSS；LC3 16 kHz mono、32 kbps，每 20 ms 一个 120 字节 ASMP v2 包 | 每通电话独立授权、序号、epoch 和有界缓冲；不落盘 |
+| 模块本地原生适配 | Unix socket：小型控制消息 + 独立 ASMP 媒体通道，原生 helper 负责 LC3 编解码与 PCM 硬件读写 | 业务仍在 Go；隐藏厂商 C ABI/ALSA，限定消息大小 |
 | OTA | HTTPS 拉取不可变元数据/包，设备独立验签 | Relay 只触发任务与提供镜像，不能直接远程执行下载的 shell |
 
 WSS 使用标准 [WebSocket 协议](https://www.rfc-editor.org/rfc/rfc6455)。控制流量小，JSON 的可诊断性和跨端一致性优先；暂不增加 gRPC/MQTT 的运行和兼容负担。控制消息中携带 protocol_version、module_id、command_id、连接代次、deadline、expected_revision、call_id/generation（适用时）。敏感参数只在受保护载荷中，不进入 URL、普通日志或分析事件。
 
-PCM 第一阶段复用现有格式，降低硬件适配和云端迁移同时发生的风险。这不是宣称 TCP 媒体是最终弱网最优方案：WSS 存在重传阻塞，拥塞时不能靠无限缓冲解决。先在真实蜂窝丢包/抖动场景测延迟和 CPU，再按能力协商增加 Opus 与标准 WebRTC/DTLS-SRTP/ICE/TURN 适配；不能把完整 WebRTC 栈设为当前 EG25 的硬性前提。[WebRTC 传输规范](https://www.rfc-editor.org/rfc/rfc8835)。媒体 worker 第一阶段只转发，不解码/混音/转码。
+媒体编码由模块原生 helper 与 App 完成，格式与实测见 [LC3 音频](LC3_AUDIO.md)。WSS 存在重传阻塞，拥塞时不能靠无限缓冲解决；接收端使用有界抖动缓冲并逐包追播晚到时隙，超出期限才丢弃。标准 WebRTC/DTLS-SRTP/ICE/TURN 可按能力协商增加，不作为当前 EG25 的硬性前提。[WebRTC 传输规范](https://www.rfc-editor.org/rfc/rfc8835)。媒体 worker 第一阶段只转发，不解码/混音/转码。
 
-原始 PCM 每通双向约 32,000 字节/秒；经 Relay 转发对应约 32,000 字节/秒出站载荷，即每小时约 115.2 MB 十进制出站载荷，另有 TLS/协议开销和同量入站。这个算式用于容量估计，不是云厂商计费报价或吞吐实测。
+LC3 含 ASMP 头每方向约 6,000 字节/秒，每通双向约 12,000 字节/秒；经 Relay 转发对应约 12,000 字节/秒出站载荷，即每小时约 43.2 MB 十进制出站载荷，另有 WebSocket/TLS 开销和同量入站。这个算式用于容量估计，不是云厂商计费报价或吞吐实测。
 
 ### 6.2 身份验证与本地访问
 
