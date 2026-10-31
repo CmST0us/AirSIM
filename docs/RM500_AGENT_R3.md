@@ -101,3 +101,12 @@
 主控结论：R3 当前设备与时钟组合的本地内容闭环及上述故障回收验收通过，执行会话收尾后待命。运行时 voice_ready=false / verification=unverified 暂保留为实验发布门槛。30 分钟连续与 100 次会话、厂商 8 kHz 时钟实机、Mac 麦克风/扬声器体验及 ECS/Worker/iOS 端到端均尚未验证；没有做校准的静音底噪/AEC 测量。R4–R5 未启动。
 
 事实源：[完整验收元数据](../module/airsim-agent/R3_ACCEPTANCE_EVIDENCE.json)、[历史诊断元数据](../module/airsim-agent/R3_DIAGNOSTIC_EVIDENCE.json)、[执行验收记录](../module/airsim-agent/R3_TESTING.md)。其中历史失败保留用于解释修正原因，不覆盖本节最后成功结果。
+
+
+## LC3 本地媒体格式（2026-10-31）
+
+当前 Agent/helper 使用 ASMP v2：40 字节头、80 字节 LC3 payload，总长120字节。payload由两个10ms、各40字节的LC3帧组成，解码为16kHz单声道S16LE、320 samples/20ms。头offset36–39为小端flags：0为普通LC3，1为整包erasure且payload必须全零；其他值拒绝。缺包由解码端执行两帧PLC，不能把全零payload当作有效LC3。鉴权、session/direction/sequence检查、100ms写预算与通话lease继续适用。
+
+格式对象精确包含`codec:"lc3"`、`sample_rate:16000`、`channels:1`、`sample_format:"s16le"`、`frame_samples:320`、`codec_frame_us:10000`、`codec_frame_bytes:40`。本地ACK增加`ok:true`；helper ready增加相同codec三字段并保留capture/playback实际硬件参数。Agent拒绝不匹配的helper。RM500采集8kHz后插值到16kHz再编码；native playback按8/16kHz实际速率输出，8kHz时先低通再抽取。
+
+编解码静态链接在helper，Go保持CGO_ENABLED=0；云端和USB只转发压缩帧。Agent/helper配套更新及回滚，历史PCM实机证据不构成LC3通话验收。

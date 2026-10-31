@@ -13,6 +13,8 @@
 
 模块信号沿用 R4 的可选、可为 null 的 `signal` 契约：snapshot 与 `GET /v2/modules` 每个在线模块均携带相同字段，离线不得展示缓存有效信号；旧 Agent 未携带该字段时仍须接受。Agent 每十秒采样，超过三十秒无有效样本时报告不可用。服务端须校验采样时间、CSQ RSSI 与 dBm 一致性。上线前先更新 App 的可选字段解码，旧严格 v2 客户端可能拒绝新增字段。当前目录仅记录要求，不代表 Worker 已实现或验收。
 
+网络媒体须沿用 R4 固定 LC3-only 契约：20ms包包含两个10ms/40-byte编码帧，ASMP v2总长120 bytes；flags=1为全零payload的整包erasure，服务仅校验和透传。媒体创建必需 `codec:"lc3"`，响应、paired与设备启动消息使用统一七字段format。缺少LC3声明的旧Agent可保留控制连接，但媒体创建拒绝为409 `media_unavailable`。App、Agent与服务须协调升级，不能把旧PCM客户端当作兼容端。
+
 ## 平台边界
 
 Worker 的存储、设备连接鉴权、媒体实现和后台任务需要按 Cloudflare 实际能力单独适配与验收。不能假设 ECS 的设备 mTLS 入口或 Go 媒体进程可以原样放入 Worker，也不能把最终一致存储用于要求原子仲裁的模块归属/命令/通话所有权。

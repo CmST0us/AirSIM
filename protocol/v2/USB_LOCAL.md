@@ -50,7 +50,7 @@ App 在空闲时优先使用已授权且身份验证通过的 USB。首次控制
 
 Agent 是本地和云端通话仲裁者。每次 dial/answer 取得客户端、transport、generation 的保留权；控制完成后绑定实际 call_id。其他入口的 answer/hangup/DTMF/media 不能抢占已有 owner。命令结果未知时保留原归属；只在实际通话结束、明确拒绝或 boot/backend 失效时解除。命令ID绑定客户端与传输，重复请求不得重新分配 generation。
 
-本地媒体继续使用现有 ASMP：8kHz mono S16LE、160 samples/20ms，方向1为 App 到模块，方向2为模块到 App。媒体票据绑定 module/call/client/generation/本地epoch，只有对应通话 owner 可申请。Agent 复用 media.Manager 的唯一会话、资格和 lease，经 Unix 媒体通道连接 helper；与云端使用同一有界节拍桥。paired 后才流式发送；拔线、超时、helper退出、通话结束立即回收。PCM不落盘。
+本地网络媒体使用与 [R4](R4.md#6-独立媒体-wss) 一致的 ASMP v2 LC3：40-byte header加80-byte payload，每包两个10ms、40-byte LC3帧，解码后为8kHz mono S16LE、160 samples/20ms。方向1为 App 到模块，方向2为模块到 App。flags=0为普通LC3，flags=1为整包erasure且payload必须全零；接收端对erasure执行两次10ms PLC，拒绝v1、未知flags及错误长度。创建请求必须含 `codec:"lc3"`，响应与paired携带R4定义的相同七字段format；Unix／helper fd4同样传LC3，Go Agent仅透传并映射session/sequence、保留flags；C helper负责采集编码及播放解码／PLC，硬件读写侧仍为PCM。媒体票据绑定 module/call/client/generation/本地epoch，只有对应通话 owner 可申请。Agent 复用 media.Manager 的唯一会话、资格和 lease，经 Unix 媒体通道连接 helper；与云端使用同一有界节拍桥。paired 后才流式发送；拔线、超时、helper退出、通话结束立即回收。PCM不落盘。
 
 ## 验证边界
 

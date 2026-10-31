@@ -8,6 +8,8 @@
 
 模块信号由 Agent 采样，经 ECS 目录和快照或 USB 本地接口传入 App；所有模块名称和选择入口使用同一信号图标。离线、采样过期或未知信号显示不可用，蜂窝强度与云端连接状态分别处理。
 
+v2 音频采用固定 32 kbps LC3，由模块原生 helper 与 App 编解码，ECS 透传；每个 20 ms 包的音频载荷为 80 bytes，采样为 16 kHz 单声道。App、ECS control／media、Agent 与 helper 需配套更新。格式、构建、性能和实机验收边界见 [LC3 音频](docs/LC3_AUDIO.md)。
+
 2026-10-31 已更新 EG25 Agent、ECS control 与 iPad App，并通过真实云端信号显示测试：App 显示 3 格，随后模块采样为 CSQ 18／−77 dBm。USB 直连的实体信号显示尚待验证。
 
 整体布局回归已通过 23 项模拟器 UI 场景验证，覆盖 iPhone、iPad 与 Duo，对应签名版本已安装并启动于 iPad mini。本轮系统配色回归通过 iPhone 8 项、iPad 1 项，系统配色版本已在 iPad mini 更新安装并启动。明暗主题、辅助字号、宽窄窗口与交互记录见 [界面设计与验证](docs/IOS_UI_REVIEW.md#验证记录)。本轮未执行真实通话、短信收发或 USB 验收。
