@@ -8,7 +8,7 @@
 
 模块信号由 Agent 采样，经 ECS 目录和快照或 USB 本地接口传入 App；所有模块名称和选择入口使用同一信号图标。离线、采样过期或未知信号显示不可用，蜂窝强度与云端连接状态分别处理。
 
-v2 音频采用固定 32 kbps LC3，由模块原生 helper 与 App 编解码，ECS 透传；每个 20 ms 包的音频载荷为 80 bytes，采样为 16 kHz 单声道。App、ECS control／media、Agent 与 helper 需配套更新。EG25 经 ECS 与 iPad 的真实来电已实测宽带双向通话连贯；RM500 需通过网页安装器更新 Engine 后使用 16 kHz 媒体。格式、构建、性能和实机验收边界见 [LC3 音频](docs/LC3_AUDIO.md)。
+v2 通话媒体为 App 与模块之间的 WebRTC 音频连接：Opus 20 ms 包，模块以 16 kHz 宽带、32 kbps 编码并开启带内 FEC。App 使用 libwebrtc，模块 Agent 内嵌 Pion，原生 helper 用定点 libopus 编解码；ECS 转交 SDP 并以 TURN 中继蜂窝模块，USB 本地直连。App、ECS control／media、Agent 与 helper 需配套更新。ECS、EG25 与网页安装包已部署 WebRTC 版本，EG25 经 iPad mini 的真实来电已完成双向通话；RM500 需通过网页安装器更新 Engine 后使用新媒体。协议见 [WebRTC](protocol/v2/WEBRTC.md)，参数、构建、部署和实测边界见 [WebRTC 音频](docs/WEBRTC_AUDIO.md)。
 
 2026-10-31 已更新 EG25 Agent、ECS control 与 iPad App，并通过真实云端信号显示测试：App 显示 3 格，随后模块采样为 CSQ 18／−77 dBm。USB 直连的实体信号显示尚待验证。
 
@@ -270,6 +270,6 @@ AirSIM v2 ECS 支持分别配置 Sandbox / Production APNs 密钥，按 App 注�
 
 Agent 支持 `airsim-v2-callkit` 服务的 APNs 开启和关闭状态；`airsim-v2-r4.1` 仍要求 APNs 关闭。启用 ECS 推送前须使用支持该能力的 Agent。
 
-Agent 在通话期间每秒发布状态快照，空闲时每五秒发布；App 保留八秒快照有效期。iOS Debug 诊断页支持真机三秒本机音频测试。
+Agent 在通话期间每秒发布状态快照，空闲时每五秒发布；App 保留八秒快照有效期。
 
 模块范围配对完成后持久化当前模块；App 重新启动时从配对配置恢复绑定模块，管理员多模块配置仍使用显式选择。

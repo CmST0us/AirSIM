@@ -16,14 +16,14 @@ Agent 继续用 Go。通话、短信、配对、云端控制、配置和状态�
 
 RM500、EG25、Android AVF 均为正式支持目标，共享业务核心与外部协议。用户已明确 RM500 和 EG25 的 Agent 均运行在模块内部；AVF 的 Agent 运行在 Android 的 Linux 虚拟机内。当前 RM500 实测样机为 RM500U-CN，其他 RM500 变体需独立适配。Android Standalone 的 Java 实现继续保留：共享协议与契约测试，不强求它运行同一份 Go 进程。旧 QDC507 特有恢复逻辑保留平台边界，不进入 RM500 构建的正常路径。新连接样机自报 QDC507 项目，可评估复用对应旧适配，但必须核对当前固件与驱动 ABI，不能仅凭项目名直接执行旧恢复逻辑。
 
-第一版范围：每个模块一张活动 SIM、一个由 AirSIM 管理的语音会话、通话/短信/网络状态、ECS v2 控制协议和 LC3 16 kHz 媒体适配。eSIM 下载、复杂路由策略、GNSS、5G 强制选网均作为独立能力逐项验收。旧 Worker 的 v1 接入不作为新 Agent 首版前提。
+第一版范围：每个模块一张活动 SIM、一个由 AirSIM 管理的语音会话、通话/短信/网络状态、ECS v2 控制协议和 WebRTC 媒体（Opus 16 kHz 宽带）。eSIM 下载、复杂路由策略、GNSS、5G 强制选网均作为独立能力逐项验收。旧 Worker 的 v1 接入不作为新 Agent 首版前提。
 
 ## 1.1 三个正式目标与装配方式
 
 | 目标 | Agent 运行位置 | 控制适配 | 音频适配 | 部署适配 |
 | --- | --- | --- | --- | --- |
-| RM500 | 模块内部 Linux；当前已测 RM500U-CN | 当前固件 oFono + 专用 AT + Linux | 原生 LC3 helper：capture9 以 8 kHz 采集，playback55 按厂商时钟 8/16 kHz 播放 | 当前 Yocto/SysV、只读 rootfs、用户分区发布与回滚 |
-| EG25 | 模块内部 Linux；EG25G_QDC507、ARMv7 | Agent 内 AT 控制后端，经 `airsim_data11` 释放的 DATA11 通道 | `qdc507_aprv3`／`qdc507_voice` 驱动与 VoLTE 校准；原生 LC3 helper 以 16 kHz 打开 VoLTE 前端与 AFE 代理端口 | ARMv7 静态构建；BusyBox init respawn、只读 rootfs、`/usrdata/airsim-v2` 约 15 MiB 用户分区 |
+| RM500 | 模块内部 Linux；当前已测 RM500U-CN | 当前固件 oFono + 专用 AT + Linux | 原生 Opus helper：capture9 以 8 kHz 采集，playback55 按厂商时钟 8/16 kHz 播放 | 当前 Yocto/SysV、只读 rootfs、用户分区发布与回滚 |
+| EG25 | 模块内部 Linux；EG25G_QDC507、ARMv7 | Agent 内 AT 控制后端，经 `airsim_data11` 释放的 DATA11 通道 | `qdc507_aprv3`／`qdc507_voice` 驱动与 VoLTE 校准；原生 Opus helper 以 16 kHz 打开 VoLTE 前端与 AFE 代理端口 | ARMv7 静态构建；BusyBox init respawn、只读 rootfs、`/usrdata/airsim-v2` 约 15 MiB 用户分区 |
 | Android AVF | Android 内部 Linux 虚拟机 | 现有 Android 控制 App 的 Telecom/SMS 队列与事件 | 现有 Android 音频桥，经授权私网连接；AVF 不直接打开手机 ALSA | 现有 arm64 Debian/systemd 与独立 installerd，保留配对/恢复流程 |
 
 EG25 的内部 Linux/SDK 可用来自用户确认。用户已将模块名称更正为 EG25。ADB 实测样机固件项目标识为 EG25G_QDC507、版本 QDC507GLEFM21_02.004.03，按 EG25 的 QDC507 固件变体建立适配档案；具体型号后缀与 SDK 对应关系仍需核对。尚未验证它能运行当前 Go 工具链产物或获得双向通话 PCM。详见 [新连接样机检查](DEVICE_SURVEY.md)。不能把“开放开发环境”自动等同于“VoLTE 和语音采集可用”。型号后缀、固件、SDK/sysroot、目标架构、内核、libc、AT/SDK 接口及音频接线必须建立设备档案。移远公开资料也区分型号与可选音频能力，最终按目标 SDK 和实机确认。[厂商产品资料](https://www.quectel.com/content/uploads/2024/05/Quectel-Product-Brochure-V7.7.pdf)
@@ -287,12 +287,12 @@ RM500/EG25 在内部使用平台专用 helper；AVF 的 Audio 接口封装现有
 1. Telephony 确认会话和状态，媒体协调器取得该会话的唯一 lease，预备设备路由并在已授权的会话中启用 PCM。
 2. audiod 打开专用采集/注入节点；当前候选为 hw:0,9 / hw:0,55，保留 audiohal 对 modem PCM 的管理。helper 不直接替代 RIL/audiohal，也不从“重启音频”升级成“重启基带”。
 3. 控制 IPC 与音频数据 IPC 分离。控制使用带长度和大小上限的结构化消息；PCM 使用 Unix stream socket 上的定长/带长度帧、会话 epoch、序号和格式声明。第一版不需要共享内存。
-4. 外部格式为 LC3 16 kHz、mono、20 ms/120 字节 ASMP v2 包，helper 在采集后编码、播放出队时解码或执行 PLC。设备采集/播放可以使用不同原生速率，速率转换在 helper 内完成；必须验证播放速率、音高与采样计数，不能依据“听到音调”固定硬件格式。
-5. 两个方向分别使用有界队列：经蜂窝网络到达的方向 100 ms 起播、超过 240 ms 丢弃，晚到时隙逐包追播；具体参数见 [LC3 音频](../docs/LC3_AUDIO.md)。消费慢时丢弃过期完整帧并计数，绝不无限积压。ALSA xrun 由 helper 做局部恢复；网络重连由 transport 负责，只有媒体协调器决定是否重建会话。[ALSA PCM 文档](https://www.alsa-project.org/alsa-doc/alsa-lib/pcm.html)
+4. Agent 内嵌 Pion 终结 App 的 WebRTC 连接；helper 与 Agent 之间每 20 ms 一个 ASMP v3 帧，载荷为一个 Opus 包。helper 采集 16 kHz mono 后编码，播放出队时解码，或按帧标志用后一包的 FEC 恢复、执行 PLC。设备采集/播放可以使用不同原生速率，速率转换在 helper 内完成；必须验证播放速率、音高与采样计数，不能依据“听到音调”固定硬件格式。
+5. App 发来的 RTP 由 Agent 按序号排队，80 ms 起播、超过 12 帧裁剪，晚到时隙逐包追播；具体参数见 [WebRTC 音频](../docs/WEBRTC_AUDIO.md)。消费慢时丢弃过期完整帧并计数，绝不无限积压。ALSA xrun 由 helper 做局部恢复；网络重连由 transport 负责，只有媒体协调器决定是否重建会话。[ALSA PCM 文档](https://www.alsa-project.org/alsa-doc/alsa-lib/pcm.html)
 6. 正常静音会持续产生合法帧，不能仅凭 RMS 小判定故障。分别观测设备帧进展、网络帧进展、xrun、队列长度、时钟漂移与音量。当前静音残留需要受控实时信号和双向监听定位。
 7. 挂断、控制 socket 关闭、lease 超时或父进程退出时，helper 释放它自己的 PCM handle、队列及会话路由。恢复预算有上限，失败后向客户端报告媒体不可用；基带通话是否结束由业务协调器依据会话归属和超时策略决定。
 
-LC3 含 ASMP 头每方向约 6,000 字节/秒，双向 12,000 字节/秒，不含 TLS/WebSocket 帧头。Unix socket 带宽不是当前主要瓶颈，时序、硬件路由和蜂窝抖动更关键。WebRTC 作为未来媒体适配器，通过能力协商接入。
+Opus 32 kbps 计入 RTP、SRTP、TURN 与 UDP/IP 头每方向约 6,700 字节/秒。Unix socket 带宽不是当前主要瓶颈，时序、硬件路由和蜂窝抖动更关键。
 
 ## 9. 协议、安全入口与网络职责
 

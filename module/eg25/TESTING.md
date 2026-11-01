@@ -78,3 +78,11 @@ Agent 接受 `airsim-v2-callkit` 的 `apns:true`，并保留 R4.1 与未知 prof
 通话中探针以 16 kHz 打开 VoLTE 前端、D5 与 D6 均成功；下行 4–7 kHz 有显著能量，8 kHz 采集无此频段；上行 6 kHz 提示音在对端可闻，确认运营商通话两方向均为宽带。探针仅统计频段能量，不保存音频。
 
 2026-11-01 配套部署 16 kHz 版 ECS、Agent、helper `0.5.0-lc3-wb` 与 App 后，iPad mini 接听真实来电约 25 秒：helper 采集与播放均为 16 kHz，无 xrun、无序号缺口，静音补偿 120 ms；Agent 队列丢弃 2 帧、无补零；App 补偿 5 帧、播放无丢帧。用户确认听感良好。线上网页安装资源已同步，与模块运行版本一致。部署后有一次来电在接听前显示“呼叫失败”，ECS 未收到接听命令，后续通话未复现；Debug 构建保留通话路径诊断记录用于定位。
+
+## WebRTC 媒体
+
+可行性验证：运营商网络可用 UDP，出口 NAT 为对称型（访问不同目的地时公网 IP 与端口均变化），模块须经 TURN 中继。Pion 两个对端同进程收发时常驻内存峰值 6.1 MB、约 18.7% CPU，即单路约 10%；libopus 定点构建复杂度 3 时编码加解码约 1.35–1.7 ms／20 ms 帧，浮点软浮点构建约 11 ms，不可用。
+
+2026-11-01 部署 Agent `2.0.0-dev.webrtc` 与 helper `0.6.0-opus`。Agent 在 UBIFS 上压缩后约占 7 MB，用户分区只容一个 Agent 发布目录：模块现存 `releases/webrtc-20261101d` 与 helper `audio-releases/webrtc-20261101b`（上一版 helper `webrtc-20261101` 保留），剩余约 6.8 MB；被替换的 Agent 与 LC3 版本均备份在维护主机。替换 Agent 时先把 `current` 指向只执行 `sleep` 的占位脚本，再删除旧版本、推送新版本并切回，离线约 20 秒。空闲 Agent 常驻内存约 9 MB，系统可用内存约 6–7 MB。
+
+真实来电（iPad mini，约一分钟）双向通话正常：从接听到媒体连接约 3 秒；模块到 iPad 无丢包，iPad 抖动缓冲约 205 ms、补偿约 3%；iPad 到模块丢包约 2.9%，其中 54／76 由 FEC 恢复；helper 采集帧有 58 次超过 60 ms 的等待（最长 120 ms），Agent 发送只有 1 次超过 20 ms，App RTP 到达有 45 次超过 100 ms 的间隔（最长 172 ms）。通话中 Agent 进程约占 32% CPU、helper 约 16%；接通时 Agent 约有 1,200 次主缺页，即从压缩分区重新读入约 5 MB 代码。helper 工作线程固定 256 KB 栈：默认 8 MB 栈预留在可用内存不足 8 MB 时会被内核拒绝，导致 `thread_start`。

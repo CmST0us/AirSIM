@@ -1,6 +1,6 @@
 # AirSIM AVF Linux Agent 安装与无损排障
 
-当前嵌入式 v2 的 LC3 更新必须配套部署 App、ECS control／media、Agent 与原生 helper，并保留成对回滚版本；见 [LC3 音频](LC3_AUDIO.md)。下文 AVF/v1 安装流程不用于覆盖这些组件。
+当前嵌入式 v2 的媒体更新必须配套部署 App、ECS control／media、Agent 与原生 helper，并保留成对回滚版本；见 [WebRTC 音频](WEBRTC_AUDIO.md)。下文 AVF/v1 安装流程不用于覆盖这些组件。
 
 本指南适用于支持 Android AVF Linux Terminal 的三星手机。AirSIM Android App、AVF 中的 `airsim-agent`、独立的 `airsim-installerd` 是三个不同组件；App 能打开 Terminal，并不等于 Agent 已安装。`8575` Agent 健康端点可达，也不等于 `8576` 安装服务和控制令牌已就绪。
 

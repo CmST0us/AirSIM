@@ -26,7 +26,7 @@ Agent 持久保存每个已授权客户端的随机 token 与期限，续期沿�
 
 ## 网络和路由
 
-Agent 新增 `--usb-listen`，显式指定 USB 私网 IPv4:端口，EG25 部署值 `192.168.225.1:8577`。监听该地址，不监听0.0.0.0/蜂窝公网，不暴露 Unix 管理 API。IP 就绪后启动；接口地址消失时关闭监听及所有本地媒体；地址变化重新连接前重新取得授权，不以 IP 充当模块身份。App 对本地控制和媒体绑定对应 USB 网卡；找不到接口则视为 USB 不可达，不向 Wi-Fi/VPN 发本地凭据。
+Agent 新增 `--usb-listen`，显式指定 USB 私网 IPv4:端口，EG25 部署值 `192.168.225.1:8577`。监听该地址，不监听0.0.0.0/蜂窝公网，不暴露 Unix 管理 API。IP 就绪后启动；接口地址消失时关闭监听及所有本地媒体；本地媒体只在该地址收集 host 候选。地址变化重新连接前重新取得授权，不以 IP 充当模块身份。App 对本地控制和媒体绑定对应 USB 网卡；找不到接口则视为 USB 不可达，不向 Wi-Fi/VPN 发本地凭据。
 
 EG25 启动器在桥地址就绪后提供 USB DHCP（`192.168.225.10–30/24`），不下发 IPv4 默认路由或 DNS，不改动厂商 IPv6 配置。已有 DHCP 服务保持运行；USB 网络等待及服务恢复不阻塞 Agent 云端连接。
 
@@ -34,15 +34,14 @@ App 在空闲时优先使用已授权且身份验证通过的 USB。首次控制
 
 ## 本地业务接口
 
-所有接口除媒体握手外使用 `Authorization: Bearer <本地token>`；服务端检查期限与客户端。请求必须携带 `X-AirSIM-Timestamp`（Unix秒）、`X-AirSIM-Nonce`（32随机字节lowercase hex）、`X-AirSIM-Signature`（HMAC-SHA256 lowercase hex）。HMAC key为本地token解码后的32字节，签名输入为 `timestamp + "\n" + nonce + "\n" + method + "\n" + path_and_query + "\n" + body原始字节`。时间窗±30秒，nonce至少保留61秒且拒绝重用。控制 body 上限8192字节，响应有界，拒绝重定向。仅支持下列白名单，响应沿用现有 v2 App 模型：
+所有接口使用 `Authorization: Bearer <本地token>`；服务端检查期限与客户端。请求必须携带 `X-AirSIM-Timestamp`（Unix秒）、`X-AirSIM-Nonce`（32随机字节lowercase hex）、`X-AirSIM-Signature`（HMAC-SHA256 lowercase hex）。HMAC key为本地token解码后的32字节，签名输入为 `timestamp + "\n" + nonce + "\n" + method + "\n" + path_and_query + "\n" + body原始字节`。时间窗±30秒，nonce至少保留61秒且拒绝重用。控制 body 上限8192字节，媒体 offer body 上限65536字节，响应有界，拒绝重定向。仅支持下列白名单，响应沿用现有 v2 App 模型：
 
 - `GET /v2/modules`：仅当前模块，online 表示本地控制就绪，connection_epoch 为Agent本次本地运行实例 UUID。
 - `GET /v2/modules/{id}/snapshot`：模块实际状态，freshness/boot/backend 与云端一致，不取 ECS 在线状态。目录 `GET /v2/modules` 的每个模块及 `snapshot.signal` 与 [R4 信号契约](R4.md) 一致，读取现有 AT 采样缓存；未知或超过 30 秒的样本不可用，保留实际采样时间。
 - `GET /v2/modules/{id}/messages`：模块短信视图及缺口标识。
 - `POST /v2/modules/{id}/commands`：原 `connection_epoch,command` envelope，原类型化动作和去重记录。返回 `command_id,state,generation,receipt`。
 - `GET /v2/modules/{id}/commands/{id}`：仅同一本地授权客户端创建的命令结果。
-- `POST /v2/modules/{id}/calls/{call_id}/media-sessions` 与 DELETE 对应会话：沿用现有 v2 媒体请求/响应字段。
-- `WSS /v2/media`：`airsim.media.v2`，首帧 `session_id,role=client,ticket`，30秒单次票据，不在 URL 放 token。
+- `POST /v2/modules/{id}/calls/{call_id}/media-sessions`、`POST .../media-sessions/{session_id}/offer` 与 DELETE 对应会话：字段与 [WebRTC](WEBRTC.md) 相同，`ice_servers` 为空数组，offer 请求直接返回模块应答。
 
 本地不提供账户、安装、配对授权、云端配置、升级、任意AT或shell接口。
 
@@ -50,8 +49,8 @@ App 在空闲时优先使用已授权且身份验证通过的 USB。首次控制
 
 Agent 是本地和云端通话仲裁者。每次 dial/answer 取得客户端、transport、generation 的保留权；控制完成后绑定实际 call_id。其他入口的 answer/hangup/DTMF/media 不能抢占已有 owner。命令结果未知时保留原归属；只在实际通话结束、明确拒绝或 boot/backend 失效时解除。命令ID绑定客户端与传输，重复请求不得重新分配 generation。
 
-本地网络媒体使用与 [R4](R4.md#6-独立媒体-wss) 一致的 ASMP v2 LC3：40-byte header加80-byte payload，每包两个10ms、40-byte LC3帧，解码后为16kHz mono S16LE、320 samples/20ms。方向1为 App 到模块，方向2为模块到 App。flags=0为普通LC3，flags=1为整包erasure且payload必须全零；接收端对erasure执行两次10ms PLC，拒绝v1、未知flags及错误长度。创建请求必须含 `codec:"lc3"`，响应与paired携带R4定义的相同七字段format；Unix／helper fd4同样传LC3，Go Agent仅透传并映射session/sequence、保留flags；C helper负责采集编码及播放解码／PLC，硬件读写侧仍为PCM。媒体票据绑定 module/call/client/generation/本地epoch，只有对应通话 owner 可申请。Agent 复用 media.Manager 的唯一会话、资格和 lease，经 Unix 媒体通道连接 helper；与云端使用同一有界节拍桥。paired 后才流式发送；拔线、超时、helper退出、通话结束立即回收。PCM不落盘。
+本地媒体与云端相同，为 [WebRTC](WEBRTC.md) 音频连接，只是不经 TURN：Agent 在 USB 地址上收集 host 候选，App 经 ECM 链路直连。媒体会话绑定 module/call/client/generation/本地epoch，只有对应通话的 USB owner 可申请，每个会话只接受一次 offer；会话在授权到期或30分钟时结束。Agent 复用 media.Manager 的唯一会话、资格和 lease，经 Unix 媒体通道连接 helper；拔线、超时、helper退出、通话结束立即回收。PCM不落盘。
 
 ## 验证边界
 
-契约测试覆盖错误身份、过期授权、非白名单、跨客户端命令结果、云端/本地竞争、迟到代次、重复命令及媒体票据重用；媒体测试覆盖双向ASMP和关闭释放。App 编译和单测覆盖固定证书、路由固定、离线有效授权、短信和媒体连接。真机分别验证 USB 枚举、呼入/呼出/接听/挂断、短信双向、音频双向、拔线与重插。后台/冷启动来电仍使用 APNs/PushKit；完全离线不承诺唤醒被系统挂起或终止的 App。
+契约测试覆盖错误身份、过期授权、非白名单、跨客户端命令结果、云端/本地竞争、迟到代次及重复命令；媒体测试以回环上的 WebRTC 对端覆盖本地 offer／应答、双向 Opus 包和关闭释放。App 编译和单测覆盖固定证书、路由固定、离线有效授权、短信和媒体连接。真机分别验证 USB 枚举、呼入/呼出/接听/挂断、短信双向、音频双向、拔线与重插。后台/冷启动来电仍使用 APNs/PushKit；完全离线不承诺唤醒被系统挂起或终止的 App。

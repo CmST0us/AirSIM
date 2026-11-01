@@ -2,9 +2,29 @@
 
 AirSIM includes or depends on third-party software. Those components remain governed by their own licenses; the AirSIM project license does not replace them.
 
-## liblc3 v1.1.3
+## libopus 1.5.2
 
-The v2 iOS App and native module audio helpers include [Google liblc3](https://github.com/google/liblc3), commit `96a3af0beb5487aca3b98a4b992a539a1f6d80d1`, under Apache-2.0. The full license is in `third_party/liblc3/LICENSE`; source provenance and the local exponent-arithmetic change are recorded in `third_party/liblc3/UPSTREAM.md`. Module distributions include `LC3-LICENSE.txt`, and the iOS App bundles the same notice.
+The native module audio helpers include the fixed-point build of [libopus](https://opus-codec.org) 1.5.2 under its BSD-3-Clause license. The full license is in `third_party/opus/COPYING`; source provenance is recorded in `third_party/opus/UPSTREAM.md`. Module distributions include `OPUS-LICENSE.txt`.
+
+## WebRTC M155
+
+The v2 iOS App links the WebRTC framework distributed by [stasel/WebRTC](https://github.com/stasel/WebRTC) 155.0.0, built from the WebRTC project under its BSD-3-Clause license. The App bundles the license as `WebRTC-LICENSE.txt`.
+
+## Pion
+
+The v2 Agent uses [Pion WebRTC](https://github.com/pion/webrtc) v4 and its ICE, DTLS, SRTP, SCTP, SDP, RTP, RTCP, interceptor, mDNS, STUN, TURN, transport, logging and randutil packages; the ECS media service uses Pion TURN v4. These packages are licensed under MIT. Their dependencies [google/uuid](https://github.com/google/uuid) and [wlynxg/anet](https://github.com/wlynxg/anet) are licensed under BSD-3-Clause.
+
+```text
+MIT License
+
+Copyright (c) 2023 The Pion community <https://pion.ly>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
 
 ## euicc-go v1.1.2
 

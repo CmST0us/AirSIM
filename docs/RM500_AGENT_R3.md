@@ -103,10 +103,6 @@
 事实源：[完整验收元数据](../module/airsim-agent/R3_ACCEPTANCE_EVIDENCE.json)、[历史诊断元数据](../module/airsim-agent/R3_DIAGNOSTIC_EVIDENCE.json)、[执行验收记录](../module/airsim-agent/R3_TESTING.md)。其中历史失败保留用于解释修正原因，不覆盖本节最后成功结果。
 
 
-## LC3 本地媒体格式（2026-10-31）
+## 当前本地媒体格式
 
-当前 Agent/helper 使用 ASMP v2：40 字节头、80 字节 LC3 payload，总长120字节。payload由两个10ms、各40字节的LC3帧组成，解码为16kHz单声道S16LE、320 samples/20ms。头offset36–39为小端flags：0为普通LC3，1为整包erasure且payload必须全零；其他值拒绝。缺包由解码端执行两帧PLC，不能把全零payload当作有效LC3。鉴权、session/direction/sequence检查、100ms写预算与通话lease继续适用。
-
-格式对象精确包含`codec:"lc3"`、`sample_rate:16000`、`channels:1`、`sample_format:"s16le"`、`frame_samples:320`、`codec_frame_us:10000`、`codec_frame_bytes:40`。本地ACK增加`ok:true`；helper ready增加相同codec三字段并保留capture/playback实际硬件参数。Agent拒绝不匹配的helper。RM500采集8kHz后插值到16kHz再编码；native playback按8/16kHz实际速率输出，8kHz时先低通再抽取。
-
-编解码静态链接在helper，Go保持CGO_ENABLED=0；云端和USB只转发压缩帧。Agent/helper配套更新及回滚，历史PCM实机证据不构成LC3通话验收。
+Agent 与 helper 之间使用 ASMP v3：40 字节头后接一个 Opus 包，标志区分普通包、丢失帧与 FEC 帧；helper 编解码 16 kHz 单声道、320 samples/20 ms，Go 保持 CGO_ENABLED=0。字段与期限见 [WebRTC](../protocol/v2/WEBRTC.md)。上文 PCM 与 LC3 阶段的格式属于历史记录，历史 PCM 实机证据不构成当前媒体的通话验收。

@@ -2,7 +2,7 @@
 
 ## v2 建设覆盖说明（2026-10-24）
 
-v2 LC3 固定 16 kHz 单声道、32 kbps、每 20 ms 两个编码帧。原生 helper 与 App 编解码，Go Agent/ECS 透传；App、control／media、Agent/helper 必须配套更新和回滚。ECS、EG25 与 iPad mini 已部署 16 kHz 版本并完成真实来电实测；RM500 须经网页安装器更新 Engine 后才恢复通话音频。接收端抖动缓冲、追播参数与现场诊断入口见 LC3 文档。源码、构建与当前实测边界见 [LC3 音频](docs/LC3_AUDIO.md)。
+v2 通话媒体为 App 与模块之间的 WebRTC 音频连接：Opus 20 ms 包，模块以 16 kHz 宽带、32 kbps 编码并开启带内 FEC；App 使用 libwebrtc，模块 Agent 内嵌 Pion，原生 helper 用定点 libopus 编解码；ECS 转交 SDP 并以 TURN 中继蜂窝模块，USB 本地经 USB 地址直连。App、control／media、Agent/helper 必须配套更新和回滚。ECS、EG25 与网页安装包已部署 WebRTC 版本，EG25 经 iPad mini 的真实来电已完成双向通话；RM500 须经网页安装器更新 Engine 后才恢复通话音频。协议见 [WebRTC](protocol/v2/WEBRTC.md)，参数、部署、诊断与实测边界见 [WebRTC 音频](docs/WEBRTC_AUDIO.md)。
 
 EG25 QDC507 v2 使用 `eg25-qdc507`、ARMv7、`/usrdata/airsim-v2` 与 init respawn。精确固件、DATA11、校准、网页安装及验收边界见 [EG25 说明](module/eg25/README.md) 和 [实机记录](module/eg25/TESTING.md)。ECS 配对按认证连接的 platform 显示型号，iOS 仍使用公共 v2 协议。
 
@@ -185,6 +185,6 @@ AirSIM v2 ECS 支持分别配置 Sandbox / Production APNs 密钥，按 App 注�
 
 Agent 支持 `airsim-v2-callkit` 服务的 APNs 开启和关闭状态；`airsim-v2-r4.1` 仍要求 APNs 关闭。启用 ECS 推送前须使用支持该能力的 Agent。
 
-Agent 在通话期间每秒发布状态快照，空闲时每五秒发布；App 保留八秒快照有效期。iOS Debug 诊断页支持真机三秒本机音频测试。
+Agent 在通话期间每秒发布状态快照，空闲时每五秒发布；App 保留八秒快照有效期。
 
 模块范围配对完成后持久化当前模块；App 重新启动时从配对配置恢复绑定模块，管理员多模块配置仍使用显式选择。

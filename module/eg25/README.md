@@ -14,7 +14,7 @@ Go 固定使用 1.24.13，`CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7`。进程
 
 原生 helper：`ZIG=/path/to/zig-0.15.2 sh audio/scripts/build.sh`。共用现有 TinyALSA 与媒体 IPC，增加 EG25 的 AFE 路由、D4 hostless PCM、D5 播放与 D6 采集。DSP 映射缓冲区为 4096 字节；VoLTE 前端、D5 与 D6 均以 16 kHz 打开，单声道 S16_LE、256 帧 × 8 周期。mmap 路径负责硬件周期，外部媒体使用 320 样本的 20 ms 帧。
 
-LC3 版 helper 在原生采集后编码、播放前解码或补偿丢帧，网络与 Unix 媒体均采用 120-byte ASMP v2 包；驱动、路由和硬件周期不变。Agent 与 helper 必须成对更新／回滚，App 与 ECS control／media 同步使用 LC3。配置和资源实测见 [LC3 音频](../../docs/LC3_AUDIO.md)。
+Opus 版 helper 在原生采集后编码、播放前解码，或用后一包的 FEC 恢复、执行丢帧补偿；Agent 以 WebRTC 与 App 交换 Opus 包，Unix 媒体通道使用 ASMP v3 帧；驱动、路由和硬件周期不变。Agent 与 helper 必须成对更新／回滚，App 与 ECS control／media 同步使用 WebRTC。WebRTC 版 Agent 在 UBIFS 用户分区上压缩后约占 7 MB。配置和资源实测见 [WebRTC 音频](../../docs/WEBRTC_AUDIO.md)。
 
 音频驱动 `qdc507_aprv3.ko` 和 `qdc507_voice.ko` 使用 [MaVo 0443dfd 的 ModuleVoice](https://github.com/moluncn/mavo/tree/0443dfdaf8aec086fd76ba2ee9152fd908114524/Resources/ModuleVoice)。对应 GPL 许可与来源说明随运行时保留。启动器通过厂商 `alsaucm_test` 完成 VoLTE ACDB 校准，原生 helper 通过 `voc_svr` 启停媒体时钟。
 
@@ -26,9 +26,9 @@ LC3 版 helper 在原生采集后编码、播放前解码或补偿丢帧，网�
 
 1. 准备上述精确内核配置与 ARM EABI 编译器，构建 `kmod/airsim_data11.ko`。执行 `python3 module/eg25/prepare_runtime.py`，生成 `dist/` 中的驱动、源代码及 GPL 说明。
 2. 构建 `module/rm500/audio` 与本目录的原生 helper，在 `service/airsim/web` 执行 `npm ci && npm run build`。构建器固定 Go 1.24.13，为两个平台分别生成安装资源。不要把 ARM64 包用于 EG25。
-3. 模块独立供电、连接电脑数据 USB，在 Chrome/Edge 的配对页选择设备并安装 Engine。主机 `adb server` 占用 USB 时先关闭它。当前固件 USB 不提供序列号，USB 断开重连后 Chrome 需要重新选择设备授权；网页随后核验安装结果。安装器按文件传输，保留活动版本和身份，空间不足时停止；`/etc/inittab` 写入 `asm:12345:respawn:/usrdata/airsim-v2/run-agent.sh`。
+3. 模块独立供电、连接电脑数据 USB，在 Chrome/Edge 的配对页选择设备并安装 Engine。主机 `adb server` 占用 USB 时先关闭它。当前固件 USB 不提供序列号，USB 断开重连后 Chrome 需要重新选择设备授权；网页随后核验安装结果。安装器按文件传输，保留活动版本和身份，清理当前版本以外的旧 helper 发布目录，按 UBIFS 压缩估算空间，不足时停止；`/etc/inittab` 写入 `asm:12345:respawn:/usrdata/airsim-v2/run-agent.sh`。
 4. 新模块由服务管理员按 [R4 登记协议](../../protocol/v2/R4.md) 执行本机 prepare、`issue-module` 和 activate。设备私钥留在模块，网页不会签发管理员证书。已登记模块更新 Engine 后保留服务配置。
-5. 网页核对 EG25 QDC507 与短模块标识，生成五分钟连接码；在 iOS 原“添加设备”输入并确认。ECS 通过认证 hello 的 `platform` 显示型号，App 的模块范围、通话/短信接口和 ASMP 媒体协议不变。
+5. 网页核对 EG25 QDC507 与短模块标识，生成五分钟连接码；在 iOS 原“添加设备”输入并确认。ECS 通过认证 hello 的 `platform` 显示型号，App 的模块范围、通话/短信接口和 WebRTC 媒体协议不变。
 
 固件根证书库缺少当前服务所需的 ISRG Root X1。安装资源包含 [Let's Encrypt 官方证书](https://letsencrypt.org/certs/isrgrootx1.pem)，启动器通过 `SSL_CERT_DIR` 补充该根，同时继续使用系统 CA 文件；不跳过 TLS 校验。
 
