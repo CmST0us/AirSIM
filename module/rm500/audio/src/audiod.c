@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <poll.h>
 #include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -240,8 +241,17 @@ static int transfer(struct pcm *p, uint8_t *data, int input,
   }
   return stopped() ? -1 : 0;
 }
+/* The audio threads run ahead of the Agent and other module processes on a
+ * single core, so a busy process cannot delay capture or playback. They block
+ * on the PCM and the media socket. Without privilege they keep the default
+ * policy. */
+static void realtime(void) {
+  struct sched_param param = {.sched_priority = 10};
+  pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
+}
 static void *capture_worker(void *unused) {
   (void)unused;
+  realtime();
   uint64_t seq = 0, recovery[3] = {0};
   unsigned recoveries = 0;
   uint8_t frame[ASMP_MAX_FRAME], pcm[AIRSIM_OPUS_PCM_BYTES];
@@ -316,6 +326,7 @@ static int take_packet(uint8_t payload[ASMP_MAX_PAYLOAD], int *size) {
 }
 static void *playback_worker(void *unused) {
   (void)unused;
+  realtime();
   uint64_t recovery[3] = {0};
   unsigned recoveries = 0;
   uint8_t data[AIRSIM_OPUS_PCM_BYTES], payload[ASMP_MAX_PAYLOAD];
@@ -351,6 +362,7 @@ static void *playback_worker(void *unused) {
 }
 static void *input_worker(void *unused) {
   (void)unused;
+  realtime();
   uint8_t frame[ASMP_MAX_FRAME];
   size_t offset = 0, need = ASMP_HEADER;
   uint64_t since = 0, last = 0, lost = 0;
