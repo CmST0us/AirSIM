@@ -8,7 +8,7 @@
 
 模块信号由 Agent 采样，经 ECS 目录和快照或 USB 本地接口传入 App；所有模块名称和选择入口使用同一信号图标。离线、采样过期或未知信号显示不可用，蜂窝强度与云端连接状态分别处理。
 
-v2 通话媒体为 App 与模块之间的 WebRTC 音频连接：Opus 20 ms 包，模块以 16 kHz 宽带、32 kbps 编码并开启带内 FEC。App 使用 libwebrtc，模块 Agent 内嵌 Pion，原生 helper 用定点 libopus 编解码；ECS 转交 SDP 并以 TURN 中继蜂窝模块，USB 本地直连。App、ECS control／media、Agent 与 helper 需配套更新。ECS、EG25 与网页安装包已部署 WebRTC 版本，EG25 经 iPad mini 的真实来电已完成双向通话；RM500 需通过网页安装器更新 Engine 后使用新媒体。协议见 [WebRTC](protocol/v2/WEBRTC.md)，参数、构建、部署和实测边界见 [WebRTC 音频](docs/WEBRTC_AUDIO.md)。
+v2 通话媒体为 App 与模块之间的 WebRTC 音频连接：Opus 20 ms 包，模块以 16 kHz 宽带、32 kbps 编码并开启带内 FEC。App 使用 libwebrtc，模块 Agent 内嵌 Pion，原生 helper 用定点 libopus 编解码；ECS 转交 SDP 并以 TURN 中继蜂窝模块，USB 本地直连。App、ECS control／media、Agent 与 helper 需配套更新。ECS、EG25 与网页安装包已部署 WebRTC 版本，EG25 经 iPad mini 的真实来电已完成双向通话；RM500 需通过网页安装器更新 Engine 后使用新媒体。模块与 ECS 的控制连接断线时通话与运行中的音频保持，App 改绑重连后的连接并在媒体失败时自动以新会话恢复（ECS、EG25 与 iPad mini 已部署，待真实通话验证）。协议见 [WebRTC](protocol/v2/WEBRTC.md)，参数、构建、部署和实测边界见 [WebRTC 音频](docs/WEBRTC_AUDIO.md)。
 
 2026-10-31 已更新 EG25 Agent、ECS control 与 iPad App，并通过真实云端信号显示测试：App 显示 3 格，随后模块采样为 CSQ 18／−77 dBm。USB 直连的实体信号显示尚待验证。
 

@@ -4,7 +4,7 @@
 
 支持 `rm500u-embedded` 与 `eg25-qdc507` 两个精确平台。RM500U 使用 oFono，EG25 使用 Agent 内的 AT 控制后端，两者共用 HAL、串行协调器、命令去重、本机 API、云端协议与媒体会话。EG25 固件、ARMv7 构建、DATA11、驱动、16 kHz mmap 音频和安装说明见 [EG25](../eg25/README.md)。短信 PDU 使用 `github.com/warthog618/sms v0.3.0`。
 
-云端连接将 discovery 与设备 mTLS 控制握手分别限制为 30 秒和 15 秒，每地址 TLS 为 15 秒，外层按有界退避重连。媒体会话从 `media_start` 起 20 秒内须完成应答、helper 启动与 ICE 连接，候选收集最长 8 秒。媒体关闭保留首个固定原因：`media_offer`、`media_gather`、`media_local_busy`、`media_local_auth`、`media_setup_timeout`、`ice_failed`、`rtp_timeout`、`rtp_closed`、`rtp_write`、`local_read/write_timeout/closed`、`local_invalid_frame`、`control_disconnected` 或 `media_cancelled`；清理取消不覆盖首错，不记录原始错误、SDP 或媒体内容。
+云端连接将 discovery 与设备 mTLS 控制握手各限制为 10 秒，断开后从 250 ms 起按带抖动退避重连、5 秒封顶，网络恢复后的下一次尝试即可连上。证书到期由连接截止时间约束，连接期间不再逐秒重验证书链。媒体会话从 `media_start` 起 20 秒内须完成应答、helper 启动与 ICE 连接，候选收集最长 8 秒。媒体不随控制连接结束：Agent 级唯一媒体会话以证书到期与 30 分钟为上限，控制重连后照常运行；同一通话的新会话停止旧会话并等旧 helper 退出后再启动。媒体关闭保留首个固定原因：`media_offer`、`media_gather`、`media_local_busy`、`media_local_auth`、`media_setup_timeout`、`ice_failed`、`rtp_timeout`、`rtp_closed`、`rtp_write`、`local_read/write_timeout/closed`、`local_invalid_frame`、`control_disconnected`（应答无法送出）或 `media_cancelled`（含被新会话替换）；清理取消不覆盖首错，不记录原始错误、SDP 或媒体内容。
 
 R3 已实现原生音频 helper、本机媒体会话与通话 lease；本机验证和构建见 [R3 交接记录](R3_TESTING.md)及[构建证据](R3_BUILD_EVIDENCE.json)。R3 裁决04构建已部署，当前固件、厂商16kHz语音时钟下75.004秒双向内容验收通过；用户确认听清提示语及自己的回声。运行时 voice_ready=false、verification=unverified 仍保留为实验发布门槛。权威事实见[验收证据](R3_ACCEPTANCE_EVIDENCE.json)与[历史诊断证据](R3_DIAGNOSTIC_EVIDENCE.json)。下文 R2 证据保留为历史基线。
 
@@ -26,7 +26,7 @@ R1 AT 只读采样与精确 RM500 profile 校验继续保留。R2 新增长期�
 
 待处理接听命令经定时轮询或 `receipt_query` 返回 `accepted`／`observed` 时，统一更新通话声明和媒体所有权，后续 `media_start` 使用同一客户端与 generation。回执查询即使状态未变化也返回结果。
 
-`/v2/local/cloud/media-stats` 统计候选类型、收发包、丢包、晚到、FEC、PLC、队列裁剪、本地输入缺口，以及等待 helper 帧、RTP 发送、App RTP 到达与播放节拍的停顿次数和最长停顿；helper 的 `silence_samples` 仍只统计实际全零 PCM。硬件路由、音频 lease 与 PCM 配置保持既有约束。Agent 与 helper 必须配套构建、切换和回滚。EG25 已部署 WebRTC 版本，部署与验收边界见 [WebRTC 音频](../../docs/WEBRTC_AUDIO.md)；RM500 尚未更新。
+`/v2/local/cloud/media-stats` 统计候选类型、收发包、丢包、晚到、FEC、PLC、队列裁剪、本地输入缺口，以及等待 helper 帧、RTP 发送、App RTP 到达与播放节拍的停顿次数和最长停顿，会话期间的垃圾回收次数与存活堆；helper 的 `silence_samples` 仍只统计实际全零 PCM。硬件路由、音频 lease 与 PCM 配置保持既有约束。Agent 与 helper 必须配套构建、切换和回滚。EG25 已部署 WebRTC 版本，部署与验收边界见 [WebRTC 音频](../../docs/WEBRTC_AUDIO.md)；RM500 尚未更新。
 
 下行 RTP 在首包后 80 ms 起播，超过 12 帧裁剪至最新 4 帧，持续超过 6 帧时逐帧回落；送帧唤醒晚于时隙时逐帧追播，相邻输出至少间隔 5 ms，落后超过 240 ms 才重新对齐网格。Agent 按 helper 播放队列容量（4 包）校验 `queue_peak`。
 

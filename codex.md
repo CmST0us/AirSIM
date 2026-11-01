@@ -2,7 +2,7 @@
 
 ## v2 建设覆盖说明（2026-10-24）
 
-v2 通话媒体为 App 与模块之间的 WebRTC 音频连接：Opus 20 ms 包，模块以 16 kHz 宽带、32 kbps 编码并开启带内 FEC；App 使用 libwebrtc，模块 Agent 内嵌 Pion，原生 helper 用定点 libopus 编解码；ECS 转交 SDP 并以 TURN 中继蜂窝模块，USB 本地经 USB 地址直连。App、control／media、Agent/helper 必须配套更新和回滚。ECS、EG25 与网页安装包已部署 WebRTC 版本，EG25 经 iPad mini 的真实来电已完成双向通话；RM500 须经网页安装器更新 Engine 后才恢复通话音频。协议见 [WebRTC](protocol/v2/WEBRTC.md)，参数、部署、诊断与实测边界见 [WebRTC 音频](docs/WEBRTC_AUDIO.md)。
+v2 通话媒体为 App 与模块之间的 WebRTC 音频连接：Opus 20 ms 包，模块以 16 kHz 宽带、32 kbps 编码并开启带内 FEC；App 使用 libwebrtc，模块 Agent 内嵌 Pion，原生 helper 用定点 libopus 编解码；ECS 转交 SDP 并以 TURN 中继蜂窝模块，USB 本地经 USB 地址直连。App、control／media、Agent/helper 必须配套更新和回滚。ECS、EG25 与网页安装包已部署 WebRTC 版本，EG25 经 iPad mini 的真实来电已完成双向通话；RM500 须经网页安装器更新 Engine 后才恢复通话音频。模块与 ECS 的控制连接断线时通话与运行中的音频保持，App 改绑重连后的连接并在媒体失败时自动以新会话恢复（ECS、EG25 与 iPad mini 已部署，待真实通话验证）。协议见 [WebRTC](protocol/v2/WEBRTC.md)，参数、部署、诊断与实测边界见 [WebRTC 音频](docs/WEBRTC_AUDIO.md)。
 
 当前 iOS 界面采用 Figma `QN34vy88ViWu1s45pE97BO` 页面 `25:1146`，覆盖通话与联系人、拨号键盘、短信、号卡与连接、呼入／呼出／接通状态及空状态。iPad 和 iPhone Duo 展开后的宽窗口采用通话、联系人、短信及号卡的列表与详情双栏，窄窗口使用单栏导航；五标签使用原生 `TabView`，随系统和窗口形态适配。导航为“通话／联系人／短信／拨号键盘／号卡”五标签，短信位于第三个主标签，联系人发短信与短信通知也路由至该标签；号卡页保留设备、模块和外观设置。本次呼出选择不更改默认号卡；短信回复锁定原号卡，不同模块上的同一号码保持独立会话。收藏与联系人首选号卡本机持久化，新增和编辑写入本机系统通讯录；历史按时间展示同一客户端身份下各模块记录，回拨使用原模块，原模块不可用时拒绝回拨。
 
