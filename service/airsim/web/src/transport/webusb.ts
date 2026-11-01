@@ -269,7 +269,7 @@ export function validEngineManifest(value: unknown): value is EngineManifest {
     && (manifest.profile === 'rm500u-embedded' ? manifest.platform === undefined : Array.isArray(manifest.platform) && manifest.platform.length === 7 && manifest.platform.every(validEngineArtifact) && ['airsim_data11.ko', 'qdc507_aprv3.ko', 'qdc507_voice.ko', 'COPYING-GPL-2.0', 'MODULE-REPORT.md', 'airsim_data11.c', 'isrgrootx1.pem'].every(name => (manifest.platform as EngineArtifact[]).some(file => file.path === name)))
     && Array.isArray(manifest.licenses) && manifest.licenses.length === 4
     && manifest.licenses.every(validEngineArtifact)
-    && ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'LC3-LICENSE.txt'].every(name => (manifest.licenses as EngineArtifact[]).some(file => file.path === name))
+    && ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'OPUS-LICENSE.txt'].every(name => (manifest.licenses as EngineArtifact[]).some(file => file.path === name))
     && validEngineArtifact(manifest.agent)
     && validEngineArtifact(manifest.launcher)
     && validEngineArtifact(manifest.audio)
@@ -280,6 +280,8 @@ export function validEngineManifest(value: unknown): value is EngineManifest {
 
 export function prepareEngineStorageScript(profile: PlatformID, release: string, requiredBytes: number): string {
   const requiredKiB = Math.ceil(requiredBytes / 1024) + 512;
+  // UBIFS compresses file data; measured Engine binaries take about 62% of their size.
+  const compressedKiB = Math.ceil(requiredBytes * 0.7 / 1024) + 512;
   return `
 set -eu
 base=${platforms[profile].base}
@@ -295,8 +297,19 @@ for directory in $(ls -1dt "$base"/releases/* 2>/dev/null); do
   [ "$name" = "$current" ] && continue
   rm -rf "$directory"
 done
+audio_link="$(readlink "$base/audio-current" 2>/dev/null || true)"
+for directory in $(ls -1d "$base"/audio-releases/* 2>/dev/null); do
+  [ -d "$directory" ] || continue
+  [ "\${directory##*/}" = "\${audio_link##*/}" ] && continue
+  rm -rf "$directory"
+done
+required_kib=${requiredKiB}
+device="$(df -Pk "$base" | awk 'NR == 2 { print $1 }')"
+if awk -v device="$device" '$1 == device && $3 == "ubifs" { found = 1 } END { exit !found }' /proc/mounts 2>/dev/null; then
+  required_kib=${compressedKiB}
+fi
 available_kib="$(df -Pk "$base" | awk 'NR == 2 { print $4 }')"
-if [ -z "$available_kib" ] || [ "$available_kib" -lt ${requiredKiB} ]; then
+if [ -z "$available_kib" ] || [ "$available_kib" -lt "$required_kib" ]; then
   echo AIRSIM_ENGINE_STORAGE_SHORT
   exit 1
 fi

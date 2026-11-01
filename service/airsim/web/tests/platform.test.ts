@@ -13,7 +13,7 @@ const manifest = {
   schema_version: 1, version: '2.0.0-dev.eg25', os: 'linux', arch: 'arm', profile: 'eg25-qdc507',
   agent: file('airsim-agent'), launcher: file('run-agent.sh'), audio: file('airsim-audiod'),
   platform: ['airsim_data11.ko', 'qdc507_aprv3.ko', 'qdc507_voice.ko', 'COPYING-GPL-2.0', 'MODULE-REPORT.md', 'airsim_data11.c', 'isrgrootx1.pem'].map(file),
-  licenses: ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'LC3-LICENSE.txt'].map(file),
+  licenses: ['LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'OPUS-LICENSE.txt'].map(file),
 };
 describe('module platform selection', () => {
   it('recognizes the connected QDC507 firmware and rejects other ARMv7 firmware', () => {
@@ -27,6 +27,7 @@ describe('module platform selection', () => {
     expect(validEngineManifest({...manifest, arch: 'arm64'})).toBe(false);
     expect(validEngineManifest({...manifest, platform: manifest.platform.slice(1)})).toBe(false);
     expect(validEngineManifest({...manifest, audio: {...manifest.audio, path: '../airsim-audiod'}})).toBe(false);
+    expect(validEngineManifest({...manifest, licenses: manifest.licenses.map(l => l.path === 'OPUS-LICENSE.txt' ? file('LC3-LICENSE.txt') : l)})).toBe(false);
   });
   it('retains the running release when staging is too large', () => {
     const base = mkdtempSync(join(tmpdir(), 'airsim-storage-'));
@@ -34,12 +35,17 @@ describe('module platform selection', () => {
       mkdirSync(join(base, 'releases/current'), {recursive: true});
       mkdirSync(join(base, 'releases/inactive'));
       symlinkSync('releases/current', join(base, 'current'));
+      mkdirSync(join(base, 'audio-releases/audio-current'), {recursive: true});
+      mkdirSync(join(base, 'audio-releases/audio-old'));
+      symlinkSync('audio-releases/audio-current', join(base, 'audio-current'));
       const script = prepareEngineStorageScript('eg25-qdc507', 'new', Number.MAX_SAFE_INTEGER)
         .replace('/usrdata/airsim-v2', base);
       expect(() => execFileSync('sh', ['-c', script], {stdio: 'pipe'})).toThrow();
       expect(existsSync(join(base, 'current'))).toBe(true);
       expect(existsSync(join(base, 'releases/current'))).toBe(true);
       expect(existsSync(join(base, 'releases/inactive'))).toBe(false);
+      expect(existsSync(join(base, 'audio-releases/audio-current'))).toBe(true);
+      expect(existsSync(join(base, 'audio-releases/audio-old'))).toBe(false);
     } finally { rmSync(base, {recursive: true, force: true}); }
   });
 });
