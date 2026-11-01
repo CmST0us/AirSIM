@@ -151,6 +151,11 @@ final class V2CommandMachine {
         }
     }
     func clearOwnedCall() throws { try ownedStore?.clear(); ownedCall = nil }
+    /// Keeps the owned call when the module reconnected to the server under a new connection epoch.
+    func rebindOwnedCall(_ context: V2CallContext) throws {
+        guard let ownedCall, ownedCall.sameCall(context) else { throw V2Error.invalidIdentity }
+        try ownedStore?.save(context); self.ownedCall = context
+    }
     func invalidateOwnedCall() { /* Keep identity until a disconnected snapshot or verified module runtime replacement. */ }
 }
 

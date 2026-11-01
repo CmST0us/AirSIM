@@ -74,16 +74,25 @@ struct V2MediaFailureDiagnostic: Equatable {
     }
 }
 
-/// One WebRTC audio session per owned active call. The App offers with every
-/// candidate gathered, the module answers through signaling, and libwebrtc
-/// owns capture, echo cancellation, Opus, jitter buffering and playout.
+/// One WebRTC audio session at a time for the owned active call. The App offers
+/// with every candidate gathered, the module answers through signaling, and
+/// libwebrtc owns capture, echo cancellation, Opus, jitter buffering and
+/// playout. A failed session is replaced by a new one for the same call, which
+/// keeps its mute and audio route choices.
 @MainActor
 final class V2MediaCoordinator: ObservableObject {
     @Published private(set) var state = V2MediaState.idle
     @Published private(set) var lastFailure: V2MediaFailureDiagnostic?
     @Published private(set) var statistics = V2MediaStatistics()
     @Published private(set) var muted = false
-    @Published private(set) var speaker = false
+    /// Outputs the call can switch between, and the one in use.
+    @Published private(set) var routes: [V2AudioRoute] = []
+    @Published private(set) var route: V2AudioRoute?
+    var speaker: Bool { route?.kind == .speaker }
+    /// A new session is restoring audio the same call had before.
+    @Published private(set) var recovering = false
+    /// Called after a session failed and stopped, so its owner can start the next one.
+    var onFailure: (() -> Void)?
     private let audio: V2MediaAudio
     private let peerFactory: @MainActor ([V2ICEServer]) throws -> V2MediaPeer
     private let create: (V2CallContext, String) async throws -> V2MediaCreated
@@ -91,6 +100,9 @@ final class V2MediaCoordinator: ObservableObject {
     private let delete: (V2CallContext, String) async -> Void
     private let timing: V2MediaTiming
     private(set) var context: V2CallContext?
+    private var lastContext: V2CallContext?
+    private var chosenRoute: V2AudioRoute?
+    private var routeObserver: NSObjectProtocol?
     private var callKitManaged = false
     private var ownsVoiceSession = false
     private var generation = UUID()
@@ -101,6 +113,10 @@ final class V2MediaCoordinator: ObservableObject {
     private var lastReceivedAt: ContinuousClock.Instant?
     private var statisticsFrozen = true
     var active: Bool { context != nil || startTask != nil || stopTask != nil || state == .stopping }
+    var statusTitle: String {
+        if recovering, state != .paired, state != .idle { return "正在恢复音频" }
+        return state.title
+    }
     init(audio: V2MediaAudio? = nil, peerFactory: (@MainActor ([V2ICEServer]) throws -> V2MediaPeer)? = nil, timing: V2MediaTiming = V2MediaTiming(),
          create: @escaping (V2CallContext, String) async throws -> V2MediaCreated,
          offer: @escaping (V2CallContext, String, String) async throws -> String,
@@ -108,7 +124,11 @@ final class V2MediaCoordinator: ObservableObject {
         self.audio = audio ?? V2WebRTCAudio()
         self.peerFactory = peerFactory ?? { try V2WebRTCPeer(servers: $0) }
         self.timing = timing; self.create = create; self.offer = offer; self.delete = delete
+        routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshRoutes() }
+        }
     }
+    deinit { routeObserver.map(NotificationCenter.default.removeObserver) }
     /// CallKit activates the voice session; otherwise media activates it.
     func useCallKitAudioSession() { callKitManaged = true }
     func callKitAudioActivated(_ session: AVAudioSession) { audio.callKitActivated(session) }
@@ -116,10 +136,13 @@ final class V2MediaCoordinator: ObservableObject {
 
     func start(context: V2CallContext, validate: @escaping () -> Bool) {
         guard !active else { return }
-        let stamp = UUID(); generation = stamp; self.context = context
+        let resuming = lastContext?.sameCall(context) == true
+        let stamp = UUID(); generation = stamp; self.context = context; lastContext = context
         lastFailure = nil; statistics = V2MediaStatistics(); statisticsFrozen = false
         connectedAt = nil; disconnectedAt = nil; lastReceivedAt = nil
-        muted = false; speaker = false
+        if !resuming { muted = false; chosenRoute = nil }
+        refreshRoutes()
+        recovering = resuming
         state = .preparing
         startTask = Task { [weak self] in
             guard let self else { return }
@@ -136,6 +159,7 @@ final class V2MediaCoordinator: ObservableObject {
                 guard validate() else { throw V2MediaFailure.stale }
                 let peer = try self.peerFactory(created.ice_servers)
                 self.peer = peer
+                peer.setMuted(self.muted)
                 peer.onState = { [weak self] state in self?.peerChanged(state, stamp: stamp) }
                 self.state = .authenticating
                 stage = .gathering
@@ -156,8 +180,13 @@ final class V2MediaCoordinator: ObservableObject {
         switch change {
         case .connected:
             disconnectedAt = nil
-            if connectedAt == nil { connectedAt = timing.now(); lastReceivedAt = connectedAt }
-            if state == .waiting || state == .authenticating { state = .paired }
+            if connectedAt == nil {
+                connectedAt = timing.now(); lastReceivedAt = connectedAt
+                // Starting the audio unit can reset the route the user chose.
+                if let chosenRoute { try? audio.select(chosenRoute) }
+                refreshRoutes()
+            }
+            if state == .waiting || state == .authenticating { state = .paired; recovering = false }
         case .disconnected:
             if disconnectedAt == nil { disconnectedAt = timing.now() }
         case .failed, .closed:
@@ -206,10 +235,11 @@ final class V2MediaCoordinator: ObservableObject {
             NSLog("[AirSIM Media] stage=fail failureStage=%@ code=%@ numeric=%ld received=%llu sent=%llu", failure.stage.rawValue, failure.code.rawValue, failure.numericCode ?? 0, statistics.peer.packetsReceived, statistics.peer.packetsSent)
         }
 #endif
-        state = .failed(error is V2MediaFailure ? "音频连接中断，请手动恢复音频" : "音频不可用，请核对连接后恢复音频")
+        state = .failed("音频连接中断，正在恢复")
         Task { [weak self] in
             guard let self, self.generation == stamp else { return }
             await self.stop(keepFailure: true)
+            self.onFailure?()
         }
     }
     func requestStop() {
@@ -244,15 +274,21 @@ final class V2MediaCoordinator: ObservableObject {
         let task = Task { [self] in
             for task in tasks { await task.value }
             state = keepFailure ? failed : .idle
+            if !keepFailure { recovering = false }
             stopTask = nil
         }
         stopTask = task
         await task.value
     }
     func setMuted(_ value: Bool) { muted = value; peer?.setMuted(value) }
-    func setSpeaker(_ value: Bool) {
-        do { try audio.setSpeaker(value); speaker = value } catch { fail(error, stamp: generation, stage: .speaker) }
+    func setSpeaker(_ value: Bool) { select(value ? .speaker : routes.first { $0.kind == .receiver } ?? .speaker) }
+    func select(_ route: V2AudioRoute) {
+        do { try audio.select(route); chosenRoute = route } catch {
+            lastFailure = V2MediaFailureDiagnostic(error: error, stage: .speaker)
+        }
+        refreshRoutes()
     }
+    func refreshRoutes() { routes = audio.routes; route = audio.currentRoute }
 #if DEBUG
     /// Counts only; read from the device container after a real call.
     private func recordLastCallStatistics() {
@@ -273,11 +309,11 @@ final class V2MediaCoordinator: ObservableObject {
 struct V2MediaTiming {
     var period: Duration = .seconds(1)
     /// From submitting the answer until ICE and DTLS connect.
-    var connect: Duration = .seconds(15)
-    /// A disconnected transport that does not recover in time ends media.
-    var disconnected: Duration = .seconds(5)
-    /// The module sends audio every 20 ms; this long without packets ends media.
-    var silence: Duration = .seconds(5)
+    var connect: Duration = .seconds(10)
+    /// A disconnected transport that does not recover in time is replaced.
+    var disconnected: Duration = .seconds(3)
+    /// The module sends audio every 20 ms; this long without packets replaces the session.
+    var silence: Duration = .seconds(3)
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
     var sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 }

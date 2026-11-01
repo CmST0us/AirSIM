@@ -41,10 +41,14 @@ final class CloudV2Model: ObservableObject {
         }
     }
     let media: V2MediaCoordinator
+    private let ringback: V2Ringback
     private var mediaObservation: AnyCancellable?
     private var runtimeCallCommandID: String?
     private var newlyOwnedCall: V2CallContext?
     private var attemptedAudioCall: V2CallContext?
+    private var audioRetry: (call: V2CallContext, attempt: Int)?
+    private var adoptionCallID: String?
+    private var audioRetryTask: Task<Void, Never>?
 #if DEBUG
     private var lastMediaEligibilityLog: String?
 #endif
@@ -102,9 +106,11 @@ final class CloudV2Model: ObservableObject {
         pairings: V2PairingStore? = nil,
         pairingClient: V2PairingClient? = nil,
         pushController: V2PushController? = .shared,
+        ringback: V2Ringback? = nil,
         now: @escaping () -> Date = Date.init
     ) {
         self.defaults = defaults; self.now = now; self.pushController = pushController
+        self.ringback = ringback ?? V2RingbackTone()
         // Injected token stores are test or embedded hosts; they must also inject
         // the matching pairing store instead of sharing another app's Keychain.
         let activePairings = pairings ?? (tokens is V2KeychainTokenStore ? V2KeychainPairingStore() : nil)
@@ -138,11 +144,12 @@ final class CloudV2Model: ObservableObject {
             self?.media.requestStop()
             self?.systemCalls?.endSystemCall()
         }
+        // Audio runs on its own path and stops only when the owned call ends.
         client.onControlInvalidated = { [weak self] in
             self?.syncStatus = "模块离线或会话已变化；保留通话上下文，等待核对。"
-            self?.media.requestStop()
         }
         mediaObservation = self.media.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        self.media.onFailure = { [weak self] in self?.audioFailed() }
         refreshCommandStatus()
     }
     func activateSystemIntegration(calls: (any V2SystemCallReporting)? = nil, associationTimeout: Duration = .seconds(25), endAssociationTimeout: Duration = .seconds(10)) {
@@ -570,6 +577,7 @@ final class CloudV2Model: ObservableObject {
     func stop() async {
         cancelReconnect()
         invalidatePolling()
+        ringback.stop()
         await media.stop()
         await cancelConnection(); await cancelPolling()
         client.stop(); connected = false; busy = actionInFlight
@@ -602,11 +610,14 @@ final class CloudV2Model: ObservableObject {
             if connected { startPolling() } else { await connect() }
         case .inactive: break
         case .background:
+            // Calls ringing or answered in the App's own interface move to the system interface.
+            systemCalls?.handOverRingingCall()
+            adoptAnsweredCall()
             foreground = false
             cancelReconnect()
             await cancelConnection(); await cancelPolling()
             if systemCalls?.hasSystemCall == true { startPolling() }
-            else { await media.stop() }
+            else { ringback.stop(); await media.stop() }
         default: break
         }
     }
@@ -636,8 +647,14 @@ final class CloudV2Model: ObservableObject {
                             self.updateMediaEligibility()
                         case .snapshot:
                             if let module {
-                                let snapshot = try await self.client.snapshot(moduleID: module)
+                                let snapshot = try await self.client.snapshot(moduleID: module, foreground: self.foreground)
                                 guard self.acceptsPoll(stamp, module: module) else { return }
+                                if snapshot.online, let listed = self.selectedModule, listed.connection_epoch != snapshot.connection_epoch {
+                                    // The module reconnected; the directory lane may not run in the background.
+                                    let directory = try await self.client.modules()
+                                    guard self.acceptsPoll(stamp, module: module) else { return }
+                                    self.modules = directory.modules
+                                }
                                 self.snapshot = snapshot
                                 self.debugLog("snapshot online=\(snapshot.online) body=\(snapshot.snapshot != nil) epoch=\(!snapshot.connection_epoch.isEmpty) control=\(snapshot.snapshot?.control.ready == true) telephony=\(snapshot.snapshot?.control.telephony_ready == true) audio=\(snapshot.snapshot?.audio.available == true)")
                                 try self.consumeSnapshot(snapshot)
@@ -674,9 +691,9 @@ final class CloudV2Model: ObservableObject {
                         self.pollFailures.insert(lane)
                         self.updateMediaEligibility()
                         self.debugLog("poll \(lane.title) failed error=\(error)")
-                        delay = backoff.failed()
+                        // During a call the link is retried quickly so control and audio recover soon.
+                        delay = self.ownedCall != nil || self.systemCalls?.hasSystemCall == true ? min(backoff.failed(), 2) : backoff.failed()
                     }
-                    if self.systemCalls?.hasSystemCall == true, let age = self.snapshot?.snapshot.map({ self.now().timeIntervalSince($0.observedAt) }), age > 8 { self.systemCalls?.endSystemCall() }
                     self.syncStatus = self.pollFailures.isEmpty ? nil : "同步失败（\(PollLane.allCases.filter { self.pollFailures.contains($0) }.map(\.title).joined(separator: " / "))），当前状态可能已过期；未自动重发操作。"
                     self.objectWillChange.send()
                     do { try await Task.sleep(for: .seconds(delay)) } catch { return }
@@ -711,6 +728,17 @@ final class CloudV2Model: ObservableObject {
             // A verified new module runtime cannot own the previous runtime's call.
             try machine?.clearOwnedCall()
             newlyOwnedCall = nil; attemptedAudioCall = nil
+        }
+        if let context = ownedCall, context.binding.identity == config.identity,
+           context.binding.moduleID == response.module_id,
+           let module = selectedModule, module.module_id == response.module_id,
+           let fresh = try? response.controlBinding(configuration: config, module: module, now: now(), usbLocal: client.usingUSB),
+           fresh.connectionEpoch != context.binding.connectionEpoch, fresh.bootID == context.binding.bootID,
+           fresh.backendEpoch == context.binding.backendEpoch, fresh.usbLocal == context.binding.usbLocal,
+           snapshot.calls.calls.contains(where: { $0.call_id == context.callID && $0.state != "disconnected" }) {
+            // The module reconnected to the server. Its call and the server's reservation are unchanged.
+            try machine?.rebindOwnedCall(V2CallContext(binding: fresh, callID: context.callID, generation: context.generation))
+            systemCalls?.rebind(from: context.binding, to: fresh)
         }
         guard let context = ownedCall, context.binding.identity == config.identity,
               context.binding.moduleID == response.module_id, response.online,
@@ -757,6 +785,13 @@ final class CloudV2Model: ObservableObject {
     }
     func dial() async { await perform(action: "call.dial", args: ["number": number]) }
     func answer(_ call: V2Call) async { await perform(action: "call.answer", args: ["call_id": call.call_id]) }
+    /// Answers a call ringing in the App's own interface. Once the module reports
+    /// it active, the call joins CallKit for the background without a system interface.
+    func answerInApp(_ call: V2Call) async {
+        adoptionCallID = call.call_id
+        await answer(call)
+        updateMediaEligibility()
+    }
     func reject(_ call: V2Call) async { await perform(action: "call.hangup", args: ["call_id": call.call_id]) }
     func hangup() async { guard let ownedCall else { return }; await perform(action: "call.hangup", args: ["call_id": ownedCall.callID]) }
     func dtmf() async { guard let ownedCall else { return }; await perform(action: "call.dtmf", args: ["call_id": ownedCall.callID, "tones": tones]) }
@@ -899,6 +934,14 @@ final class CloudV2Model: ObservableObject {
               activeCall?.state == "active" else { return false }
         return true
     }
+    /// Running audio does not cross the control link, so it survives the module
+    /// or the App briefly losing the server and stops only once the owned call
+    /// is seen ending or changing hands.
+    private var audioRetained: Bool {
+        guard experimentalAudio, (foreground || systemBinding != nil), (systemCalls == nil || systemAudioActive),
+              let ownedCall, let context = media.context, ownedCall.sameCall(context) else { return false }
+        return freshBinding == nil || activeCall?.state == "active"
+    }
 #if DEBUG
     private func logMediaEligibility() {
         guard activeCall != nil else { lastMediaEligibilityLog = nil; return }
@@ -908,15 +951,54 @@ final class CloudV2Model: ObservableObject {
         NSLog("[AirSIM Media] stage=eligibility %@", fields)
     }
 #endif
+    private func adoptAnsweredCall() {
+        guard let id = adoptionCallID, let systemCalls else { return }
+        if systemCalls.hasSystemCall || (!hasUnresolvedCommand && ownedCall?.callID != id) { adoptionCallID = nil; return }
+        guard let owned = ownedCall, owned.callID == id, ownedControlReady, activeCall?.state == "active" else { return }
+        adoptionCallID = nil
+        let number = activeCall?.number
+        Task { await systemCalls.adopt(owned, number: number) }
+    }
+    /// Our outgoing call is ringing and its audio can be heard.
+    var ringbackAudible: Bool {
+        guard let call = activeCall, call.call_id == ownedCall?.callID, call.direction == "outgoing",
+              ["dialing", "alerting"].contains(call.state), freshBinding != nil,
+              foreground || systemBinding != nil, systemCalls == nil || systemAudioActive else { return false }
+        return true
+    }
+    func updateRingback() {
+        if ringbackAudible { ringback.start(activatingSession: systemCalls == nil) } else { ringback.stop() }
+    }
     private func updateMediaEligibility() {
 #if DEBUG
         logMediaEligibility()
 #endif
-        if media.active, (!audioReady || media.context != ownedCall) {
+        updateRingback()
+        adoptAnsweredCall()
+        if media.active, !audioRetained {
             media.requestStop(); return
         }
-        guard audioReady, let ownedCall, newlyOwnedCall == ownedCall, attemptedAudioCall != ownedCall, !media.active else { return }
+        guard audioReady, let ownedCall, !media.active, audioRetryTask == nil else { return }
+        let recovering = audioRetry?.call.sameCall(ownedCall) == true
+        let first = newlyOwnedCall?.sameCall(ownedCall) == true && attemptedAudioCall?.sameCall(ownedCall) != true
+        guard recovering || first else { return }
         connectAudio()
+    }
+    /// A failed session of the owned call is replaced at once, then at growing
+    /// intervals of up to five seconds while failures follow each other.
+    private func audioFailed() {
+        guard let ownedCall, attemptedAudioCall?.sameCall(ownedCall) == true else { return }
+        let stable = media.statistics.connectedMilliseconds >= 10_000
+        let attempt = audioRetry.map { $0.call.sameCall(ownedCall) && !stable ? $0.attempt + 1 : 1 } ?? 1
+        audioRetry = (ownedCall, attempt)
+        let delay: Duration = [.zero, .seconds(1), .seconds(2), .seconds(4), .seconds(5)][min(attempt, 5) - 1]
+        audioRetryTask?.cancel()
+        audioRetryTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            self.audioRetryTask = nil
+            self.updateMediaEligibility()
+        }
     }
     func connectAudio() {
 #if DEBUG
@@ -935,7 +1017,7 @@ final class CloudV2Model: ObservableObject {
         lastEligibilityFailure = nil
         media.start(context: ownedCall) { [weak self] in
             guard let self else { return false }
-            let valid = self.audioReady == true && self.ownedCall == ownedCall
+            let valid = self.audioRetained
             if !valid { self.recordEligibilityFailure(for: ownedCall) }
             return valid
         }
@@ -947,7 +1029,7 @@ final class CloudV2Model: ObservableObject {
         else if !foreground { reason = .foreground }
         else if persistenceFailed { reason = .persistenceFailed }
         else if !experimentalAudio { reason = .experimentalDisabled }
-        else if ownedCall != context { reason = .ownedContextMismatch }
+        else if ownedCall?.sameCall(context) != true { reason = .ownedContextMismatch }
         else if selectedModule?.online != true { reason = .directoryOffline }
         else if snapshot?.online != true || snapshot?.snapshot == nil { reason = .snapshotOffline }
         else if let configuration, let module = selectedModule, let response = snapshot, let value = response.snapshot {

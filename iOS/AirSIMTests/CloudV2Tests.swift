@@ -955,13 +955,22 @@ extension CloudV2Tests {
 }
 @MainActor private final class V2TestAudio: V2MediaAudio {
     var activations = 0, deactivations = 0, callKitActivations = 0, callKitDeactivations = 0
-    var speaker = false
     var activateError: Error?
+    var routes: [V2AudioRoute] = [.receiver, .speaker]
+    var selected: V2AudioRoute?
+    var speaker: Bool { selected?.kind == .speaker }
+    var currentRoute: V2AudioRoute? { selected ?? routes.first }
     func activateVoice() throws { if let activateError { throw activateError }; activations += 1 }
     func deactivateVoice() { deactivations += 1 }
     func callKitActivated(_ session: AVAudioSession) { callKitActivations += 1 }
     func callKitDeactivated(_ session: AVAudioSession) { callKitDeactivations += 1 }
-    func setSpeaker(_ enabled: Bool) throws { speaker = enabled }
+    var selections = 0
+    func select(_ route: V2AudioRoute) throws { selected = route; selections += 1 }
+}
+@MainActor private final class V2TestRingback: V2Ringback {
+    var playing = false, sessionActivations = 0
+    func start(activatingSession: Bool) { if !playing, activatingSession { sessionActivations += 1 }; playing = true }
+    func stop() { playing = false }
 }
 private let v2Answer = "v=0\r\no=- 2 2 IN IP4 0.0.0.0\r\n"
 private func v2MediaCreated(id: String = v2ID, expiresAfter: TimeInterval = 30, relay: Bool = true) throws -> V2MediaCreated {
@@ -1019,7 +1028,7 @@ extension CloudV2Tests {
             let system = TestSystemCalls()
             fixture.model.activateSystemIntegration(calls: system)
             await fixture.model.sceneChanged(.active)
-            try await v2PollWait { fixture.model.ownedCall == nil && system.reports == 1 }
+            try await v2PollWait { fixture.model.ownedCall == nil }; try await v2SystemRinging(fixture)
             XCTAssertEqual(fixture.model.activeCall?.call_id, v2OtherID)
             XCTAssertNil(try V2FileOwnedCallStore(file: V2ProtectedFile(url: fixture.root.appendingPathComponent("owned-call.json"))).load())
             try await fixture.model.systemCalls?.callKitAnswer(origin: .app)
@@ -1048,6 +1057,115 @@ extension CloudV2Tests {
         }
     }
 
+    @MainActor func testOwnedCallFollowsModuleReconnect() async throws {
+        let old = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        let fixture = try V2PollFixture(pushController: nil, restoredOwner: old)
+        fixture.snapshotCalls = [v2CallObject()]
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.ownedControlReady }
+        fixture.connectionEpoch = v2OtherID
+        try await v2PollWait { fixture.model.ownedCall?.binding.connectionEpoch == v2OtherID && fixture.model.ownedControlReady }
+        let rebound = try XCTUnwrap(fixture.model.ownedCall)
+        XCTAssertTrue(rebound.sameCall(old))
+        XCTAssertEqual(try V2FileOwnedCallStore(file: V2ProtectedFile(url: fixture.root.appendingPathComponent("owned-call.json"))).load(), rebound)
+        XCTAssertEqual(fixture.writes, 0)
+        await fixture.close()
+    }
+
+    @MainActor func testSystemCallAndAudioSurviveModuleOutageAndReconnect() async throws {
+        let peer = V2TestPeer()
+        var creates = 0
+        // The test peer reports no inbound packets; only the control outage is under test.
+        var timing = V2MediaTiming(); timing.silence = .seconds(60)
+        let media = v2Media(peers: [peer], timing: timing, create: { _, _ in creates += 1; return try v2MediaCreated() })
+        let fixture = try V2PollFixture(media: media, pushController: nil)
+        addTeardownBlock { await fixture.close() }
+        fixture.delayedReceipts = true; fixture.receiptCompletionAfter = 0
+        var call = v2CallObject(state: "incoming"); call["direction"] = "incoming"; call["ownership"] = "incoming"
+        fixture.snapshotCalls = [call]
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system)
+        await fixture.model.sceneChanged(.active)
+        try await v2SystemRinging(fixture)
+        await fixture.model.systemCalls?.callKitAudioSessionDidActivate()
+        let answer = Task { try await fixture.model.systemCalls?.callKitAnswer(origin: .system) }
+        try await v2PollWait { fixture.commands.count == 1 }
+        call["state"] = "active"; call["ownership"] = "managed"; fixture.snapshotCalls = [call]
+        try await v2PollWait { media.state == .paired }
+        try await answer.value
+
+        // The module loses the server for longer than a snapshot stays fresh.
+        fixture.offlineModules.insert(v2ID)
+        let polls = fixture.counts["snapshot", default: 0]
+        try await v2PollWait { fixture.counts["snapshot", default: 0] >= polls + 3 }
+        XCTAssertEqual(system.endings, 0); XCTAssertEqual(media.state, .paired)
+
+        // It reconnects under a new connection epoch with the call still active.
+        fixture.offlineModules.remove(v2ID); fixture.connectionEpoch = v2OtherID
+        try await v2PollWait { fixture.model.ownedCall?.binding.connectionEpoch == v2OtherID && fixture.model.systemCalls?.authorizedBinding?.connectionEpoch == v2OtherID }
+        XCTAssertEqual(system.endings, 0); XCTAssertEqual(media.state, .paired); XCTAssertEqual(creates, 1)
+        XCTAssertTrue(fixture.model.ownedControlReady)
+
+        call["state"] = "disconnected"; fixture.snapshotCalls = [call]
+        try await v2PollWait { system.endings == 1 && !media.active }
+    }
+
+    @MainActor func testRingbackPlaysWhileOurOutgoingCallRings() async throws {
+        let ringback = V2TestRingback()
+        let owned = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        let fixture = try V2PollFixture(pushController: nil, restoredOwner: owned, ringback: ringback)
+        fixture.snapshotCalls = [v2CallObject(state: "dialing")]
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { ringback.playing }
+        // Without CallKit the tone brings up the voice session itself.
+        XCTAssertEqual(ringback.sessionActivations, 1)
+        fixture.snapshotCalls = [v2CallObject(state: "alerting")]
+        try await v2PollWait { fixture.model.activeCall?.state == "alerting" }
+        XCTAssertTrue(ringback.playing)
+        fixture.snapshotCalls = [v2CallObject(state: "active")]
+        try await v2PollWait { !ringback.playing }
+        await fixture.close()
+    }
+
+    @MainActor func testForegroundIncomingRingsInAppAndJoinsCallKitWithoutSystemInterface() async throws {
+        let peer = V2TestPeer()
+        let media = v2Media(peers: [peer])
+        let fixture = try V2PollFixture(media: media, pushController: nil)
+        addTeardownBlock { await fixture.close() }
+        fixture.delayedReceipts = true; fixture.receiptCompletionAfter = 0
+        var call = v2CallObject(state: "incoming"); call["direction"] = "incoming"; call["ownership"] = "incoming"
+        fixture.snapshotCalls = [call]
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system)
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.activeCall?.state == "incoming" && fixture.counts["snapshot", default: 0] >= 3 }
+        // The server holds the call push while the App polls from the foreground.
+        XCTAssertEqual(system.reports, 0)
+        XCTAssertTrue(fixture.snapshotQueries.allSatisfy { $0 == "presence=foreground" })
+        await fixture.model.answerInApp(try XCTUnwrap(fixture.model.activeCall))
+        XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.answer")
+        call["state"] = "active"; call["ownership"] = "managed"; fixture.snapshotCalls = [call]
+        try await v2PollWait { system.adoptions == 1 && fixture.model.systemCalls?.hasSystemCall == true }
+        XCTAssertEqual(system.reports, 0)
+        await fixture.model.systemCalls?.callKitAudioSessionDidActivate()
+        try await v2PollWait { media.state == .paired }
+    }
+
+    @MainActor func testRingingCallMovesToSystemWhenAppLeavesForeground() async throws {
+        let fixture = try V2PollFixture(pushController: nil)
+        addTeardownBlock { await fixture.close() }
+        var call = v2CallObject(state: "incoming"); call["direction"] = "incoming"; call["ownership"] = "incoming"
+        fixture.snapshotCalls = [call]
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system)
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.activeCall?.state == "incoming" && fixture.model.freshBinding != nil }
+        XCTAssertEqual(system.reports, 0)
+        await fixture.model.sceneChanged(.background)
+        XCTAssertEqual(system.reports, 1); XCTAssertEqual(system.state, "incoming")
+        XCTAssertEqual(fixture.model.systemCalls?.currentCallID, v2OtherID)
+    }
+
     @MainActor func testRuntimeReplacementDoesNotClearOrReplayPendingCommand() async throws {
         let old = V2CallContext(binding: v2Binding(), callID: v2ID, generation: v2ID)
         let pending = V2PendingCommand(binding: old.binding, commandID: v2ID, action: "call.dial", generation: v2ID, callID: old.callID)
@@ -1061,7 +1179,7 @@ extension CloudV2Tests {
         await fixture.close()
     }
 
-    @MainActor func testV2RestoredOwnedActiveCallNeverAutomaticallyCreatesMedia() async throws {
+    @MainActor func testV2RestoredOwnedActiveCallStartsMediaOnRequestThenRecoversIt() async throws {
         let suite = "airsim.restored.audio.\(UUID())", root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let defaults = UserDefaults(suiteName: suite)!, tokens = V2TestTokens()
         defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
@@ -1077,23 +1195,28 @@ extension CloudV2Tests {
             if path.hasSuffix("snapshot") { return V2HTTPResponse(status: 200, body: try v2SnapshotData(calls: [v2CallObject()])) }
             return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "module_id": v2ID, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": []]))
         }
-        let peer = V2TestPeer()
+        let peer = V2TestPeer(), audio = V2TestAudio()
         var creates = 0
-        let media = v2Media(peers: [peer, V2TestPeer()], create: { _, _ in creates += 1; return try v2MediaCreated() })
+        let media = v2Media(audio: audio, peers: [peer, V2TestPeer()], create: { _, _ in creates += 1; return try v2MediaCreated() })
         let client = V2Client(transport: transport, tokens: tokens, now: { v2Now })
-        let model = CloudV2Model(client: client, media: media, defaults: defaults, root: root, tokens: tokens, now: { v2Now })
+        let model = CloudV2Model(client: client, media: media, defaults: defaults, root: root, tokens: tokens, ringback: V2TestRingback(), now: { v2Now })
         await model.sceneChanged(.active)
         for _ in 0..<100 where !model.audioReady { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertTrue(model.audioReady); XCTAssertEqual(model.ownedCall, context)
         await v2Yield(); XCTAssertEqual(creates, 0); XCTAssertEqual(peer.offers, 0)
         model.connectAudio(); await v2Yield(); XCTAssertEqual(creates, 1); XCTAssertEqual(media.state, .paired)
-        peer.onState?(.failed); await v2Yield(100)
-        model.experimentalAudio = false; await v2Yield(); model.experimentalAudio = true
+        media.setMuted(true); media.setSpeaker(true)
+        peer.onState?(.failed)
+        for _ in 0..<200 where creates < 2 || media.state != .paired { try await Task.sleep(for: .milliseconds(5)) }
+        // The failed session of the owned call is replaced at once and keeps the mute and output choices.
+        XCTAssertEqual(creates, 2); XCTAssertEqual(media.state, .paired); XCTAssertTrue(media.muted)
+        XCTAssertTrue(media.speaker); XCTAssertEqual(audio.selections, 2)
+        model.experimentalAudio = false; await v2Yield()
         try await Task.sleep(for: .milliseconds(1100))
-        XCTAssertEqual(creates, 1) // Neither polling nor the off/on switch bypasses manual recovery.
+        XCTAssertEqual(creates, 2); XCTAssertFalse(media.active)
         await model.stop()
     }
-    @MainActor func testV2ExpiredSnapshotEligibilityEvidenceSurvivesStopAndResetsOnNewStart() async throws {
+    @MainActor func testV2MediaOutlivesStaleSnapshotAndStopsWhenCallLeavesActive() async throws {
         let suite = "airsim.restored.audio.\(UUID())", root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let defaults = UserDefaults(suiteName: suite)!, tokens = V2TestTokens()
         defer { defaults.removePersistentDomain(forName: suite); try? FileManager.default.removeItem(at: root) }
@@ -1102,11 +1225,12 @@ extension CloudV2Tests {
         defaults.set(true, forKey: "airsim.v2.experimental-audio")
         let context = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
         try V2FileOwnedCallStore(file: V2ProtectedFile(url: root.appendingPathComponent("owned-call.json"))).save(context)
+        var callState = "active"
         let transport = V2TestTransport { request in
             let path = request.url!.path
             if path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
             if path == "/v2/modules" { return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "modules": [["module_id": v2ID, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID]]])) }
-            if path.hasSuffix("snapshot") { return V2HTTPResponse(status: 200, body: try v2SnapshotData(calls: [v2CallObject()])) }
+            if path.hasSuffix("snapshot") { return V2HTTPResponse(status: 200, body: try v2SnapshotData(calls: [v2CallObject(state: callState)])) }
             return V2HTTPResponse(status: 200, body: try v2Data(["server_id": v2ID, "module_id": v2ID, "agent_boot_id": v2ID, "backend_epoch": v2ID, "online": true, "inbox_gap": false, "inbox_dropped": 0, "messages": []]))
         }
         let peer = V2TestPeer()
@@ -1120,17 +1244,18 @@ extension CloudV2Tests {
         XCTAssertTrue(model.audioReady); XCTAssertEqual(model.ownedCall, context)
         await v2Yield(); XCTAssertEqual(creates, 0); XCTAssertEqual(peer.offers, 0)
         model.connectAudio(); await v2Yield(); XCTAssertEqual(creates, 1); XCTAssertEqual(media.state, .paired)
+        // A stale snapshot means the control link is down, not that the call ended.
         currentNow = v2Now.addingTimeInterval(9)
         try await Task.sleep(for: .milliseconds(1100))
-        let failure = try XCTUnwrap(model.lastEligibilityFailure)
-        XCTAssertEqual(failure.reason, .snapshotExpired)
-        XCTAssertEqual(try XCTUnwrap(failure.snapshotAgeSeconds), 9, accuracy: 0.001)
-        await media.stop()
-        XCTAssertEqual(model.lastEligibilityFailure, failure)
-        currentNow = v2Now
+        XCTAssertEqual(media.state, .paired); XCTAssertNil(model.lastEligibilityFailure)
+        currentNow = v2Now; callState = "held"
+        for _ in 0..<300 where media.active { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertFalse(media.active)
+        callState = "active"
+        for _ in 0..<300 where !model.audioReady { try await Task.sleep(for: .milliseconds(5)) }
         model.connectAudio()
         XCTAssertNil(model.lastEligibilityFailure)
-        await v2Yield(); XCTAssertEqual(media.state, .paired)
+        await v2Yield(); XCTAssertEqual(media.state, .paired); XCTAssertEqual(creates, 2)
         await model.stop()
     }
     @MainActor func testV2ExplicitRecoveryUsesNewRequestSessionAndLateCallbacksCannotStopIt() async throws {
@@ -1176,6 +1301,7 @@ extension CloudV2Tests {
     var directoryBlocksAfterFirst = false
     var pending: [String: CheckedContinuation<V2HTTPResponse, Error>] = [:]
     var snapshotCalls: [[String: Any]] = []
+    var snapshotQueries: [String?] = []
     var snapshotMessages: [[String: Any]] = []
     var signals: [String: [String: Any]] = [:]
     var offlineModules = Set<String>()
@@ -1191,7 +1317,7 @@ extension CloudV2Tests {
     var receiptFails = false
     var receiptUnknown = false
     var commands: [[String: Any]] = []
-    init(media: V2MediaCoordinator? = nil, pushController: V2PushController? = .shared, restoredOwner: V2CallContext? = nil, restoredPending: V2PendingCommand? = nil) throws {
+    init(media: V2MediaCoordinator? = nil, pushController: V2PushController? = .shared, restoredOwner: V2CallContext? = nil, restoredPending: V2PendingCommand? = nil, ringback: V2Ringback? = nil) throws {
         defaults = UserDefaults(suiteName: suite)!
         _ = try V2ConfigurationStore(tokens: tokens, defaults: defaults).importConfiguration(v2Data(v2Import()), now: v2Now)
         defaults.set(v2ID, forKey: V2LocalPaths.selectionKey(v2Config().identity))
@@ -1234,6 +1360,7 @@ extension CloudV2Tests {
                 return V2HTTPResponse(status: 200, body: try v2Discovery())
             }
             let lane = path == "/v2/modules" ? "directory" : (path.hasSuffix("snapshot") ? "snapshot" : "messages")
+            if lane == "snapshot" { snapshotQueries.append(request.url?.query) }
             counts[lane, default: 0] += 1; inFlight[lane, default: 0] += 1
             maxInFlight[lane] = max(maxInFlight[lane, default: 0], inFlight[lane, default: 0])
             defer { inFlight[lane, default: 0] -= 1 }
@@ -1243,7 +1370,7 @@ extension CloudV2Tests {
             if failed.contains(lane) { throw V2Error.transport }
             return try response(lane, module: path.contains(v2OtherID) ? v2OtherID : v2ID)
         }
-        model = CloudV2Model(client: V2Client(transport: transport, tokens: tokens, now: { [unowned self] in currentNow }), media: media, defaults: defaults, root: root, tokens: tokens, pushController: pushController, now: { [unowned self] in currentNow })
+        model = CloudV2Model(client: V2Client(transport: transport, tokens: tokens, now: { [unowned self] in currentNow }), media: media, defaults: defaults, root: root, tokens: tokens, pushController: pushController, ringback: ringback ?? V2TestRingback(), now: { [unowned self] in currentNow })
     }
     func response(_ lane: String, module: String = v2ID) throws -> V2HTTPResponse {
         let body: Data
@@ -1565,6 +1692,13 @@ extension CloudV2Tests {
     }
     func reportCurrentCallEnded(reason: CXCallEndedReason) { endings += 1; currentSystemCallUUID = nil }
     func reportCurrentOutgoingConnected() { state = "active" }
+    var adoptions = 0
+    func adoptAnsweredCall(callID: String, number: String?) async throws { adoptions += 1; currentSystemCallUUID = UUID(); state = "active" }
+}
+/// Hands the call ringing in the App to the system, as leaving the foreground does.
+@MainActor private func v2SystemRinging(_ fixture: V2PollFixture) async throws {
+    try await v2PollWait { fixture.model.activeCall?.state == "incoming" && fixture.model.freshBinding != nil }
+    fixture.model.systemCalls?.handOverRingingCall()
 }
 
 extension CloudV2Tests {
@@ -1582,7 +1716,7 @@ extension CloudV2Tests {
             let system = TestSystemCalls()
             fixture.model.activateSystemIntegration(calls: system)
             await fixture.model.sceneChanged(.active)
-            try await v2PollWait { system.reports == 1 }
+            try await v2SystemRinging(fixture)
             await fixture.model.systemCalls?.callKitAudioSessionDidActivate()
             let answer = Task { try await fixture.model.systemCalls?.callKitAnswer(origin: .system) }
             try await v2PollWait { fixture.commands.count == 1 }
@@ -1612,7 +1746,7 @@ extension CloudV2Tests {
             let system = TestSystemCalls()
             fixture.model.activateSystemIntegration(calls: system)
             await fixture.model.sceneChanged(.active)
-            try await v2PollWait { system.reports == 1 }
+            try await v2SystemRinging(fixture)
             if background { await fixture.model.sceneChanged(.background) }
             // CallKit activates after fulfilling answer, before the asynchronous backend receipt.
             await fixture.model.systemCalls?.callKitAudioSessionDidActivate()
@@ -1639,7 +1773,7 @@ extension CloudV2Tests {
         let system = TestSystemCalls()
         fixture.model.activateSystemIntegration(calls: system)
         await fixture.model.sceneChanged(.active)
-        try await v2PollWait { system.reports == 1 }
+        try await v2SystemRinging(fixture)
         let uuid = system.currentSystemCallUUID
         fixture.model.systemCalls?.observeSnapshot(); fixture.model.systemCalls?.observeSnapshot()
         XCTAssertEqual(system.reports, 1); XCTAssertEqual(system.currentSystemCallUUID, uuid)
@@ -1722,7 +1856,7 @@ extension CloudV2Tests {
         }
     }
 
-    @MainActor func testPushAfterForegroundSnapshotKeepsExistingSystemCall() async throws {
+    @MainActor func testPushAfterHandOverKeepsExistingSystemCall() async throws {
         let fixture = try V2PollFixture()
         addTeardownBlock { await fixture.close() }
         fixture.commandHTTPStatus = 200
@@ -1732,7 +1866,7 @@ extension CloudV2Tests {
         let system = TestSystemCalls()
         fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(2))
         await fixture.model.sceneChanged(.active)
-        try await v2PollWait { system.currentSystemCallUUID != nil }
+        try await v2SystemRinging(fixture)
         let originalUUID = try XCTUnwrap(system.currentSystemCallUUID)
         let now = fixture.currentNow
         let push = try IncomingVoIPCall(userInfo: [
@@ -1756,7 +1890,7 @@ extension CloudV2Tests {
         fixture.snapshotCalls = [incoming]
         let system = TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
         await fixture.model.sceneChanged(.active)
-        try await v2PollWait { system.reports == 1 }
+        try await v2SystemRinging(fixture)
         try await fixture.model.systemCalls?.callKitEnd()
         XCTAssertEqual(fixture.writes, 1)
         XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.hangup")
@@ -1775,7 +1909,7 @@ extension CloudV2Tests {
         fixture.snapshotCalls = [incoming]
         let system = TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
         await fixture.model.sceneChanged(.active)
-        try await v2PollWait { system.reports == 1 }
+        try await v2SystemRinging(fixture)
         try await fixture.model.systemCalls?.callKitAnswer(origin: .system)
         incoming["state"] = "active"; incoming["ownership"] = "managed"; fixture.snapshotCalls = [incoming]
         try await v2PollWait { fixture.model.ownedControlReady && system.state == "active" }
@@ -1975,7 +2109,7 @@ extension CloudV2Tests {
                 await fixture.model.sceneChanged(.active)
                 try await v2PollWait { fixture.model.freshBinding != nil }
                 if answer {
-                    try await v2PollWait { system.currentSystemCallUUID != nil }
+                    try await v2SystemRinging(fixture)
                 } else { system.currentSystemCallUUID = UUID() }
                 let uuid = try XCTUnwrap(system.currentSystemCallUUID)
                 let controller = try XCTUnwrap(fixture.model.systemCalls)
@@ -2076,7 +2210,7 @@ extension CloudV2Tests {
         fixture.snapshotCalls = [incoming]
         let system = TestSystemCalls(); fixture.model.activateSystemIntegration(calls: system)
         await fixture.model.sceneChanged(.active)
-        try await v2PollWait { system.currentSystemCallUUID != nil }
+        try await v2SystemRinging(fixture)
         let controller = try XCTUnwrap(fixture.model.systemCalls)
         try await controller.callKitAnswer(origin: .system)
         fixture.snapshotCalls = [v2CallObject(state: "active")]
@@ -2516,7 +2650,7 @@ extension CloudV2Tests {
         XCTAssertEqual(offered, [peer.offerSDP]); XCTAssertEqual(peer.accepted, [v2Answer])
         // Without CallKit the coordinator owns the voice session for the call.
         XCTAssertEqual(audio.activations, 1)
-        media.setMuted(true); XCTAssertEqual(peer.mutes, [true]); XCTAssertTrue(media.muted)
+        media.setMuted(true); XCTAssertEqual(peer.mutes, [false, true]); XCTAssertTrue(media.muted)
         media.setSpeaker(true); XCTAssertTrue(audio.speaker); XCTAssertTrue(media.speaker)
         peer.stats.packetsReceived = 50; peer.stats.candidate = "relay"
         await media.stop(); await v2Yield()

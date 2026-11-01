@@ -287,7 +287,7 @@ struct ActiveCallView: View {
     private var audioUnavailable: Bool {
         if let cloud = model.cloudV2 {
             if case .failed = cloud.media.state { return true }
-            return false
+            return cloud.media.recovering
         }
         return model.audio.errorMessage?.isEmpty == false
     }
@@ -369,7 +369,7 @@ struct ActiveCallView: View {
                 .padding(.top, 12)
             status.padding(.top, 20)
             if !incoming && !dialing && audioUnavailable {
-                Text("通话音频暂不可用")
+                Text(model.cloudV2 == nil ? "通话音频暂不可用" : model.callAudioStatusText)
                     .font(A1Typography.font(13))
                     .foregroundStyle(A1Palette.negative)
                     .padding(.top, 8)
@@ -421,11 +421,36 @@ struct ActiveCallView: View {
             A1CallControl(title: "键盘", symbol: "circle.grid.3x3.fill", diameter: 72,
                           fill: A1Palette.onCard.opacity(0.12)) { showingKeypad = true }
                 .accessibilityIdentifier("a1-call-state-keypad")
+            audioRouteControl
+                .accessibilityIdentifier("a1-call-state-speaker")
+                .disabled(!audioControlsEnabled)
+        }
+    }
+
+    /// iPhone without other outputs toggles its speaker; with a headset,
+    /// Bluetooth or car audio, or on iPad, the button lists every output.
+    @ViewBuilder
+    private var audioRouteControl: some View {
+        let routes = model.audioRoutes
+        if routes.isEmpty || routes == [.receiver, .speaker] {
             A1CallControl(title: "扬声器", symbol: "speaker.wave.2.fill", diameter: 72,
                           fill: A1Palette.onCard.opacity(0.12),
                           selected: model.speakerEnabled) { model.toggleSpeaker() }
-                .accessibilityIdentifier("a1-call-state-speaker")
-                .disabled(!audioControlsEnabled)
+        } else {
+            let current = model.audioRoute
+            Menu {
+                ForEach(routes) { route in
+                    Button { model.selectAudioRoute(route) } label: {
+                        Label(route.name, systemImage: route == current ? "checkmark" : route.symbol)
+                    }
+                }
+            } label: {
+                A1CallControlFace(title: "音频", symbol: current?.symbol ?? "speaker.wave.2.fill", diameter: 72,
+                                  fill: A1Palette.onCard.opacity(0.12), selected: current.map { $0.kind != .receiver } ?? false)
+            }
+            .menuStyle(.button)
+            .buttonStyle(A1PressButtonStyle())
+            .accessibilityLabel("音频输出：\(current?.name ?? "未知")")
         }
     }
 
@@ -467,7 +492,6 @@ struct ActiveCallView: View {
 }
 
 private struct A1CallControl: View {
-    @Environment(\.isEnabled) private var isEnabled
     let title: String
     let symbol: String
     let diameter: CGFloat
@@ -478,27 +502,42 @@ private struct A1CallControl: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: labelSpacing) {
-                Image(systemName: symbol)
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(selected ? Color.black : A1Palette.onCard)
-                    .accessibilityHidden(true)
-                    .frame(width: diameter, height: diameter)
-                    .background(selected ? A1Palette.onCard : fill, in: Circle())
-                Text(title)
-                    .font(A1Typography.font(13))
-                    .foregroundStyle(A1Palette.onCard.opacity(0.72))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(minHeight: 19)
-            }
-            .frame(minWidth: 78)
-            .contentShape(Rectangle())
+            A1CallControlFace(title: title, symbol: symbol, diameter: diameter, fill: fill, selected: selected, labelSpacing: labelSpacing)
         }
         .buttonStyle(A1PressButtonStyle())
-        .opacity(isEnabled ? 1 : 0.4)
         .accessibilityLabel(title)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// The circle and caption shared by call buttons and the audio output menu.
+private struct A1CallControlFace: View {
+    @Environment(\.isEnabled) private var isEnabled
+    let title: String
+    let symbol: String
+    let diameter: CGFloat
+    let fill: Color
+    var selected = false
+    var labelSpacing: CGFloat = 12
+
+    var body: some View {
+        VStack(spacing: labelSpacing) {
+            Image(systemName: symbol)
+                .font(.system(size: 28, weight: .medium))
+                .foregroundStyle(selected ? Color.black : A1Palette.onCard)
+                .accessibilityHidden(true)
+                .frame(width: diameter, height: diameter)
+                .background(selected ? A1Palette.onCard : fill, in: Circle())
+            Text(title)
+                .font(A1Typography.font(13))
+                .foregroundStyle(A1Palette.onCard.opacity(0.72))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 19)
+        }
+        .frame(minWidth: 78)
+        .contentShape(Rectangle())
+        .opacity(isEnabled ? 1 : 0.4)
     }
 }
 

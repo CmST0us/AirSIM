@@ -144,33 +144,42 @@ struct RootView: View {
     }
 }
 
+/// 顶部提示：文字居中，上滑或点右侧整块关闭区即可收起。
 struct TransientNoticeBanner: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var lift: CGFloat = 0
     let message: String
     let dismiss: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.circle.fill")
-                .foregroundStyle(A1Palette.negative)
-                .padding(.top, 12)
-            Text(message)
-                .font(.footnote)
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.vertical, 10)
-            Spacer(minLength: 2)
+        HStack(spacing: 0) {
+            // 与右侧关闭区等宽，使文字在整条提示中居中。
+            Color.clear.frame(width: 44)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(A1Palette.negative)
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
             Button(action: dismiss) {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.bold))
-                    .frame(width: 44, height: 44)
+                    .frame(width: 44)
+                    .frame(minHeight: 44, maxHeight: .infinity)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("关闭提示")
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 6)
-        .padding(.vertical, 8)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
         .background {
             if reduceTransparency {
                 RoundedRectangle(cornerRadius: 15).fill(Color(uiColor: .secondarySystemBackground))
@@ -183,6 +192,19 @@ struct TransientNoticeBanner: View {
                 .stroke(Color.primary.opacity(0.08))
         }
         .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+        .offset(y: lift)
+        .gesture(
+            DragGesture(minimumDistance: 8)
+                .onChanged { lift = min(0, $0.translation.height) }
+                .onEnded { value in
+                    if value.translation.height < -24 || value.predictedEndTranslation.height < -60 {
+                        dismiss()
+                    } else {
+                        withAnimation(reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.3, dampingFraction: 0.8)) { lift = 0 }
+                    }
+                }
+        )
+        .accessibilityAction(named: "关闭提示", dismiss)
     }
 }
 

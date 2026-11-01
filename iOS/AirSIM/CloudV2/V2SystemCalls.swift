@@ -35,6 +35,7 @@ protocol V2SystemCallReporting: AnyObject {
     func synchronize(call: CallRecord?, previous: CallRecord?, callerName: String?)
     func reportCurrentCallEnded(reason: CXCallEndedReason)
     func reportCurrentOutgoingConnected()
+    func adoptAnsweredCall(callID: String, number: String?) async throws
 }
 extension CallKitController: V2SystemCallReporting {}
 
@@ -123,27 +124,58 @@ final class V2SystemCallController: CallKitActionHandling {
                 previous: nil, callerName: nil
             )
         }
-        if !hasSystemCall, model.foreground, let binding = model.freshBinding,
-           let call = model.activeCall, call.direction == "incoming", ["incoming", "ringing", "waiting"].contains(call.state) {
-            verifiedBinding = binding; incomingID = call.call_id
-            calls.synchronize(call: CallRecord(id: call.call_id, index: 0, direction: "incoming", state: "incoming", number: call.number, startedAt: call.observedAt, updatedAt: call.observedAt, endedAt: nil, missed: false), previous: nil, callerName: nil)
+        // The cellular call outlives a module or App outage, so the system call
+        // waits for the module and ends only on its observed end or a new module runtime.
+        guard hasSystemCall, let binding = authorizedBinding, let response = model.snapshot,
+              response.online, let snapshot = response.snapshot else { return }
+        guard snapshot.agent_boot_id == binding.bootID, snapshot.backend_epoch == binding.backendEpoch else { endSystemCall(); return }
+        let call = snapshot.calls.calls.first(where: { $0.call_id == currentCallID })
+        if response.connection_epoch != binding.connectionEpoch {
+            guard let call, call.state != "disconnected" else { endSystemCall(); return }
+            guard let fresh = model.freshBinding, fresh.connectionEpoch == response.connection_epoch, fresh.moduleID == binding.moduleID,
+                  fresh.bootID == binding.bootID, fresh.backendEpoch == binding.backendEpoch, fresh.usbLocal == binding.usbLocal else { return }
+            rebind(from: binding, to: fresh)
         }
-        guard hasSystemCall, let binding = authorizedBinding, let snapshot = model.snapshot else { return }
-        guard snapshot.online, snapshot.connection_epoch == binding.connectionEpoch,
-              snapshot.snapshot?.agent_boot_id == binding.bootID,
-              snapshot.snapshot?.backend_epoch == binding.backendEpoch else { endSystemCall(); return }
-        if let call = snapshot.snapshot?.calls.calls.first(where: { $0.call_id == currentCallID }) {
+        if let call {
             if call.state == "disconnected" { endSystemCall() }
             else {
                 calls.synchronize(call: CallRecord(id: call.call_id, index: 0, direction: call.direction, state: call.state, number: call.number, startedAt: call.observedAt, updatedAt: call.observedAt, endedAt: nil, missed: false), previous: nil, callerName: nil)
             }
         }
     }
+    /// A call ringing in the App while it is in the foreground moves to the
+    /// system ringing interface when the App leaves the foreground. Call before
+    /// the model leaves the foreground, while its binding is still fresh.
+    func handOverRingingCall() {
+        guard !hasSystemCall, let binding = model.freshBinding, let call = model.activeCall, call.direction == "incoming",
+              ["incoming", "ringing", "waiting"].contains(call.state) else { return }
+        verifiedBinding = binding; incomingID = call.call_id
+        calls.synchronize(call: CallRecord(id: call.call_id, index: 0, direction: "incoming", state: "incoming", number: call.number, startedAt: call.observedAt, updatedAt: call.observedAt, endedAt: nil, missed: false), previous: nil, callerName: nil)
+    }
+    /// A call answered in the App's own interface joins CallKit without any
+    /// system interface, so the system can present it in the background.
+    func adopt(_ owned: V2CallContext, number: String?) async {
+        guard !hasSystemCall else { return }
+        controlledCall = owned; verifiedBinding = owned.binding
+        do { try await calls.adoptAnsweredCall(callID: owned.callID, number: number) } catch {
+            if !hasSystemCall { controlledCall = nil; verifiedBinding = nil }
+            model.error = "通话未能交给系统，App 退到后台时音频会中断。"
+            return
+        }
+        await model.systemCallScopeChanged()
+    }
+    /// The module reconnected to the server; the same call continues under the new connection.
+    func rebind(from old: V2ControlBinding, to fresh: V2ControlBinding) {
+        if verifiedBinding == old { verifiedBinding = fresh }
+        if let controlled = controlledCall, controlled.binding == old {
+            controlledCall = V2CallContext(binding: fresh, callID: controlled.callID, generation: controlled.generation)
+        }
+    }
     func endSystemCall() {
         guard hasSystemCall else { return }
         calls.reportCurrentCallEnded(reason: .remoteEnded)
         clearContext()
-        model.systemAudioActive = false; model.media.requestStop()
+        model.systemAudioActive = false; model.updateRingback(); model.media.requestStop()
         Task { await model.systemCallScopeChanged() }
     }
     private func clearContext() {
@@ -312,17 +344,17 @@ final class V2SystemCallController: CallKitActionHandling {
 #if DEBUG
         NSLog("[AirSIM Media] stage=callKitActivateAccepted")
 #endif
-        model.systemAudioActive = true; model.connectAudio()
+        model.systemAudioActive = true; model.updateRingback(); model.connectAudio()
     }
     func callKitAudioSessionDidDeactivate() {
 #if DEBUG
         NSLog("[AirSIM Media] stage=callKitDeactivate")
 #endif
-        audioGeneration &+= 1; model.systemAudioActive = false; model.media.requestStop()
+        audioGeneration &+= 1; model.systemAudioActive = false; model.updateRingback(); model.media.requestStop()
         model.media.callKitAudioDeactivated(AVAudioSession.sharedInstance())
     }
     func callKitProviderDidReset() async {
-        model.systemAudioActive = false; await model.media.stop()
+        model.systemAudioActive = false; model.updateRingback(); await model.media.stop()
         if let owned = model.ownedCall, resetHangups.insert(owned.callID).inserted {
             _ = await model.systemCommand("call.hangup", args: ["call_id": owned.callID])
         }
@@ -331,7 +363,7 @@ final class V2SystemCallController: CallKitActionHandling {
     }
     func callKitDidFail(_ message: String) { model.error = "系统通话未完成，请检查连接与权限。" }
     func callKitCallDidEnd() {
-        clearContext(); model.systemAudioActive = false; model.media.requestStop()
+        clearContext(); model.systemAudioActive = false; model.updateRingback(); model.media.requestStop()
         Task { await model.systemCallScopeChanged() }
     }
 }

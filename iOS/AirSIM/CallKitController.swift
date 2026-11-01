@@ -123,6 +123,7 @@ final class CallKitController: NSObject {
     private var handledOutgoingActions: Set<ObjectIdentifier> = []
     private var dialedOutgoingUUIDs: Set<UUID> = []
     private var appAnswerRequestUUID: UUID?
+    private var adoptingUUID: UUID?
     private var incomingReportCompletions: [(Error?) -> Void] = []
     private var incomingDeduplicator = IncomingCallDeduplicator()
     private(set) var currentIncomingPush: IncomingVoIPCall?
@@ -276,6 +277,33 @@ final class CallKitController: NSObject {
         } catch {
             let unavailable = disableCallKitIfUnentitled(error)
             resetCurrentCall()
+            if unavailable { throw CallKitBridgeError.unavailable }
+            throw error
+        }
+    }
+
+    /// Puts a call the App answered in its own interface under CallKit, so the
+    /// system presents it once the App leaves the foreground. The App starts the
+    /// transaction itself, so no system call interface covers it.
+    func adoptAnsweredCall(callID: String, number: String?) async throws {
+        guard isAvailable else { throw CallKitBridgeError.unavailable }
+        guard currentUUID == nil else { throw CallKitBridgeError.callInProgress }
+        let uuid = UUID()
+        currentUUID = uuid
+        currentDirection = "incoming"
+        currentBackendID = callID
+        currentNumber = number
+        currentState = "active"
+        missingCallPolls = 0
+        endActionFulfilled = false
+        adoptingUUID = uuid
+        do {
+            let handle = number.map { CXHandle(type: .phoneNumber, value: $0) } ?? CXHandle(type: .generic, value: "未知号码")
+            try await request(CXStartCallAction(call: uuid, handle: handle))
+        } catch {
+            adoptingUUID = nil
+            let unavailable = disableCallKitIfUnentitled(error)
+            if currentUUID == uuid { resetCurrentCall() }
             if unavailable { throw CallKitBridgeError.unavailable }
             throw error
         }
@@ -534,6 +562,7 @@ final class CallKitController: NSObject {
         missingCallPolls = 0
         outgoingStartInFlight = false
         appAnswerRequestUUID = nil
+        adoptingUUID = nil
     }
 
     private func fail(_ action: CXAction, error: Error) {
@@ -573,6 +602,16 @@ final class CallKitController: NSObject {
 
     private func performStart(_ action: CXStartCallAction) async {
         if action.isComplete { return }
+        if action.callUUID == adoptingUUID, currentUUID == action.callUUID {
+            // The call is already connected on the module; nothing is dialed.
+            adoptingUUID = nil
+            do { try handler?.callKitPrepareAudioSession() } catch { debugLog("adopted call audio session not prepared") }
+            provider.reportOutgoingCall(with: action.callUUID, startedConnectingAt: nil)
+            systemCallReported = true
+            action.fulfill()
+            provider.reportOutgoingCall(with: action.callUUID, connectedAt: nil)
+            return
+        }
         let actionIdentity = ObjectIdentifier(action)
         guard handledOutgoingActions.insert(actionIdentity).inserted else { return }
         if dialedOutgoingUUIDs.contains(action.callUUID) {

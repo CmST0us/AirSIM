@@ -218,6 +218,8 @@ final class V2PushController: NSObject {
             }
         }
         model.updatePushRegistration(status: "正在注册后台来电与短信", ready: false)
+        // Read the system setting itself: a PushKit background launch never refreshes the model's permission.
+        let notificationStatus = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
         do {
             var existingState = loadRegistration()
             if let state = existingState,
@@ -251,13 +253,13 @@ final class V2PushController: NSObject {
                 bundleID: Bundle.main.bundleIdentifier ?? "",
                 environment: APNsEnvironment.current,
                 voipToken: voIPToken,
-                alertToken: Self.notificationAllowsAlerts(model.notificationPermission)
+                alertToken: Self.notificationAllowsAlerts(notificationStatus)
                     ? (defaults.string(forKey: Keys.alertToken) ?? "")
                     : ""
             )
             _ = try await model.registerPush(body)
             saveRegistration(registration)
-            updateStatus(notificationStatus: await refreshNotificationStatus())
+            updateStatus(notificationStatus: notificationStatus)
         } catch {
             model.updatePushRegistration(
                 status: "推送注册失败，联网或连接恢复后重试",

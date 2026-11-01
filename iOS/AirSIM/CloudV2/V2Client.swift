@@ -12,6 +12,12 @@ struct V2CallContext: Codable, Equatable {
     let binding: V2ControlBinding
     let callID: String
     let generation: String
+    /// The same owned call: a module reconnect to the server changes only the connection epoch.
+    func sameCall(_ other: V2CallContext) -> Bool {
+        binding.identity == other.binding.identity && binding.moduleID == other.binding.moduleID &&
+            binding.bootID == other.binding.bootID && binding.backendEpoch == other.binding.backendEpoch &&
+            binding.usbLocal == other.binding.usbLocal && callID == other.callID && generation == other.generation
+    }
 }
 
 struct V2PushRegistrationBody: Encodable, Equatable {
@@ -292,9 +298,12 @@ final class V2Client {
         guard result.server_id == stamp.identity.serverID else { throw V2Error.invalidIdentity }
         return result
     }
-    func snapshot(moduleID: String) async throws -> V2SnapshotResponse {
+    /// From the foreground the App rings in its own interface, and the server
+    /// holds incoming-call pushes to it while these polls continue.
+    func snapshot(moduleID: String, foreground: Bool = false) async throws -> V2SnapshotResponse {
         try V2Validation.uuid(moduleID); let stamp = try activeStamp()
-        let result = try await read(V2SnapshotResponse.self, path: "/v2/modules/\(moduleID)/snapshot")
+        let presence = foreground && !usingUSB ? "?presence=foreground" : ""
+        let result = try await read(V2SnapshotResponse.self, path: "/v2/modules/\(moduleID)/snapshot" + presence)
         guard result.server_id == stamp.identity.serverID, result.module_id == moduleID else { throw V2Error.invalidIdentity }
         let invalidated = ownedCalls.contains { $0.binding.moduleID == moduleID && !result.matches($0, now: now()) }
         if !result.online || invalidated {

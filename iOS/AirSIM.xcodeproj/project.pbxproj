@@ -66,6 +66,7 @@
 		A5000000000000000000006C /* V2LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5000000000000000000006C /* V2LocalStore.swift */; };
 		A500000000000000000000CA /* V2MediaCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CA /* V2MediaCoordinator.swift */; };
 		A500000000000000000000CC /* V2WebRTC.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CC /* V2WebRTC.swift */; };
+		A500000000000000000000D0 /* V2Ringback.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000D0 /* V2Ringback.swift */; };
 		A500000000000000000000CD /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 9500000000000000000000CD /* WebRTC */; };
 		A500000000000000000000CE /* WebRTC-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CE /* WebRTC-LICENSE.txt */; };
 		A70000000000000000000002 /* MessagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000003 /* MessagingTests.swift */; };
@@ -201,6 +202,7 @@
 		B5000000000000000000006C /* V2LocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2LocalStore.swift; sourceTree = "<group>"; };
 		B500000000000000000000CA /* V2MediaCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2MediaCoordinator.swift; sourceTree = "<group>"; };
 		B500000000000000000000CC /* V2WebRTC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2WebRTC.swift; sourceTree = "<group>"; };
+		B500000000000000000000D0 /* V2Ringback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Ringback.swift; sourceTree = "<group>"; };
 		B500000000000000000000CE /* WebRTC-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "AirSIM/Resources/WebRTC-LICENSE.txt"; sourceTree = SOURCE_ROOT; };
 		B70000000000000000000003 /* MessagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingTests.swift; sourceTree = "<group>"; };
 		B80000000000000000000001 /* V2SystemCalls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2SystemCalls.swift; sourceTree = "<group>"; };
@@ -289,6 +291,7 @@
 				B5000000000000000000006C /* V2LocalStore.swift */,
 				B500000000000000000000CA /* V2MediaCoordinator.swift */,
 				B500000000000000000000CC /* V2WebRTC.swift */,
+				B500000000000000000000D0 /* V2Ringback.swift */,
 				B500000000000000000000CE /* WebRTC-LICENSE.txt */,
 				B10000000000000000000001 /* AirSIMIPadApp.swift */,
 				B10000000000000000000002 /* APIModels.swift */,
@@ -603,6 +606,7 @@
 				A5000000000000000000006C /* V2LocalStore.swift in Sources */,
 				A500000000000000000000CA /* V2MediaCoordinator.swift in Sources */,
 				A500000000000000000000CC /* V2WebRTC.swift in Sources */,
+				A500000000000000000000D0 /* V2Ringback.swift in Sources */,
 				A10000000000000000000001 /* AirSIMIPadApp.swift in Sources */,
 				A10000000000000000000002 /* APIModels.swift in Sources */,
 				A10000000000000000000003 /* AirSIMAPI.swift in Sources */,

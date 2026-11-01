@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UIKit
 import WebRTC
 
 struct V2ICEServer: Decodable, Equatable {
@@ -39,6 +40,24 @@ protocol V2MediaPeer: AnyObject {
     func close()
 }
 
+/// An output the call can play through. The receiver exists on iPhone only;
+/// headsets, Bluetooth hands-free and car audio come and go.
+struct V2AudioRoute: Identifiable, Equatable {
+    enum Kind: Equatable { case receiver, speaker, external }
+    let id: String
+    let name: String
+    let kind: Kind
+    var symbol: String {
+        switch kind {
+        case .receiver: return "iphone"
+        case .speaker: return "speaker.wave.2.fill"
+        case .external: return name.localizedCaseInsensitiveContains("airpods") ? "airpods" : "headphones"
+        }
+    }
+    static let receiver = V2AudioRoute(id: "receiver", name: "iPhone", kind: .receiver)
+    static let speaker = V2AudioRoute(id: "speaker", name: "扬声器", kind: .speaker)
+}
+
 /// WebRTC audio stays off until CallKit, or the App without CallKit, activates
 /// the voice session; the audio unit never runs on an inactive session.
 @MainActor
@@ -47,7 +66,9 @@ protocol V2MediaAudio: AnyObject {
     func deactivateVoice()
     func callKitActivated(_ session: AVAudioSession)
     func callKitDeactivated(_ session: AVAudioSession)
-    func setSpeaker(_ enabled: Bool) throws
+    var routes: [V2AudioRoute] { get }
+    var currentRoute: V2AudioRoute? { get }
+    func select(_ route: V2AudioRoute) throws
 }
 
 @MainActor
@@ -56,6 +77,41 @@ final class V2WebRTCAudio: V2MediaAudio {
     init() {
         session.useManualAudio = true
         session.isAudioEnabled = false
+    }
+    var routes: [V2AudioRoute] {
+        var routes = UIDevice.current.userInterfaceIdiom == .phone ? [V2AudioRoute.receiver, .speaker] : [.speaker]
+        for port in AVAudioSession.sharedInstance().availableInputs ?? [] where port.portType != .builtInMic {
+            routes.append(V2AudioRoute(id: port.uid, name: port.portName, kind: .external))
+        }
+        // Headphones without a microphone are an output only.
+        if let output = AVAudioSession.sharedInstance().currentRoute.outputs.first,
+           ![.builtInReceiver, .builtInSpeaker].contains(output.portType), !routes.contains(where: { $0.name == output.portName }) {
+            routes.append(V2AudioRoute(id: output.uid, name: output.portName, kind: .external))
+        }
+        return routes
+    }
+    var currentRoute: V2AudioRoute? {
+        let route = AVAudioSession.sharedInstance().currentRoute
+        guard let output = route.outputs.first else { return nil }
+        switch output.portType {
+        case .builtInReceiver: return .receiver
+        case .builtInSpeaker: return .speaker
+        default:
+            let input = route.inputs.first?.uid
+            return routes.first { $0.kind == .external && ($0.id == input || $0.id == output.uid || $0.name == output.portName) }
+        }
+    }
+    func select(_ route: V2AudioRoute) throws {
+        let audio = AVAudioSession.sharedInstance()
+        session.lockForConfiguration(); defer { session.unlockForConfiguration() }
+        switch route.kind {
+        case .receiver, .speaker:
+            if let microphone = audio.availableInputs?.first(where: { $0.portType == .builtInMic }) { try session.setPreferredInput(microphone) }
+            try session.overrideOutputAudioPort(route.kind == .speaker ? .speaker : .none)
+        case .external:
+            try session.overrideOutputAudioPort(.none)
+            if let port = audio.availableInputs?.first(where: { $0.uid == route.id }) { try session.setPreferredInput(port) }
+        }
     }
     func activateVoice() throws {
         session.lockForConfiguration(); defer { session.unlockForConfiguration() }
@@ -75,10 +131,6 @@ final class V2WebRTCAudio: V2MediaAudio {
     func callKitDeactivated(_ audio: AVAudioSession) {
         session.isAudioEnabled = false
         session.audioSessionDidDeactivate(audio)
-    }
-    func setSpeaker(_ enabled: Bool) throws {
-        session.lockForConfiguration(); defer { session.unlockForConfiguration() }
-        try session.overrideOutputAudioPort(enabled ? .speaker : .none)
     }
 }
 

@@ -355,7 +355,11 @@ final class AppModel: ObservableObject {
     private let maxMessageCount = 2_000
 
     var inAppPresentedCall: CallRecord? {
-        if isV2 { return activeCall }
+        if let cloudV2 {
+            // A call ringing in the system interface stays there until it is answered.
+            if activeCall?.state == "incoming", cloudV2.systemCalls?.hasSystemCall == true { return nil }
+            return activeCall
+        }
         return CallPresentationPolicy.inAppCall(
             surface: callPresentationSurface,
             local: lifecycleRecord(from: activeCall),
@@ -548,7 +552,7 @@ final class AppModel: ObservableObject {
     }
 
     var callAudioStatusText: String {
-        if let cloudV2 { return cloudV2.media.state.title }
+        if let cloudV2 { return cloudV2.media.statusTitle }
         switch cloudCallAudioState {
         case .idle:
             return audio.active ? "语音链路已连接" : "正在建立语音链路"
@@ -1426,9 +1430,9 @@ final class AppModel: ObservableObject {
 
     func answer() async {
         if let cloudV2 {
-            if cloudV2.systemCalls != nil {
+            if cloudV2.systemCalls?.hasSystemCall == true {
                 do { try await callKit.answerCurrentCall(presentInApp: true) } catch { errorMessage = "系统来电尚未就绪，请等待核对。" }
-            } else if let call = cloudV2.activeCall { await cloudV2.answer(call) }
+            } else if let call = cloudV2.activeCall { audio.stopCallTone(); await cloudV2.answerInApp(call) }
             projectCloudState(); return
         }
         beginCallTransitionProtection()
@@ -1481,8 +1485,8 @@ final class AppModel: ObservableObject {
 
     func reject() async {
         if let cloudV2 {
-            if cloudV2.systemCalls != nil { do { try await callKit.endCurrentCall() } catch { errorMessage = "系统通话尚未就绪。" } }
-            else if let call = cloudV2.activeCall { await cloudV2.reject(call) }
+            if cloudV2.systemCalls?.hasSystemCall == true { do { try await callKit.endCurrentCall() } catch { errorMessage = "系统通话尚未就绪。" } }
+            else if let call = cloudV2.activeCall { audio.stopCallTone(); await cloudV2.reject(call) }
             projectCloudState(); return
         }
         beginCallTransitionProtection()
@@ -1558,7 +1562,7 @@ final class AppModel: ObservableObject {
     }
     func sendDTMF(_ digit: String) async {
         if let cloudV2 {
-            if cloudV2.systemCalls != nil { do { try await callKit.playDTMF(digit) } catch { errorMessage = "无法发送按键。" } }
+            if cloudV2.systemCalls?.hasSystemCall == true { do { try await callKit.playDTMF(digit) } catch { errorMessage = "无法发送按键。" } }
             else { cloudV2.tones = digit; await cloudV2.dtmf() }; return
         }
         await perform {
@@ -1588,7 +1592,7 @@ final class AppModel: ObservableObject {
 
     func toggleMute() async {
         if let cloudV2 {
-            if cloudV2.systemCalls != nil { do { try await callKit.setMuted(!cloudV2.media.muted) } catch { errorMessage = "无法切换系统静音。" } }
+            if cloudV2.systemCalls?.hasSystemCall == true { do { try await callKit.setMuted(!cloudV2.media.muted) } catch { errorMessage = "无法切换系统静音。" } }
             else { cloudV2.media.setMuted(!cloudV2.media.muted) }; projectCloudState(); return
         }
         let target = !isMuted
@@ -1619,6 +1623,12 @@ final class AppModel: ObservableObject {
         errorMessage = nil
     }
 
+    /// Outputs the current call can switch between; empty outside v2 calls.
+    var audioRoutes: [V2AudioRoute] { cloudV2?.media.routes ?? [] }
+    var audioRoute: V2AudioRoute? { cloudV2?.media.route }
+    func selectAudioRoute(_ route: V2AudioRoute) {
+        cloudV2?.media.select(route); projectCloudState()
+    }
     func toggleSpeaker() {
         if let cloudV2 { cloudV2.media.setSpeaker(!cloudV2.media.speaker); projectCloudState(); return }
         // 扬声器切换只作用于当前系统音频会话；如果 CallKit 尚未完成激活，
@@ -1867,7 +1877,18 @@ final class AppModel: ObservableObject {
                 missed: call.direction == "incoming" && call.disconnect_reason == "missed")
         }
         callHistory = Self.accountCallHistory(cloudV2.history.calls, identity: cloudV2.configuration?.identity).map(record)
-        activeCall = cloudV2.visibleCalls.first { $0.call.call_id == cloudV2.activeCall?.call_id && $0.domain.bootID == cloudV2.snapshot?.snapshot?.agent_boot_id && $0.domain.backendEpoch == cloudV2.snapshot?.snapshot?.backend_epoch && $0.call.state != "disconnected" }.map(record)
+        let observed = cloudV2.visibleCalls.first { $0.call.call_id == cloudV2.activeCall?.call_id && $0.domain.bootID == cloudV2.snapshot?.snapshot?.agent_boot_id && $0.domain.backendEpoch == cloudV2.snapshot?.snapshot?.backend_epoch && $0.call.state != "disconnected" }.map(record)
+        // Without a current module snapshot the call is unknown, not ended: keep
+        // presenting it so the call screen does not drop out during a reconnect.
+        if observed == nil, let oldActive, cloudV2.snapshot?.online != true || cloudV2.snapshot?.snapshot == nil,
+           cloudV2.ownedCall?.callID == oldActive.id || cloudV2.systemCalls?.currentCallID == oldActive.id {
+            activeCall = oldActive
+        } else {
+            activeCall = observed
+        }
+        // A call ringing in the App's own interface rings in the App.
+        let ringingInApp = activeCall?.direction == "incoming" && activeCall?.state == "incoming" && cloudV2.systemCalls?.hasSystemCall != true && cloudV2.foreground
+        audio.updateCallTone(for: ringingInApp ? activeCall : nil)
         accountSMSThreads = Self.accountMessageThreads(cloudV2.history.messages, identity: cloudV2.configuration?.identity).map { thread in
             AccountSMSThread(id: thread.id, messages: thread.messages.map { message in
                 var value = message
