@@ -30,7 +30,7 @@ import (
 	"airsim.local/airsim-agent/internal/control"
 	"airsim.local/airsim-agent/internal/identity"
 	"airsim.local/airsim-agent/internal/media"
-	"github.com/coder/websocket"
+	"airsim.local/airsim-agent/internal/rtc"
 )
 
 type USBAuthorization struct {
@@ -51,14 +51,15 @@ type usbRecord struct {
 	Client, Generation string
 }
 type usbMedia struct {
-	Client, Call, Generation, Request, Ticket, ID string
-	Expires                                       time.Time
-	Used                                          bool
-	Cancel                                        context.CancelFunc
+	Client, Call, Generation, Request, ID string
+	Expires                               time.Time
+	Used                                  bool
+	Cancel                                context.CancelFunc
 }
 type USB struct {
 	agent                        *Agent
 	mu                           sync.Mutex
+	ctx                          context.Context
 	address, origin, epoch, path string
 	certificate                  tls.Certificate
 	nonces                       map[string]time.Time
@@ -206,6 +207,9 @@ func (u *USB) authorize(client, expires string) (*USBAuthorization, error) {
 	return &USBAuthorization{s.ServerID, u.agent.P.id.ModuleID, client, u.origin, base64.StdEncoding.EncodeToString(u.certificate.Certificate[0]), g.Token, expires}, nil
 }
 func (u *USB) Serve(ctx context.Context) {
+	u.mu.Lock()
+	u.ctx = ctx
+	u.mu.Unlock()
 	for ctx.Err() == nil {
 		l, e := net.Listen("tcp4", u.address)
 		if e != nil {
@@ -279,8 +283,8 @@ func (u *USB) client(r *http.Request) string {
 	if delta < -30 || delta > 30 {
 		return ""
 	}
-	body, e := io.ReadAll(io.LimitReader(r.Body, 8193))
-	if e != nil || len(body) > 8192 {
+	body, e := io.ReadAll(io.LimitReader(r.Body, 2*maxSDP+1))
+	if e != nil || len(body) > 2*maxSDP {
 		return ""
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -344,10 +348,6 @@ func (u *USB) snapshot(ctx context.Context) (map[string]any, error) {
 	return map[string]any{"agent_boot_id": second.Boot, "backend_epoch": second.Epoch, "observed_at": time.Now().UTC(), "control": second, "calls": calls, "audio": audio, "signal": u.agent.signalView()}, nil
 }
 func (u *USB) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/v2/media" {
-		u.mediaSocket(w, r)
-		return
-	}
 	client := u.client(r)
 	if client == "" {
 		usbJSON(w, 401, nil)
@@ -537,7 +537,8 @@ func (u *USB) mediaAPI(w http.ResponseWriter, r *http.Request, client string, pa
 		usbJSON(w, 404, nil)
 		return
 	}
-	if len(parts) == 4 && r.Method == "DELETE" {
+	switch {
+	case len(parts) == 4 && r.Method == "DELETE":
 		u.mu.Lock()
 		m := u.sessions[parts[3]]
 		if m == nil || m.Client != client || m.Call != parts[1] {
@@ -551,19 +552,44 @@ func (u *USB) mediaAPI(w http.ResponseWriter, r *http.Request, client string, pa
 		}
 		u.mu.Unlock()
 		usbJSON(w, 204, nil)
-		return
-	}
-	if len(parts) != 3 || r.Method != "POST" {
+	case len(parts) == 5 && parts[4] == "offer" && r.Method == "POST":
+		u.mediaOffer(w, r, client, parts[1], parts[3])
+	case len(parts) == 3 && r.Method == "POST":
+		u.mediaCreate(w, r, client, parts[1])
+	default:
 		usbJSON(w, 404, nil)
-		return
 	}
+}
+
+// usbOwner reports the USB owner of an active call for client and generation.
+func (u *USB) usbOwner(ctx context.Context, client, call, generation string) (owner, bool) {
+	u.agent.ownerMu.Lock()
+	o, ok := u.agent.owners[call]
+	claim := u.agent.claim
+	owned := ok && o.client == client && o.generation == generation && claim != nil && claim.route == "usb" && claim.client == client
+	u.agent.ownerMu.Unlock()
+	if !owned {
+		return owner{}, false
+	}
+	raw, code := u.agent.view(ctx, "calls", "")
+	calls, ok := raw.(control.CallsView)
+	if code == 200 && ok && calls.Boot == o.boot && calls.Epoch == o.epoch {
+		for _, c := range calls.Calls {
+			if c.ID == call && c.State == "active" {
+				return o, true
+			}
+		}
+	}
+	return owner{}, false
+}
+func (u *USB) mediaCreate(w http.ResponseWriter, r *http.Request, client, call string) {
 	var b struct {
 		Codec      string `json:"codec"`
 		Request    string `json:"request_id"`
 		Epoch      string `json:"connection_epoch"`
 		Generation string `json:"generation"`
 	}
-	if !usbBody(w, r, &b, "request_id,connection_epoch,generation,codec") || b.Codec != "lc3" || !control.ValidID(b.Request) || !control.ValidID(b.Generation) {
+	if !usbBody(w, r, &b, "request_id,connection_epoch,generation,codec") || b.Codec != media.OpusFormat.Codec || !control.ValidID(b.Request) || !control.ValidID(b.Generation) {
 		usbJSON(w, 400, nil)
 		return
 	}
@@ -571,26 +597,7 @@ func (u *USB) mediaAPI(w http.ResponseWriter, r *http.Request, client string, pa
 		usbJSON(w, 409, nil)
 		return
 	}
-	u.agent.ownerMu.Lock()
-	o, ok := u.agent.owners[parts[1]]
-	claim := u.agent.claim
-	owned := ok && o.client == client && o.generation == b.Generation && claim != nil && claim.route == "usb" && claim.client == client
-	u.agent.ownerMu.Unlock()
-	if !owned {
-		usbJSON(w, 409, nil)
-		return
-	}
-	raw, code := u.agent.view(r.Context(), "calls", "")
-	calls, ok := raw.(control.CallsView)
-	active := false
-	if code == 200 && ok && calls.Boot == o.boot && calls.Epoch == o.epoch {
-		for _, c := range calls.Calls {
-			if c.ID == parts[1] && c.State == "active" {
-				active = true
-			}
-		}
-	}
-	if !active {
+	if _, ok := u.usbOwner(r.Context(), client, call, b.Generation); !ok {
 		usbJSON(w, 409, nil)
 		return
 	}
@@ -598,7 +605,7 @@ func (u *USB) mediaAPI(w http.ResponseWriter, r *http.Request, client string, pa
 	defer u.mu.Unlock()
 	for _, old := range u.sessions {
 		if old.Request == b.Request {
-			if old.Client != client || old.Call != parts[1] || old.Generation != b.Generation {
+			if old.Client != client || old.Call != call || old.Generation != b.Generation {
 				usbJSON(w, 409, nil)
 				return
 			}
@@ -624,111 +631,75 @@ func (u *USB) mediaAPI(w http.ResponseWriter, r *http.Request, client string, pa
 		usbJSON(w, 503, nil)
 		return
 	}
-	ticket, e := usbToken()
-	if e != nil {
-		usbJSON(w, 503, nil)
-		return
-	}
-	m := &usbMedia{Client: client, Call: parts[1], Generation: b.Generation, Request: b.Request, Ticket: ticket, ID: id, Expires: time.Now().Add(30 * time.Second)}
+	m := &usbMedia{Client: client, Call: call, Generation: b.Generation, Request: b.Request, ID: id, Expires: time.Now().Add(30 * time.Second)}
 	u.sessions[id] = m
 	u.mediaResult(w, 201, m)
 }
 func (u *USB) mediaResult(w http.ResponseWriter, code int, m *usbMedia) {
-	usbJSON(w, code, map[string]any{"session_id": m.ID, "ticket": m.Ticket, "expires_at": m.Expires.UTC(), "media_url": "wss" + strings.TrimPrefix(u.origin, "https") + "/v2/media", "format": media.LC3Format})
+	usbJSON(w, code, map[string]any{"session_id": m.ID, "expires_at": m.Expires.UTC(), "ice_servers": []rtc.ICEServer{}})
 }
-func (u *USB) mediaSocket(w http.ResponseWriter, r *http.Request) {
-	ws, e := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"airsim.media.v2"}, CompressionMode: websocket.CompressionDisabled})
-	if e != nil {
+
+// mediaOffer answers over the USB link with host candidates only. Media runs
+// until the call, the grant, the link or the session ends.
+func (u *USB) mediaOffer(w http.ResponseWriter, r *http.Request, client, call, id string) {
+	var b struct {
+		SDP string `json:"sdp"`
+	}
+	if !control.ValidID(id) || !usbOfferBody(w, r, &b) || !validSDP(b.SDP) {
+		usbJSON(w, 400, nil)
 		return
 	}
-	defer ws.CloseNow()
-	if ws.Subprotocol() != "airsim.media.v2" {
-		return
-	}
-	ws.SetReadLimit(2048)
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
-	defer cancel()
-	setup, done := context.WithTimeout(ctx, 5*time.Second)
-	defer done()
-	typ, b, e := ws.Read(setup)
-	if e != nil || typ != websocket.MessageText {
-		return
-	}
-	var auth struct {
-		ID     string `json:"session_id"`
-		Role   string `json:"role"`
-		Ticket string `json:"ticket"`
-	}
-	if exact(b, "session_id,role,ticket", &auth) != nil || auth.Role != "client" || !hex32(auth.Ticket) {
-		return
-	}
+	host, _, _ := net.SplitHostPort(u.address)
 	u.mu.Lock()
-	m := u.sessions[auth.ID]
-	if m == nil || m.Used || !time.Now().Before(m.Expires) || subtle.ConstantTimeCompare([]byte(auth.Ticket), []byte(m.Ticket)) != 1 {
+	m := u.sessions[id]
+	if m == nil || m.Client != client || m.Call != call {
 		u.mu.Unlock()
+		usbJSON(w, 404, nil)
 		return
 	}
-	grant := u.grants[m.Client]
-	expires, e := utc(grant.Expires)
-	if e != nil || !time.Now().Before(expires) {
+	expires, e := utc(u.grants[m.Client].Expires)
+	if m.Used || !time.Now().Before(m.Expires) || e != nil || !time.Now().Before(expires) || u.ctx == nil {
 		u.mu.Unlock()
+		usbJSON(w, 410, nil)
 		return
 	}
-	authorized, authCancel := context.WithDeadline(ctx, expires)
-	defer authCancel()
-	ctx = authorized
-	setup, setupCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer setupCancel()
+	o, owned := u.usbOwner(r.Context(), m.Client, m.Call, m.Generation)
+	if !owned {
+		u.mu.Unlock()
+		usbJSON(w, 409, nil)
+		return
+	}
+	if limit := time.Now().Add(30 * time.Minute); limit.Before(expires) {
+		expires = limit
+	}
+	ctx, cancel := context.WithDeadline(u.ctx, expires)
 	m.Used = true
 	m.Cancel = cancel
 	u.mu.Unlock()
-	defer func() { u.mu.Lock(); m.Cancel = nil; u.mu.Unlock() }()
-	u.agent.ownerMu.Lock()
-	o, ok := u.agent.owners[m.Call]
-	claim := u.agent.claim
-	owned := ok && o.client == m.Client && o.generation == m.Generation && claim != nil && claim.route == "usb"
-	u.agent.ownerMu.Unlock()
-	if !owned {
-		return
+	answers := make(chan string, 1)
+	go func() {
+		defer cancel()
+		defer func() { u.mu.Lock(); m.Cancel = nil; u.mu.Unlock() }()
+		u.agent.runMedia(ctx, mediaRun{
+			request: m.Request, session: m.ID, call: m.Call, boot: o.boot, epoch: o.epoch, offer: b.SDP,
+			config:    rtc.Config{LocalIP: net.ParseIP(host), GatherTimeout: 2 * time.Second},
+			answer:    func(sdp string) bool { answers <- sdp; return true },
+			streaming: func() bool { return true },
+		})
+	}()
+	select {
+	case sdp := <-answers:
+		usbJSON(w, 200, map[string]string{"sdp": sdp})
+	case <-ctx.Done():
+		usbJSON(w, 503, nil)
+	case <-r.Context().Done():
+		cancel()
+		usbJSON(w, 503, nil)
 	}
-	waiting, _ := json.Marshal(map[string]string{"type": "waiting", "session_id": m.ID})
-	if ws.Write(setup, websocket.MessageText, waiting) != nil {
-		return
-	}
-	local, code := u.agent.Media.Create(setup, media.Request{RequestID: m.Request, Boot: o.boot, Epoch: o.epoch, CallID: m.Call})
-	if code != 200 && code != 201 {
-		return
-	}
-	defer u.agent.Media.Stop(local.ID)
-	conn, e := (&net.Dialer{}).DialContext(setup, "unix", local.Socket)
-	if e != nil {
-		return
-	}
-	defer conn.Close()
-	stop := context.AfterFunc(ctx, func() { conn.Close(); ws.CloseNow() })
-	defer stop()
-	deadline, _ := setup.Deadline()
-	_ = conn.SetDeadline(deadline)
-	if media.WriteJSON(conn, map[string]string{"session_id": local.ID, "token": local.Token}, 1024) != nil {
-		return
-	}
-	b, e = media.ReadJSON(conn, 1024)
-	if e != nil {
-		return
-	}
-	var ack struct {
-		OK bool `json:"ok"`
-		media.Format
-	}
-	if exact(b, "ok,codec,sample_rate,channels,sample_format,frame_samples,codec_frame_us,codec_frame_bytes", &ack) != nil || !ack.OK || ack.Format != media.LC3Format {
-		return
-	}
-	_ = conn.SetDeadline(time.Time{})
-	b, _ = json.Marshal(map[string]any{"type": "paired", "session_id": m.ID, "format": local.Format})
-	if ws.Write(setup, websocket.MessageText, b) != nil {
-		return
-	}
-	bridgeFrames(ctx, cancel, ws, conn, local.ID, m.ID, &bridgeCounters{})
+}
+func usbOfferBody(w http.ResponseWriter, r *http.Request, out any) bool {
+	b, e := io.ReadAll(http.MaxBytesReader(w, r.Body, 2*maxSDP))
+	return e == nil && exact(b, "sdp", out) == nil
 }
 
 func (u *USB) revoke(client string) error {

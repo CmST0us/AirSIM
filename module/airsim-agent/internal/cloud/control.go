@@ -254,7 +254,7 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 		return "control_unavailable"
 	}
 	hello := envelope{Type: "hello", Protocol: 2, Module: a.P.id.ModuleID, Sequence: 1}
-	hello.Payload, _ = json.Marshal(map[string]any{"agent_boot_id": a.Boot, "backend_epoch": status.Epoch, "agent_version": a.Version, "platform": a.P.profile, "usb_local": a.USB != nil, "media_codec": "lc3"})
+	hello.Payload, _ = json.Marshal(map[string]any{"agent_boot_id": a.Boot, "backend_epoch": status.Epoch, "agent_version": a.Version, "platform": a.P.profile, "usb_local": a.USB != nil, "media_codec": "opus"})
 	b, _ := json.Marshal(hello)
 	if ws.Write(handshake, websocket.MessageText, b) != nil {
 		return "control_write"

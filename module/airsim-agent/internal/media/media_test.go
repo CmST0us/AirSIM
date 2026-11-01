@@ -18,31 +18,35 @@ import (
 )
 
 func uid() string { id, _ := identity.UUID(); return id }
+
+// opus is a stand-in Opus payload; the Agent only moves packets.
+var opus = []byte{0x78, 0x01, 0x02, 0x03}
+
 func TestFramesStrictAndFragmented(t *testing.T) {
 	id := uid()
-	f := NewFrame(id, 1, 1)
+	f := Frame{Sequence: 1, Payload: opus}.Encode(id, 1)
 	var seq uint64
-	if _, gap, e := ReadFrame(bytes.NewReader(f[:]), id, 1, &seq); e != nil || gap != 0 {
+	if got, gap, e := ReadFrame(bytes.NewReader(f), id, 1, &seq); e != nil || gap != 0 || !bytes.Equal(got.Payload, opus) || got.Flags != FlagOpus {
 		t.Fatal(e)
 	}
-	if _, _, e := ReadFrame(bytes.NewReader(f[:]), id, 1, &seq); e == nil {
+	if _, _, e := ReadFrame(bytes.NewReader(f), id, 1, &seq); e == nil {
 		t.Fatal("duplicate")
 	}
-	for _, index := range []int{0, 4, 5, 6, 8, 32, 36} {
-		bad := f
+	for _, index := range []int{0, 4, 5, 6, 8, 32, 33, 36} {
+		bad := append([]byte(nil), f...)
 		bad[index] ^= 0x7f
 		seq = 0
-		if _, _, e := ReadFrame(bytes.NewReader(bad[:]), id, 1, &seq); e == nil {
+		if _, _, e := ReadFrame(bytes.NewReader(bad), id, 1, &seq); e == nil {
 			t.Fatal("accepted corruption", index)
 		}
 	}
-	f = NewFrame(id, 1, 4)
+	f = Frame{Sequence: 4, Payload: opus}.Encode(id, 1)
 	seq = 1
-	if _, gap, e := ReadFrame(bytes.NewReader(f[:]), id, 1, &seq); e != nil || gap != 2 {
+	if _, gap, e := ReadFrame(bytes.NewReader(f), id, 1, &seq); e != nil || gap != 2 {
 		t.Fatal("gap")
 	}
 	seq = 0
-	if _, _, e := ReadFrame(bytes.NewReader(f[:FrameSize-1]), id, 1, &seq); e == nil {
+	if _, _, e := ReadFrame(bytes.NewReader(f[:len(f)-1]), id, 1, &seq); e == nil {
 		t.Fatal("partial")
 	}
 	a, b := net.Pipe()
@@ -127,7 +131,7 @@ func (f *fakeHelper) Stop() {
 	})
 }
 func readyEvent() HelperEvent {
-	return HelperEvent{Type: "ready", Codec: "lc3", CodecFrameUS: 10000, CodecFrameBytes: 40, SampleRate: 16000, Channels: 1, SampleFormat: "s16le", FrameSamples: 320, Capture: &PCMConfig{8000, 320, 2, 640}, Playback: &PCMConfig{8000, 320, 2, 640}}
+	return HelperEvent{Type: "ready", Codec: "opus", CodecFrameUS: 20000, SampleRate: 16000, Channels: 1, SampleFormat: "s16le", FrameSamples: 320, Capture: &PCMConfig{8000, 320, 2, 640}, Playback: &PCMConfig{8000, 320, 2, 640}}
 }
 func launchFake(id string, stall bool, earlyError string, nativeRate ...uint32) *fakeHelper {
 	c, cp := net.Pipe()
@@ -185,8 +189,7 @@ func launchFake(id string, stall bool, earlyError string, nativeRate ...uint32) 
 				return
 			case <-tick.C:
 				seq++
-				frame := NewFrame(id, 2, seq)
-				if writeAll(pp, frame[:]) != nil {
+				if WriteFrame(pp, id, 2, Frame{Sequence: seq, Payload: opus}) != nil {
 					return
 				}
 			}
@@ -303,8 +306,7 @@ func TestDuplexAndLeaseRevocation(t *testing.T) {
 	c := create(t, m, q)
 	conn := connect(t, c)
 	defer conn.Close()
-	frame := NewFrame(c.ID, 1, 1)
-	if e := writeAll(conn, frame[:]); e != nil {
+	if e := WriteFrame(conn, c.ID, 1, Frame{Sequence: 1, Payload: opus}); e != nil {
 		t.Fatal(e)
 	}
 	var seq uint64
@@ -334,8 +336,7 @@ func TestSecondConnectionAndInvalidFrameCannotCrossSession(t *testing.T) {
 	if _, e = ReadJSON(other, 1024); e == nil {
 		t.Fatal("second token binding")
 	}
-	bad := NewFrame(uid(), 1, 1)
-	writeAll(conn, bad[:])
+	WriteFrame(conn, uid(), 1, Frame{Sequence: 1, Payload: opus})
 	until(t, func() bool { return m.View().Session.State == "closed" })
 	if m.View().Session.Reason != "media_read" {
 		t.Fatal(m.View().Session.Reason)
@@ -357,8 +358,7 @@ func TestBlockedPCMWriteClosesSession(t *testing.T) {
 	c := create(t, m, q)
 	conn := connect(t, c)
 	defer conn.Close()
-	frame := NewFrame(c.ID, 1, 1)
-	writeAll(conn, frame[:])
+	WriteFrame(conn, c.ID, 1, Frame{Sequence: 1, Payload: opus})
 	until(t, func() bool { return m.View().Session.State == "closed" })
 	if m.View().Session.Reason != "media_write" {
 		t.Fatal(m.View().Session.Reason)
@@ -638,23 +638,36 @@ func TestNativeRatesStrictAndRetained(t *testing.T) {
 	}
 }
 
-func TestLC3ErasureAndVersion(t *testing.T) {
+func TestOpusFlagsAndVersion(t *testing.T) {
 	id := uid()
-	for _, mutate := range []func(*Frame){func(f *Frame) { f[4] = 1 }, func(f *Frame) { f[36] = 2 }, func(f *Frame) { f[36] = 1; f[40] = 1 }} {
-		f := NewFrame(id, 1, 1)
-		mutate(&f)
+	valid := Frame{Sequence: 1, Payload: opus}.Encode(id, 1)
+	for _, mutate := range []func([]byte) []byte{
+		func(f []byte) []byte { f[4] = 2; return f },
+		func(f []byte) []byte { f[36] = 3; return f },
+		// An erasure carries no payload.
+		func(f []byte) []byte { f[36] = byte(FlagErasure); return f },
+		func(f []byte) []byte { return Frame{Sequence: 1, Flags: FlagFEC}.Encode(id, 1) },
+		func(f []byte) []byte { return Frame{Sequence: 1, Payload: make([]byte, MaxPayload+1)}.Encode(id, 1) },
+	} {
+		f := mutate(append([]byte(nil), valid...))
 		var last uint64
-		if _, _, err := ReadFrame(bytes.NewReader(f[:]), id, 1, &last); err == nil {
-			t.Fatal("invalid LC3 frame accepted")
+		if _, _, err := ReadFrame(bytes.NewReader(f), id, 1, &last); err == nil {
+			t.Fatal("invalid frame accepted")
 		}
 	}
-	f := NewFrame(id, 1, 1)
-	f[40] = 42
-	f.Erase()
-	var last uint64
-	out, _, err := ReadFrame(bytes.NewReader(f[:]), id, 1, &last)
-	if err != nil || out[36] != 1 || out[40] != 0 {
-		t.Fatal("erasure rejected")
+	for _, f := range []Frame{{Sequence: 1, Flags: FlagErasure}, {Sequence: 1, Flags: FlagFEC, Payload: opus}, {Sequence: 1, Payload: make([]byte, MaxPayload)}} {
+		var last uint64
+		var b bytes.Buffer
+		if WriteFrame(&b, id, 1, f) != nil {
+			t.Fatal("valid frame refused")
+		}
+		out, _, err := ReadFrame(&b, id, 1, &last)
+		if err != nil || out.Flags != f.Flags || !bytes.Equal(out.Payload, f.Payload) {
+			t.Fatal("frame did not round trip")
+		}
+	}
+	if WriteFrame(io.Discard, id, 1, Frame{Sequence: 1, Flags: FlagErasure, Payload: opus}) == nil {
+		t.Fatal("erasure with payload written")
 	}
 }
 
@@ -664,7 +677,7 @@ func TestHelperRejectsMismatchedCodec(t *testing.T) {
 	if err := json.Unmarshal(b, &object); err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"codec", "codec_frame_us", "codec_frame_bytes"} {
+	for _, key := range []string{"codec", "codec_frame_us"} {
 		saved := object[key]
 		delete(object, key)
 		raw, _ := json.Marshal(object)
@@ -673,10 +686,12 @@ func TestHelperRejectsMismatchedCodec(t *testing.T) {
 		}
 		object[key] = saved
 	}
-	object["codec"] = "pcm"
-	raw, _ := json.Marshal(object)
-	if _, err := parseHelper(raw); err == nil {
-		t.Fatal("PCM helper accepted")
+	for _, codec := range []string{"pcm", "lc3"} {
+		object["codec"] = codec
+		raw, _ := json.Marshal(object)
+		if _, err := parseHelper(raw); err == nil {
+			t.Fatal("non-Opus helper accepted", codec)
+		}
 	}
 }
 

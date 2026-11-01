@@ -64,9 +64,9 @@ func TestControlBoundsAndNoOwnershipAdoption(t *testing.T) {
 		t.Fatal("duplicate ownership conflict")
 	}
 }
-func TestMediaOwnerWrongSessionStopAndPairValidation(t *testing.T) {
+func TestMediaOwnerWrongSessionStopAndOfferValidation(t *testing.T) {
 	c, fc := testConnection(t)
-	r := mediaStart{Format: json.RawMessage(`{"codec":"lc3","sample_rate":16000,"channels":1,"sample_format":"s16le","frame_samples":320,"codec_frame_us":10000,"codec_frame_bytes":40}`), Request: uid(), Session: uid(), Call: fc.call, Boot: fc.boot, Epoch: fc.epoch, Client: uid(), Generation: uid(), Ticket: strings.Repeat("ab", 32), Expires: time.Now().Add(20 * time.Second).UTC().Format(time.RFC3339Nano)}
+	r := testMediaStart(fc, time.Now().Add(15*time.Second))
 	b, _ := json.Marshal(r)
 	if !c.startMedia(b) {
 		t.Fatal("owner rejection should report status")
@@ -85,11 +85,31 @@ func TestMediaOwnerWrongSessionStopAndPairValidation(t *testing.T) {
 	if !c.handle(envelope{Type: "media_stop", Payload: stop}) || !canceled {
 		t.Fatal("matching stop")
 	}
-	for _, raw := range []string{`{"type":"waiting","session_id":"wrong"}`, `{"type":"waiting","session_id":null}`, `{"type":"paired","session_id":"wrong","format":{}}`} {
-		if _, ok := paired([]byte(raw), r.Session); ok {
-			t.Fatal("bad pairing")
+	for _, mutate := range []func(*mediaStart){
+		func(r *mediaStart) { r.Offer = "not sdp" },
+		func(r *mediaStart) { r.Offer = "v=0\r\n" + strings.Repeat("a", maxSDP) },
+		func(r *mediaStart) { r.Servers = nil },
+		func(r *mediaStart) {
+			r.Servers = []json.RawMessage{json.RawMessage(`{"urls":["stun:203.0.113.7:3478"],"username":"u","credential":"c"}`)}
+		},
+		func(r *mediaStart) {
+			r.Servers = []json.RawMessage{json.RawMessage(`{"urls":["turn:203.0.113.7:3478"],"username":"","credential":"c"}`)}
+		},
+		func(r *mediaStart) {
+			r.Servers = []json.RawMessage{json.RawMessage(`{"urls":["turn:203.0.113.7:3478"],"username":"u","credential":"c","extra":1}`)}
+		},
+	} {
+		bad := testMediaStart(fc, time.Now().Add(15*time.Second))
+		mutate(&bad)
+		b, _ := json.Marshal(bad)
+		if c.startMedia(b) {
+			t.Fatal("malformed media_start accepted")
 		}
 	}
+}
+
+func testMediaStart(fc *fakeControl, expires time.Time) mediaStart {
+	return mediaStart{Request: uid(), Session: uid(), Call: fc.call, Boot: fc.boot, Epoch: fc.epoch, Client: uid(), Generation: uid(), Expires: expires.UTC().Format(time.RFC3339Nano), Offer: "v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\n", Servers: []json.RawMessage{json.RawMessage(`{"urls":["turn:203.0.113.7:3478?transport=udp","turn:203.0.113.7:3478?transport=tcp"],"username":"1:` + uid() + `:agent","credential":"c2VjcmV0"}`)}}
 }
 
 // Allocations are scoped to a read-only control snapshot/message synchronization;
@@ -154,21 +174,22 @@ func TestAcceptedReceiptSlotsReleasedAndObservationBounded(t *testing.T) {
 	}
 }
 
-func TestMediaTicketClockSkewExactBoundaries(t *testing.T) {
+func TestMediaAnswerDeadlineClockSkewExactBoundaries(t *testing.T) {
 	serverNow := time.Date(2026, 10, 24, 12, 0, 0, 123456789, time.UTC)
-	expires := serverNow.Add(30 * time.Second).Format(time.RFC3339Nano)
+	answerBy := serverNow.Add(15 * time.Second)
+	expires := answerBy.Format(time.RFC3339Nano)
 	tests := []struct {
 		name  string
 		now   time.Time
 		valid bool
 	}{
-		{"normal_30_seconds", serverNow, true},
+		{"normal_15_seconds", serverNow, true},
 		{"device_behind_1_second", serverNow.Add(-time.Second), true},
-		{"device_behind_5_seconds_exact_35", serverNow.Add(-5 * time.Second), true},
-		{"over_35_by_nanosecond", serverNow.Add(-5*time.Second - time.Nanosecond), false},
-		{"one_nanosecond_remaining", serverNow.Add(30*time.Second - time.Nanosecond), true},
-		{"exactly_current", serverNow.Add(30 * time.Second), false},
-		{"expired_by_nanosecond", serverNow.Add(30*time.Second + time.Nanosecond), false},
+		{"device_behind_5_seconds_exact_20", serverNow.Add(-5 * time.Second), true},
+		{"over_20_by_nanosecond", serverNow.Add(-5*time.Second - time.Nanosecond), false},
+		{"one_nanosecond_remaining", answerBy.Add(-time.Nanosecond), true},
+		{"exactly_current", answerBy, false},
+		{"expired_by_nanosecond", answerBy.Add(time.Nanosecond), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -176,7 +197,7 @@ func TestMediaTicketClockSkewExactBoundaries(t *testing.T) {
 				t.Fatal("expiry boundary")
 			}
 			c, fc := testConnection(t)
-			r := mediaStart{Format: json.RawMessage(`{"codec":"lc3","sample_rate":16000,"channels":1,"sample_format":"s16le","frame_samples":320,"codec_frame_us":10000,"codec_frame_bytes":40}`), Request: uid(), Session: uid(), Call: fc.call, Boot: fc.boot, Epoch: fc.epoch, Client: uid(), Generation: uid(), Ticket: strings.Repeat("ab", 32), Expires: expires}
+			r := testMediaStart(fc, answerBy)
 			payload, _ := json.Marshal(r)
 			if c.startMediaAt(payload, tt.now) != tt.valid {
 				t.Fatal("startMedia protocol boundary")
@@ -202,7 +223,7 @@ func TestMediaTicketClockSkewExactBoundaries(t *testing.T) {
 				t.Fatal("invalid expiry passed protocol validation")
 			}
 			if r.Expires != expires {
-				t.Fatal("absolute ticket expiry changed")
+				t.Fatal("absolute answer deadline changed")
 			}
 		})
 	}

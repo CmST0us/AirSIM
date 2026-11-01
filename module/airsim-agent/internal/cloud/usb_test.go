@@ -1,16 +1,13 @@
 package cloud
 
 import (
-	"airsim.local/airsim-agent/internal/media"
 	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/coder/websocket"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -175,105 +172,5 @@ func TestUSBBodySignatureIncludesContent(t *testing.T) {
 	r.Body = io.NopCloser(strings.NewReader("{\"changed\":true}"))
 	if a.USB.client(r) != "" {
 		t.Fatal("modified body accepted")
-	}
-}
-
-func TestUSBMediaDuplexAndCleanup(t *testing.T) {
-	a, g, dir := usbFixture(t)
-	fc := a.Control.(*fakeControl)
-	fm := a.Media.(*fakeMedia)
-	fm.socket = filepath.Join(dir, "media.sock")
-	fm.id = uid()
-	fm.token = strings.Repeat("a", 64)
-	listener, e := net.Listen("unix", fm.socket)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer listener.Close()
-	finished := make(chan struct{})
-	defer close(finished)
-	up := make(chan bool, 1)
-	go func() {
-		conn, e := listener.Accept()
-		if e != nil {
-			return
-		}
-		defer conn.Close()
-		conn.SetDeadline(time.Now().Add(3 * time.Second))
-		if _, e = media.ReadJSON(conn, 1024); e != nil {
-			return
-		}
-		_ = media.WriteJSON(conn, map[string]any{"ok": true, "codec": "lc3", "codec_frame_us": 10000, "codec_frame_bytes": 40, "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320}, 1024)
-		down := media.NewFrame(fm.id, 2, 1)
-		down[40] = 77
-		if writeFrame(conn, down[:]) != nil {
-			return
-		}
-		var seq uint64
-		frame, _, e := media.ReadFrame(conn, fm.id, 1, &seq)
-		up <- e == nil && frame[40] == 42
-		<-finished
-	}()
-	generation := uid()
-	a.owners[fc.call] = owner{fc.call, g.Client, generation, fc.boot, fc.epoch}
-	a.claim = &callClaim{client: g.Client, route: "usb", call: fc.call, boot: fc.boot, epoch: fc.epoch}
-	data, _ := json.Marshal(map[string]string{"codec": "lc3", "request_id": uid(), "connection_epoch": a.USB.epoch, "generation": generation})
-	path := "/v2/modules/" + a.P.id.ModuleID + "/calls/" + fc.call + "/media-sessions"
-	recorder := httptest.NewRecorder()
-	a.USB.ServeHTTP(recorder, signedUSB(t, g, "POST", path, data, strings.Repeat("a", 64)))
-	if recorder.Code != 201 {
-		t.Fatal(recorder.Code)
-	}
-	var created struct {
-		ID     string `json:"session_id"`
-		Ticket string `json:"ticket"`
-	}
-	if json.Unmarshal(recorder.Body.Bytes(), &created) != nil {
-		t.Fatal("media result")
-	}
-	server := httptest.NewServer(a.USB)
-	defer server.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	ws, _, e := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v2/media", &websocket.DialOptions{Subprotocols: []string{"airsim.media.v2"}})
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer ws.CloseNow()
-	auth, _ := json.Marshal(map[string]string{"session_id": created.ID, "role": "client", "ticket": created.Ticket})
-	if e = ws.Write(ctx, websocket.MessageText, auth); e != nil {
-		t.Fatal(e)
-	}
-	for _, expected := range []string{"waiting", "paired"} {
-		typ, b, e := ws.Read(ctx)
-		phase, ok := paired(b, created.ID)
-		if e != nil || typ != websocket.MessageText || !ok || phase != expected {
-			t.Fatal("handshake", expected, e)
-		}
-	}
-	frame := media.NewFrame(created.ID, 1, 1)
-	frame[40] = 42
-	if e = ws.Write(ctx, websocket.MessageBinary, frame[:]); e != nil {
-		t.Fatal(e)
-	}
-	typ, b, e := ws.Read(ctx)
-	if e != nil || typ != websocket.MessageBinary || len(b) != media.FrameSize || b[40] != 77 {
-		t.Fatal("downlink", e)
-	}
-	select {
-	case ok := <-up:
-		if !ok {
-			t.Fatal("uplink")
-		}
-	case <-ctx.Done():
-		t.Fatal("uplink timeout")
-	}
-	ws.CloseNow()
-	deadline := time.Now().Add(time.Second)
-	for fm.stops.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	if fm.stops.Load() != 1 {
-		t.Fatal("media not released")
 	}
 }

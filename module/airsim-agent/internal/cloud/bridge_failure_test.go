@@ -1,54 +1,90 @@
 package cloud
 
 import (
+	"airsim.local/airsim-agent/internal/media"
 	"context"
 	"errors"
 	"net"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"syscall"
+	"os"
+	"sync"
 	"testing"
 	"time"
-
-	"github.com/coder/websocket"
 )
 
-func TestBridgePreservesFirstFailureDuringCleanup(t *testing.T) {
-	for _, kind := range []string{"cloud_invalid_frame", "cloud_remote_closed", "local_read_closed", "media_cancelled"} {
+type fakePeer struct {
+	mu      sync.Mutex
+	written [][]byte
+	failed  chan struct{}
+	once    sync.Once
+}
+
+func newFakePeer() *fakePeer { return &fakePeer{failed: make(chan struct{})} }
+func (p *fakePeer) WriteOpus(b []byte) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.written = append(p.written, append([]byte(nil), b...))
+	return nil
+}
+func (p *fakePeer) Failed() <-chan struct{} { return p.failed }
+func (p *fakePeer) Close()                  { p.once.Do(func() { close(p.failed) }) }
+func (p *fakePeer) sent() int               { p.mu.Lock(); defer p.mu.Unlock(); return len(p.written) }
+
+// fakeTrack delivers queued packets, then blocks until its deadline.
+type fakeTrack struct {
+	packets chan []byte
+	seq     uint16
+	closed  chan struct{}
+}
+
+func newFakeTrack() *fakeTrack {
+	return &fakeTrack{packets: make(chan []byte, 64), closed: make(chan struct{})}
+}
+func (t *fakeTrack) ReadPacket(buf []byte, deadline time.Time) (uint16, []byte, error) {
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
+	select {
+	case p := <-t.packets:
+		t.seq++
+		return t.seq, p, nil
+	case <-timer.C:
+		return 0, nil, os.ErrDeadlineExceeded
+	case <-t.closed:
+		return 0, nil, net.ErrClosed
+	}
+}
+
+func TestStreamMediaFirstFailure(t *testing.T) {
+	for _, kind := range []string{"rtp_closed", "local_read_closed", "local_invalid_frame", "ice_failed", "media_cancelled"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				peer, e := websocket.Accept(w, r, nil)
-				if e != nil {
-					return
+			peer, track := newFakePeer(), newFakeTrack()
+			conn, helper := net.Pipe()
+			defer conn.Close()
+			defer helper.Close()
+			id := uid()
+			go func() {
+				// The helper side drains playout frames like the Manager relay.
+				var last uint64
+				for {
+					if _, _, e := media.ReadFrame(helper, id, 1, &last); e != nil {
+						return
+					}
 				}
-				defer peer.CloseNow()
-				switch kind {
-				case "cloud_invalid_frame":
-					peer.Write(ctx, websocket.MessageBinary, []byte("invalid"))
-				case "cloud_remote_closed":
-					peer.Close(websocket.StatusNormalClosure, "")
-				}
-				<-ctx.Done()
-			}))
-			defer server.Close()
-			ws, _, e := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
-			if e != nil {
-				t.Fatal(e)
-			}
-			defer ws.CloseNow()
-			local, peer := net.Pipe()
-			defer local.Close()
-			defer peer.Close()
-			if kind == "local_read_closed" {
+			}()
+			switch kind {
+			case "rtp_closed":
+				close(track.closed)
+			case "local_read_closed":
+				helper.Close()
+			case "local_invalid_frame":
+				go media.WriteFrame(helper, id, 2, media.Frame{Sequence: 1, Flags: media.FlagErasure})
+			case "ice_failed":
 				peer.Close()
-			}
-			if kind == "media_cancelled" {
+			case "media_cancelled":
 				cancel()
 			}
-			reason := bridgeFrames(ctx, cancel, ws, local, uid(), uid(), &bridgeCounters{})
+			reason := streamMedia(ctx, cancel, peer, localMedia{conn: conn, id: id}, &bridgeCounters{}, connected(track))
 			if reason != kind {
 				t.Fatalf("got %s want %s", reason, kind)
 			}
@@ -56,48 +92,117 @@ func TestBridgePreservesFirstFailureDuringCleanup(t *testing.T) {
 	}
 }
 
-func TestMediaConnectFailureCategories(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		response *http.Response
-		err      error
-		want     string
-	}{
-		{"dns", nil, &net.DNSError{IsNotFound: true}, "media_connect_dns"},
-		{"timeout", nil, context.DeadlineExceeded, "media_connect_timeout"},
-		{"cancelled", nil, context.Canceled, "media_cancelled"},
-		{"http", &http.Response{StatusCode: 503}, errors.New("upgrade failed"), "media_connect_http"},
-		{"refused", nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}, "media_connect_refused"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := mediaConnectReason(tc.err, tc.response); got != tc.want {
-				t.Fatalf("got %s want %s", got, tc.want)
-			}
-		})
-	}
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer server.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+func TestStreamMediaMovesBothDirections(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	ws, resp, err := websocket.Dial(ctx, "wss"+strings.TrimPrefix(server.URL, "https"), nil)
-	if ws != nil {
-		ws.CloseNow()
-		t.Fatal("untrusted certificate accepted")
+	peer, track := newFakePeer(), newFakeTrack()
+	conn, helper := net.Pipe()
+	defer helper.Close()
+	id := uid()
+	counts := &bridgeCounters{}
+	done := make(chan string, 1)
+	go func() {
+		done <- streamMedia(ctx, cancel, peer, localMedia{conn: conn, id: id}, counts, connected(track))
+	}()
+	for i := byte(1); i <= 3; i++ {
+		track.packets <- []byte{0x78, i}
 	}
-	if got := mediaConnectReason(err, resp); got != "media_connect_tls" {
-		t.Fatal(got)
+	var last uint64
+	var got []media.Frame
+	for len(got) < 3 {
+		helper.SetReadDeadline(time.Now().Add(time.Second))
+		f, _, e := media.ReadFrame(helper, id, 1, &last)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if len(got) > 0 || f.Flags != media.FlagErasure {
+			got = append(got, f)
+		}
+	}
+	for i, f := range got {
+		if f.Flags != media.FlagOpus || f.Payload[1] != byte(i+1) {
+			t.Fatalf("frame %d %+v", i, f)
+		}
+	}
+	for seq := uint64(1); seq <= 2; seq++ {
+		if e := media.WriteFrame(helper, id, 2, media.Frame{Sequence: seq, Payload: []byte{0x78, 0xaa}}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	deadline := time.Now().Add(time.Second)
+	for peer.sent() < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if peer.sent() != 2 || counts.sent.Load() != 2 || counts.received.Load() != 3 {
+		t.Fatal("packets not forwarded")
+	}
+	cancel()
+	if reason := <-done; reason != "media_cancelled" {
+		t.Fatal(reason)
 	}
 }
 
-func TestMediaConnectStageTimeoutPreservesCause(t *testing.T) {
-	for _, stage := range []string{"tcp", "tls"} {
-		err := &mediaDialStageError{stage: stage, err: &net.OpError{Op: "dial", Net: "tcp", Err: context.DeadlineExceeded}}
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatal("timeout cause lost")
+func connected(track rtcTrack) func() (rtcTrack, string) {
+	return func() (rtcTrack, string) { return track, "" }
+}
+
+// While ICE connects the helper keeps receiving erasures, so the Manager does
+// not end the session, and its capture is dropped instead of sent late.
+func TestStreamMediaServesHelperBeforeConnect(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	peer, track := newFakePeer(), newFakeTrack()
+	conn, helper := net.Pipe()
+	defer helper.Close()
+	id := uid()
+	release := make(chan struct{})
+	done := make(chan string, 1)
+	go func() {
+		done <- streamMedia(ctx, cancel, peer, localMedia{conn: conn, id: id}, &bridgeCounters{}, func() (rtcTrack, string) {
+			<-release
+			return track, ""
+		})
+	}()
+	var last uint64
+	for i := 0; i < 5; i++ {
+		helper.SetReadDeadline(time.Now().Add(time.Second))
+		f, _, e := media.ReadFrame(helper, id, 1, &last)
+		if e != nil || f.Flags != media.FlagErasure {
+			t.Fatalf("frame %d %+v %v", i, f, e)
 		}
-		want := "media_connect_" + stage + "_timeout"
-		if got := mediaConnectReason(err, nil); got != want {
-			t.Fatalf("got %s want %s", got, want)
+	}
+	if e := media.WriteFrame(helper, id, 2, media.Frame{Sequence: 1, Payload: []byte{0x78, 1}}); e != nil {
+		t.Fatal(e)
+	}
+	close(release)
+	go func() {
+		// Keep draining playout so the writer is never blocked on the pipe.
+		for {
+			if _, _, e := media.ReadFrame(helper, id, 1, &last); e != nil {
+				return
+			}
 		}
+	}()
+	deadline := time.Now().Add(time.Second)
+	for seq := uint64(2); peer.sent() == 0 && time.Now().Before(deadline); seq++ {
+		if e := media.WriteFrame(helper, id, 2, media.Frame{Sequence: seq, Payload: []byte{0x78, byte(seq)}}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	peer.mu.Lock()
+	written := peer.written
+	peer.mu.Unlock()
+	if len(written) == 0 || written[0][1] == 1 {
+		t.Fatalf("sent %v", written)
+	}
+	cancel()
+	if reason := <-done; reason != "media_cancelled" {
+		t.Fatal(reason)
+	}
+}
+
+func TestRTPTimeoutReason(t *testing.T) {
+	if rtpReason(os.ErrDeadlineExceeded) != "rtp_timeout" || rtpReason(errors.New("x")) != "rtp_closed" {
+		t.Fatal("rtp reason")
 	}
 }

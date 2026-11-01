@@ -5,15 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"airsim.local/airsim-agent/internal/control"
 	"airsim.local/airsim-agent/internal/hal"
 	"airsim.local/airsim-agent/internal/journal"
-	"airsim.local/airsim-agent/internal/media"
-	"github.com/coder/websocket"
 )
 
 type answerBackend struct {
@@ -45,14 +42,11 @@ func (*answerBackend) Close()                            {}
 // The observed receipt must establish ownership before media_start is consumed.
 func TestAnswerStartsMediaWithRealCoordinator(t *testing.T) {
 	for _, query := range []bool{false, true} {
-		t.Run(map[bool]string{false: "poll", true: "receipt_query"}[query], func(t *testing.T) { testAnswerStartsMedia(t, query, 0) })
+		t.Run(map[bool]string{false: "poll", true: "receipt_query"}[query], func(t *testing.T) { testAnswerStartsMedia(t, query) })
 	}
 }
-func TestAnswerStartsMediaAfterSlowWANUpgrade(t *testing.T) {
-	testAnswerStartsMedia(t, false, 6*time.Second)
-}
 
-func testAnswerStartsMedia(t *testing.T, query bool, delay time.Duration) {
+func testAnswerStartsMedia(t *testing.T, query bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	store, err := journal.Open(filepath.Join(t.TempDir(), "state"))
@@ -87,31 +81,7 @@ func testAnswerStartsMedia(t *testing.T, query bool, delay time.Duration) {
 		time.Sleep(time.Millisecond)
 	}
 	f := newFixture(t)
-	server := tlsServer(t, f, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if delay > 0 {
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				return
-			}
-		}
-		ws, e := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"airsim.media.v2"}})
-		if e != nil {
-			return
-		}
-		defer ws.CloseNow()
-		_, raw, e := ws.Read(ctx)
-		if e != nil {
-			return
-		}
-		var auth struct {
-			ID string `json:"session_id"`
-		}
-		json.Unmarshal(raw, &auth)
-		raw, _ = json.Marshal(map[string]any{"type": "paired", "session_id": auth.ID, "format": media.LC3Format})
-		ws.Write(ctx, websocket.MessageText, raw)
-		_, _, _ = ws.Read(ctx)
-	}))
+	server := tlsServer(t, f, http.NotFoundHandler())
 	f.req.API = server.URL
 	f.req.Device = server.URL
 	f.req.Media = server.URL
@@ -171,7 +141,9 @@ func testAnswerStartsMedia(t *testing.T, query bool, delay time.Duration) {
 			t.Fatal("receipt rejected")
 		}
 	}
-	raw, _ = json.Marshal(map[string]any{"request_id": uid(), "session_id": uid(), "call_id": call, "agent_boot_id": boot, "backend_epoch": backend.epoch, "client_installation_id": client, "generation": generation, "ticket": strings.Repeat("a", 64), "expires_at": time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano), "format": media.LC3Format})
+	start := testMediaStart(&fakeControl{call: call, boot: boot, epoch: backend.epoch}, time.Now().Add(15*time.Second))
+	start.Client, start.Generation = client, generation
+	raw, _ = json.Marshal(start)
 	if !c.handle(envelope{Type: "media_start", Payload: raw}) {
 		t.Fatal("media_start rejected")
 	}
@@ -180,37 +152,8 @@ func testAnswerStartsMedia(t *testing.T, query bool, delay time.Duration) {
 	}
 	<-c.mediaDone
 	c.wg.Wait()
-	if fm.creates.Load() != 1 {
-		t.Fatal("media_start did not reach local media creation")
-	}
-}
-
-func TestMediaSetupDeadlineHonorsTicketAndParent(t *testing.T) {
-	now := time.Now().UTC()
-	for _, tc := range []struct {
-		name         string
-		ticket, want time.Duration
-	}{{"wan_budget", 30 * time.Second, 20 * time.Second}, {"ticket_expiry", 8 * time.Second, 8 * time.Second}, {"already_expired", -time.Second, -time.Second}} {
-		t.Run(tc.name, func(t *testing.T) {
-			deadline := mediaSetupDeadline(now, now.Add(tc.ticket).Format(time.RFC3339Nano))
-			if !deadline.Equal(now.Add(tc.want)) {
-				t.Fatal("incorrect setup deadline")
-			}
-		})
-	}
-	parent, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	ctx, stop := context.WithDeadline(parent, mediaSetupDeadline(now, now.Add(30*time.Second).Format(time.RFC3339Nano)))
-	defer stop()
-	<-ctx.Done()
-	if ctx.Err() != context.DeadlineExceeded {
-		t.Fatal("parent deadline was extended")
-	}
-	expired, stopExpired := context.WithDeadline(context.Background(), mediaSetupDeadline(now, now.Add(-time.Second).Format(time.RFC3339Nano)))
-	defer stopExpired()
-	select {
-	case <-expired.Done():
-	case <-time.After(time.Second):
-		t.Fatal("expired ticket did not cancel setup")
+	// The test offer is not negotiable, so the session ends at the answer step.
+	if s := a.LastBridgeStats(); s.SessionID != start.Session || s.Reason != "media_offer" {
+		t.Fatalf("media_start did not reach WebRTC negotiation: %+v", s)
 	}
 }

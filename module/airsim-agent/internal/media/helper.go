@@ -23,7 +23,6 @@ type PCMConfig struct {
 type HelperEvent struct {
 	Codec              string     `json:"codec,omitempty"`
 	CodecFrameUS       int        `json:"codec_frame_us,omitempty"`
-	CodecFrameBytes    int        `json:"codec_frame_bytes,omitempty"`
 	Type               string     `json:"type"`
 	Code               string     `json:"code,omitempty"`
 	SampleRate         uint32     `json:"sample_rate,omitempty"`
@@ -58,7 +57,7 @@ func parseHelper(b []byte) (HelperEvent, error) {
 	keys := []string{"type"}
 	switch typ.Type {
 	case "ready":
-		keys = append(keys, "codec", "codec_frame_us", "codec_frame_bytes", "sample_rate", "channels", "sample_format", "frame_samples", "capture", "playback")
+		keys = append(keys, "codec", "codec_frame_us", "sample_rate", "channels", "sample_format", "frame_samples", "capture", "playback")
 	case "stats":
 		keys = append(keys, "capture_samples", "playback_samples", "capture_xruns", "playback_xruns", "capture_drops", "playback_drops", "input_drops", "sequence_gaps", "silence_samples", "queue_peak", "elapsed_ms", "capture_progress_ms", "playback_progress_ms")
 	case "error":
@@ -76,7 +75,7 @@ func parseHelper(b []byte) (HelperEvent, error) {
 				return e, ErrProtocol
 			}
 		}
-		if e.Codec != "lc3" || e.CodecFrameUS != 10000 || e.CodecFrameBytes != 40 || e.SampleRate != uint32(LC3Format.SampleRate) || e.Channels != 1 || e.SampleFormat != "s16le" || e.FrameSamples != uint32(LC3Format.FrameSamples) || e.Capture == nil || e.Playback == nil {
+		if e.Codec != OpusFormat.Codec || e.CodecFrameUS != OpusFormat.CodecFrameUS || e.SampleRate != uint32(OpusFormat.SampleRate) || e.Channels != 1 || e.SampleFormat != "s16le" || e.FrameSamples != uint32(OpusFormat.FrameSamples) || e.Capture == nil || e.Playback == nil {
 			return e, ErrProtocol
 		}
 		// The helper converts its native 8 or 16 kHz PCM to the 16 kHz external format.

@@ -3,65 +3,133 @@ package cloud
 import (
 	"airsim.local/airsim-agent/internal/control"
 	"airsim.local/airsim-agent/internal/media"
-	"bytes"
+	"airsim.local/airsim-agent/internal/rtc"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"github.com/coder/websocket"
 	"net"
-	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
+const (
+	maxSDP = 32768
+	// mediaSetup bounds answering, helper start and ICE connection.
+	mediaSetup    = 20 * time.Second
+	gatherTimeout = 8 * time.Second
+	// rtpTimeout ends media after the App stops sending.
+	rtpTimeout = 5 * time.Second
+)
+
 type mediaStart struct {
-	Format     json.RawMessage `json:"format"`
-	Request    string          `json:"request_id"`
-	Session    string          `json:"session_id"`
-	Call       string          `json:"call_id"`
-	Boot       string          `json:"agent_boot_id"`
-	Epoch      string          `json:"backend_epoch"`
-	Client     string          `json:"client_installation_id"`
-	Generation string          `json:"generation"`
-	Ticket     string          `json:"ticket"`
-	Expires    string          `json:"expires_at"`
+	Request    string            `json:"request_id"`
+	Session    string            `json:"session_id"`
+	Call       string            `json:"call_id"`
+	Boot       string            `json:"agent_boot_id"`
+	Epoch      string            `json:"backend_epoch"`
+	Client     string            `json:"client_installation_id"`
+	Generation string            `json:"generation"`
+	Expires    string            `json:"expires_at"`
+	Offer      string            `json:"offer"`
+	Servers    []json.RawMessage `json:"ice_servers"`
 }
 type BridgeStats struct {
-	SessionID      string `json:"session_id"`
-	State          string `json:"state"`
-	Reason         string `json:"reason"`
-	CloudInputGaps uint64 `json:"cloud_input_gaps"`
-	LocalInputGaps uint64 `json:"local_input_gaps"`
-	QueueDrops     uint64 `json:"queue_drops"`
-	ZeroFrames     uint64 `json:"zero_frames"`
+	SessionID string `json:"session_id"`
+	State     string `json:"state"`
+	Reason    string `json:"reason"`
+	Candidate string `json:"candidate"`
+	Received  uint64 `json:"packets_received"`
+	Sent      uint64 `json:"packets_sent"`
+	Lost      uint64 `json:"packets_lost"`
+	Late      uint64 `json:"packets_late"`
+	FEC       uint64 `json:"fec_frames"`
+	PLC       uint64 `json:"plc_frames"`
+	Drops     uint64 `json:"queue_drops"`
+	LocalGaps uint64 `json:"local_input_gaps"`
+	// Stalls count waits well beyond the 20 ms frame period: for the next
+	// helper frame, between RTP packets from the App, and between frames paced
+	// to the helper. Send stalls are RTP writes that took longer than a frame.
+	LocalStalls     uint64 `json:"local_stalls"`
+	LocalStallMax   int64  `json:"local_stall_max_ms"`
+	SendStalls      uint64 `json:"send_stalls"`
+	SendStallMax    int64  `json:"send_stall_max_ms"`
+	RTPStalls       uint64 `json:"rtp_stalls"`
+	RTPStallMax     int64  `json:"rtp_stall_max_ms"`
+	PlayoutStalls   uint64 `json:"playout_stalls"`
+	PlayoutStallMax int64  `json:"playout_stall_max_ms"`
 }
-type bridgeCounters struct{ cloud, local, drops, zeros atomic.Uint64 }
+type bridgeCounters struct {
+	received, sent, lost, late, fec, plc, drops, local atomic.Uint64
+	localStall, sendStall, rtpStall, playoutStall      stall
+	candidate                                          atomic.Value
+}
+
+// stall counts intervals above a threshold and keeps the longest. Each stall
+// has a single writer.
+type stall struct {
+	count atomic.Uint64
+	max   atomic.Int64
+}
+
+const (
+	frameStall = 60 * time.Millisecond
+	rtpStall   = 100 * time.Millisecond
+)
+
+func (s *stall) add(d, threshold time.Duration) {
+	if d > threshold {
+		s.count.Add(1)
+		if ms := d.Milliseconds(); ms > s.max.Load() {
+			s.max.Store(ms)
+		}
+	}
+}
+func (s *stall) observe(last *time.Time, now time.Time, threshold time.Duration) {
+	if !last.IsZero() {
+		s.add(now.Sub(*last), threshold)
+	}
+	*last = now
+}
+
+func validSDP(sdp string) bool { return len(sdp) <= maxSDP && strings.HasPrefix(sdp, "v=0\r\n") }
 
 // Only the future plausibility bound tolerates five seconds of clock skew.
-// The server remains authoritative for its unchanged absolute ticket expiry.
+// The server remains authoritative for its unchanged absolute answer deadline.
 func validMediaExpiry(expires string, now time.Time) bool {
 	expiry, err := utc(expires)
 	if err != nil {
 		return false
 	}
 	remaining := expiry.Sub(now)
-	return remaining > 0 && remaining <= 35*time.Second
+	return remaining > 0 && remaining <= 20*time.Second
+}
+func parseServers(raw []json.RawMessage) ([]rtc.ICEServer, bool) {
+	if len(raw) == 0 || len(raw) > 4 {
+		return nil, false
+	}
+	servers := make([]rtc.ICEServer, 0, len(raw))
+	for _, b := range raw {
+		var s rtc.ICEServer
+		if exact(b, "urls,username,credential", &s) != nil || len(s.URLs) == 0 || len(s.URLs) > 4 || s.Username == "" || len(s.Username) > 256 || s.Credential == "" || len(s.Credential) > 256 {
+			return nil, false
+		}
+		for _, u := range s.URLs {
+			if !strings.HasPrefix(u, "turn:") || len(u) > 256 {
+				return nil, false
+			}
+		}
+		servers = append(servers, s)
+	}
+	return servers, true
 }
 func (c *connection) startMedia(b []byte) bool {
 	return c.startMediaAt(b, time.Now())
 }
 func (c *connection) startMediaAt(b []byte, now time.Time) bool {
 	var r mediaStart
-	if exact(b, "request_id,session_id,call_id,agent_boot_id,backend_epoch,client_installation_id,generation,ticket,expires_at,format", &r) != nil {
-		return false
-	}
-	var negotiated media.Format
-	if exact(r.Format, "codec,sample_rate,channels,sample_format,frame_samples,codec_frame_us,codec_frame_bytes", &negotiated) != nil || negotiated != media.LC3Format {
+	if exact(b, "request_id,session_id,call_id,agent_boot_id,backend_epoch,client_installation_id,generation,expires_at,offer,ice_servers", &r) != nil {
 		return false
 	}
 	for _, id := range []string{r.Request, r.Session, r.Call, r.Boot, r.Epoch, r.Client, r.Generation} {
@@ -69,7 +137,8 @@ func (c *connection) startMediaAt(b []byte, now time.Time) bool {
 			return false
 		}
 	}
-	if !hex32(r.Ticket) || !validMediaExpiry(r.Expires, now) {
+	servers, ok := parseServers(r.Servers)
+	if !ok || !validSDP(r.Offer) || !validMediaExpiry(r.Expires, now) {
 		return false
 	}
 	c.agent.ownerMu.Lock()
@@ -98,131 +167,149 @@ func (c *connection) startMediaAt(b []byte, now time.Time) bool {
 		defer close(done)
 		defer cancel()
 		c.send("media_status", map[string]string{"session_id": r.Session, "state": "starting", "reason": ""})
-		reason := c.bridge(ctx, r)
+		reason := c.agent.runMedia(ctx, mediaRun{
+			request: r.Request, session: r.Session, call: r.Call, boot: r.Boot, epoch: r.Epoch, offer: r.Offer,
+			config: rtc.Config{Servers: servers, GatherTimeout: gatherTimeout},
+			answer: func(sdp string) bool {
+				return c.send("media_answer", map[string]string{"session_id": r.Session, "answer": sdp})
+			},
+			streaming: func() bool {
+				return c.send("media_status", map[string]string{"session_id": r.Session, "state": "streaming", "reason": ""})
+			},
+		})
 		c.send("media_status", map[string]string{"session_id": r.Session, "state": "closed", "reason": reason})
 	}()
 	return true
 }
-func paired(b []byte, id string) (string, bool) {
-	var raw map[string]json.RawMessage
-	if json.Unmarshal(b, &raw) != nil {
-		return "", false
-	}
-	var typ string
-	if json.Unmarshal(raw["type"], &typ) != nil {
-		return "", false
-	}
-	if typ == "waiting" {
-		var v struct {
-			Type string `json:"type"`
-			ID   string `json:"session_id"`
-		}
-		return typ, exact(b, "type,session_id", &v) == nil && v.ID == id
-	}
-	var v struct {
-		Type   string          `json:"type"`
-		ID     string          `json:"session_id"`
-		Format json.RawMessage `json:"format"`
-	}
-	if typ != "paired" || exact(b, "type,session_id,format", &v) != nil || v.ID != id {
-		return "", false
-	}
-	var f media.Format
-	return typ, exact(v.Format, "codec,sample_rate,channels,sample_format,frame_samples,codec_frame_us,codec_frame_bytes", &f) == nil && f == (media.LC3Format)
-}
-func mediaSetupDeadline(now time.Time, expires string) time.Time {
-	deadline := now.Add(20 * time.Second)
-	expiry, _ := utc(expires) // startMedia validates the absolute ticket expiry.
-	if expiry.Before(deadline) {
-		return expiry
-	}
-	return deadline
+
+// mediaRun is one WebRTC media session for an owned, active call.
+type mediaRun struct {
+	request, session, call, boot, epoch, offer string
+	config                                     rtc.Config
+	// answer delivers the complete answer to the App's signaling path.
+	answer    func(string) bool
+	streaming func() bool
 }
 
-func (c *connection) bridge(parent context.Context, r mediaStart) (reason string) {
-	counts := &bridgeCounters{}
-	c.agent.beginBridge(r.Session, counts)
-	defer func() { c.agent.endBridge(r.Session, reason) }()
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
-	setup, scancel := context.WithDeadline(ctx, mediaSetupDeadline(time.Now(), r.Expires))
-	defer scancel()
-	client, e := c.agent.P.client(c.config, false)
-	if e != nil {
-		return "media_tls"
-	}
-	defer client.CloseIdleConnections()
-	ws, resp, e := websocket.Dial(setup, "wss"+strings.TrimPrefix(c.config.Request.Media, "https")+"/v2/media", &websocket.DialOptions{HTTPClient: client, Subprotocols: []string{"airsim.media.v2"}, CompressionMode: websocket.CompressionDisabled})
-	if e != nil {
-		if resp != nil && resp.Body != nil {
-			resp.Body.Close()
-		}
-		return mediaConnectReason(e, resp)
-	}
-	defer ws.CloseNow()
-	if ws.Subprotocol() != "airsim.media.v2" {
-		return "media_protocol"
-	}
-	ws.SetReadLimit(2048)
-	auth, _ := json.Marshal(map[string]string{"session_id": r.Session, "role": "agent", "ticket": r.Ticket})
-	authctx, acancel := context.WithTimeout(setup, 3*time.Second)
-	e = ws.Write(authctx, websocket.MessageText, auth)
-	if e != nil {
-		acancel()
-		return "media_auth"
-	}
-	typ, b, e := ws.Read(authctx)
-	acancel()
-	if e != nil || typ != websocket.MessageText {
-		return "media_auth"
-	}
-	phase, ok := paired(b, r.Session)
-	if !ok {
-		return "media_protocol"
-	}
-	if phase == "waiting" {
-		typ, b, e = ws.Read(setup)
-		phase, ok = paired(b, r.Session)
-		if e != nil || typ != websocket.MessageText || !ok || phase != "paired" {
-			return "media_pair"
-		}
-	}
-	local, code := c.agent.Media.Create(setup, media.Request{RequestID: r.Request, Boot: r.Boot, Epoch: r.Epoch, CallID: r.Call})
+type localMedia struct {
+	conn net.Conn
+	id   string
+	err  string
+}
+
+// openLocal starts the helper session and completes the Unix media handshake.
+func (a *Agent) openLocal(ctx context.Context, r mediaRun) localMedia {
+	local, code := a.Media.Create(ctx, media.Request{RequestID: r.request, Boot: r.boot, Epoch: r.epoch, CallID: r.call})
 	if code != 201 && code != 200 {
-		return "media_local_busy"
+		return localMedia{err: "media_local_busy"}
 	}
-	defer c.agent.Media.Stop(local.ID)
-	conn, e := (&net.Dialer{}).DialContext(setup, "unix", local.Socket)
+	conn, e := (&net.Dialer{}).DialContext(ctx, "unix", local.Socket)
 	if e != nil {
-		return "media_local_connect"
+		a.Media.Stop(local.ID)
+		return localMedia{err: "media_local_connect"}
 	}
-	defer conn.Close()
-	stop := context.AfterFunc(ctx, func() { conn.Close(); ws.CloseNow() })
-	defer stop()
-	deadline, _ := setup.Deadline()
+	deadline, _ := ctx.Deadline()
 	conn.SetDeadline(deadline)
-	if media.WriteJSON(conn, map[string]string{"session_id": local.ID, "token": local.Token}, 1024) != nil {
-		return "media_local_auth"
+	fail := func(reason string) localMedia {
+		conn.Close()
+		a.Media.Stop(local.ID)
+		return localMedia{err: reason}
 	}
-	b, e = media.ReadJSON(conn, 1024)
+	if media.WriteJSON(conn, map[string]string{"session_id": local.ID, "token": local.Token}, 1024) != nil {
+		return fail("media_local_auth")
+	}
+	b, e := media.ReadJSON(conn, 1024)
 	if e != nil {
-		return "media_local_auth"
+		return fail("media_local_auth")
 	}
 	var ack struct {
 		OK bool `json:"ok"`
 		media.Format
 	}
-	if exact(b, "ok,codec,sample_rate,channels,sample_format,frame_samples,codec_frame_us,codec_frame_bytes", &ack) != nil || !ack.OK || ack.Format != media.LC3Format {
-		return "media_local_auth"
+	if exact(b, "ok,codec,sample_rate,channels,sample_format,frame_samples,codec_frame_us", &ack) != nil || !ack.OK || ack.Format != media.OpusFormat {
+		return fail("media_local_auth")
 	}
 	conn.SetDeadline(time.Time{})
-	c.agent.bridgeState(r.Session, "streaming", "")
-	if !c.send("media_status", map[string]string{"session_id": r.Session, "state": "streaming", "reason": ""}) {
+	return localMedia{conn: conn, id: local.ID}
+}
+
+func (a *Agent) runMedia(parent context.Context, r mediaRun) (reason string) {
+	counts := &bridgeCounters{}
+	a.beginBridge(r.session, counts)
+	defer func() { a.endBridge(r.session, reason) }()
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	setup, scancel := context.WithTimeout(ctx, mediaSetup)
+	defer scancel()
+	peer, answer, e := rtc.Answer(setup, r.config, r.offer)
+	if e != nil {
+		if errors.Is(e, rtc.ErrGather) {
+			return "media_gather"
+		}
+		if ctx.Err() != nil {
+			return "media_cancelled"
+		}
+		return "media_offer"
+	}
+	defer peer.Close()
+	if !r.answer(answer) {
 		return "control_disconnected"
 	}
-	return bridgeFrames(ctx, cancel, ws, conn, local.ID, r.Session, counts)
+	// The helper starts while ICE and DTLS connect.
+	local := a.openLocal(setup, r)
+	if local.err != "" {
+		return local.err
+	}
+	defer func() {
+		local.conn.Close()
+		a.Media.Stop(local.id)
+	}()
+	return streamMedia(ctx, cancel, peer, local, counts, func() (rtcTrack, string) {
+		select {
+		case <-peer.Connected():
+		case <-peer.Failed():
+			return nil, "ice_failed"
+		case <-setup.Done():
+			return nil, setupReason(ctx)
+		}
+		track, e := peer.Track(setup)
+		if e != nil {
+			if errors.Is(e, rtc.ErrFailed) {
+				return nil, "ice_failed"
+			}
+			return nil, setupReason(ctx)
+		}
+		counts.candidate.Store(peer.Candidate())
+		a.bridgeState(r.session, "streaming", "")
+		if !r.streaming() {
+			return nil, "control_disconnected"
+		}
+		return track, ""
+	})
 }
-func bridgeFrames(ctx context.Context, cancel context.CancelFunc, ws *websocket.Conn, conn net.Conn, localID, sessionID string, counts *bridgeCounters) string {
+func setupReason(ctx context.Context) string {
+	if ctx.Err() != nil {
+		return "media_cancelled"
+	}
+	return "media_setup_timeout"
+}
+
+// mediaPeer and rtcTrack are the parts of the WebRTC connection streamMedia uses.
+type mediaPeer interface {
+	WriteOpus([]byte) error
+	Failed() <-chan struct{}
+	Close()
+}
+type rtcTrack interface {
+	ReadPacket([]byte, time.Time) (uint16, []byte, error)
+}
+
+// streamMedia moves packets until either side fails. The helper is served from
+// the moment it is ready: until connect returns the media track it receives
+// erasures and its captured frames are dropped, so no stale audio is sent.
+// Downlink RTP is ordered by the jitter buffer and paced to the helper every
+// 20 ms; uplink Opus from the helper is sent as soon as it is encoded.
+func streamMedia(ctx context.Context, cancel context.CancelFunc, peer mediaPeer, local localMedia, counts *bridgeCounters, connect func() (rtcTrack, string)) string {
 	var first sync.Once
 	reason := "media_cancelled"
 	fail := func(code string) {
@@ -231,167 +318,130 @@ func bridgeFrames(ctx context.Context, cancel context.CancelFunc, ws *websocket.
 		}
 		first.Do(func() { reason = code; cancel() })
 	}
-	down := newJitterQueue(counts)
-	up := newPlayoutQueue(counts)
+	jitter := newJitter(counts)
 	clock := realPlayoutClock{}
+	var live atomic.Bool
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		defer cancel()
-		var sequence uint64
+		track, code := connect()
+		if code != "" {
+			fail(code)
+			return
+		}
+		live.Store(true)
+		buf := make([]byte, 1500)
+		var last time.Time
 		for {
-			// Record timeout before WebSocket cancellation closes the other direction.
-			readctx, rcancel := context.WithCancel(ctx)
-			timer := time.AfterFunc(2*time.Second, func() { fail("cloud_read_timeout"); rcancel() })
-			t, b, e := ws.Read(readctx)
-			timer.Stop()
-			rcancel()
+			seq, payload, e := track.ReadPacket(buf, time.Now().Add(rtpTimeout))
 			if e != nil {
-				fail(bridgeIOReason("cloud_read", e))
+				fail(rtpReason(e))
 				return
 			}
-			if t != websocket.MessageBinary || len(b) != media.FrameSize {
-				fail("cloud_invalid_frame")
-				return
+			counts.rtpStall.observe(&last, time.Now(), rtpStall)
+			if len(payload) == 0 || len(payload) > media.MaxPayload {
+				continue
 			}
-			f, gap, e := media.ReadFrame(bytes.NewReader(b), sessionID, 1, &sequence)
-			if e != nil {
-				fail("cloud_invalid_frame")
-				return
-			}
-			counts.cloud.Add(gap)
-			down.push(f, clock.Now())
+			jitter.push(seq, append([]byte(nil), payload...), clock.Now())
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		defer cancel()
-		var sequences sequenceMapping
-		playPCM(ctx, down, clock, true, func(f media.Frame) error {
-			out := media.NewFrame(localID, 1, sequences.next(f))
-			copy(out[36:], f[36:])
-			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-			e := writeFrame(conn, out[:])
+		var seq uint64
+		var last time.Time
+		paced(ctx, clock, clock.Now(), func() error {
+			now := clock.Now()
+			counts.playoutStall.observe(&last, now, frameStall)
+			f := jitter.pop(now)
+			seq++
+			f.Sequence = seq
+			local.conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+			e := media.WriteFrame(local.conn, local.id, 1, f)
 			if e != nil {
-				fail(bridgeIOReason("local_write", e))
+				fail(ioReason("local_write", e))
 			}
 			return e
 		})
 	}()
 	go func() {
 		defer wg.Done()
-		defer cancel()
 		var seq uint64
 		for {
-			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-			f, gap, e := media.ReadFrame(conn, localID, 2, &seq)
+			local.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			waiting := time.Now()
+			f, gap, e := media.ReadFrame(local.conn, local.id, 2, &seq)
 			if e != nil {
 				if errors.Is(e, media.ErrProtocol) {
 					fail("local_invalid_frame")
 				} else {
-					fail(bridgeIOReason("local_read", e))
+					fail(ioReason("local_read", e))
 				}
 				return
 			}
+			if seq > 1 {
+				counts.localStall.add(time.Since(waiting), frameStall)
+			}
 			counts.local.Add(gap)
-			up.push(f, clock.Now())
+			if f.Flags != media.FlagOpus {
+				fail("local_invalid_frame")
+				return
+			}
+			if !live.Load() {
+				continue
+			}
+			sending := time.Now()
+			if e = peer.WriteOpus(f.Payload); e != nil {
+				fail("rtp_write")
+				return
+			}
+			counts.sendStall.add(time.Since(sending), rtc.FrameDuration)
+			counts.sent.Add(1)
 		}
 	}()
-	go func() {
-		defer wg.Done()
-		defer cancel()
-		var sequences sequenceMapping
-		playPCM(ctx, up, clock, false, func(f media.Frame) error {
-			out := media.NewFrame(sessionID, 2, sequences.next(f))
-			copy(out[36:], f[36:])
-			wctx, wcancel := context.WithCancel(ctx)
-			timer := time.AfterFunc(100*time.Millisecond, func() { fail("cloud_write_timeout"); wcancel() })
-			defer timer.Stop()
-			defer wcancel()
-			e := ws.Write(wctx, websocket.MessageBinary, out[:])
-			if e != nil {
-				fail(bridgeIOReason("cloud_write", e))
-			}
-			return e
-		})
-	}()
-	<-ctx.Done()
-	conn.Close()
-	ws.CloseNow()
+	select {
+	case <-ctx.Done():
+	case <-peer.Failed():
+		fail("ice_failed")
+	}
+	local.conn.Close()
+	peer.Close()
 	wg.Wait()
 	return reason
 }
-func mediaConnectReason(err error, response *http.Response) string {
-	var dns *net.DNSError
-	var cert *tls.CertificateVerificationError
-	var unknownCA x509.UnknownAuthorityError
-	var invalidCert x509.CertificateInvalidError
-	var hostname x509.HostnameError
-	var record tls.RecordHeaderError
-	var network net.Error
-	var operation *net.OpError
-	var stage *mediaDialStageError
-	timedOut := errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &network) && network.Timeout())
-	if timedOut && errors.As(err, &stage) {
-		switch stage.stage {
-		case "tcp":
-			return "media_connect_tcp_timeout"
-		case "tls":
-			return "media_connect_tls_timeout"
-		case "dns":
-			return "media_connect_dns"
-		}
-	}
-	switch {
-	case errors.As(err, &dns):
-		return "media_connect_dns"
-	case errors.As(err, &cert), errors.As(err, &unknownCA), errors.As(err, &invalidCert), errors.As(err, &hostname), errors.As(err, &record):
-		return "media_connect_tls"
-	case errors.Is(err, syscall.ECONNREFUSED):
-		return "media_connect_refused"
-	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &network) && network.Timeout():
-		return "media_connect_timeout"
-	case errors.Is(err, context.Canceled):
-		return "media_cancelled"
-	case response != nil:
-		return "media_connect_http"
-	case errors.As(err, &operation) && operation.Op == "dial":
-		return "media_connect_dial"
-	default:
-		return "media_connect_unknown"
-	}
-}
 
-func bridgeIOReason(direction string, err error) string {
+func rtpReason(err error) string {
+	var timeout net.Error
+	if errors.As(err, &timeout) && timeout.Timeout() {
+		return "rtp_timeout"
+	}
+	return "rtp_closed"
+}
+func ioReason(direction string, err error) string {
 	var timeout net.Error
 	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &timeout) && timeout.Timeout()) {
 		return direction + "_timeout"
 	}
-	if strings.HasPrefix(direction, "cloud_") && websocket.CloseStatus(err) != -1 {
-		return "cloud_remote_closed"
-	}
 	return direction + "_closed"
 }
-func writeFrame(c net.Conn, b []byte) error {
-	for len(b) > 0 {
-		n, e := c.Write(b)
-		if e != nil {
-			return e
-		}
-		if n == 0 {
-			return errConfig
-		}
-		b = b[n:]
-	}
-	return nil
-}
+
 func countersInto(s BridgeStats, c *bridgeCounters) BridgeStats {
 	if c != nil {
-		s.CloudInputGaps = c.cloud.Load()
-		s.LocalInputGaps = c.local.Load()
-		s.QueueDrops = c.drops.Load()
-		s.ZeroFrames = c.zeros.Load()
+		s.Received = c.received.Load()
+		s.Sent = c.sent.Load()
+		s.Lost = c.lost.Load()
+		s.Late = c.late.Load()
+		s.FEC = c.fec.Load()
+		s.PLC = c.plc.Load()
+		s.Drops = c.drops.Load()
+		s.LocalGaps = c.local.Load()
+		s.LocalStalls, s.LocalStallMax = c.localStall.count.Load(), c.localStall.max.Load()
+		s.SendStalls, s.SendStallMax = c.sendStall.count.Load(), c.sendStall.max.Load()
+		s.RTPStalls, s.RTPStallMax = c.rtpStall.count.Load(), c.rtpStall.max.Load()
+		s.PlayoutStalls, s.PlayoutStallMax = c.playoutStall.count.Load(), c.playoutStall.max.Load()
+		if v, ok := c.candidate.Load().(string); ok {
+			s.Candidate = v
+		}
 	}
 	return s
 }

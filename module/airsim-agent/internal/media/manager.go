@@ -33,17 +33,17 @@ func ParseRequest(b []byte) (Request, error) {
 }
 
 type Format struct {
-	Codec           string `json:"codec"`
-	CodecFrameUS    int    `json:"codec_frame_us"`
-	CodecFrameBytes int    `json:"codec_frame_bytes"`
-	SampleRate      int    `json:"sample_rate"`
-	Channels        int    `json:"channels"`
-	SampleFormat    string `json:"sample_format"`
-	FrameSamples    int    `json:"frame_samples"`
+	Codec        string `json:"codec"`
+	CodecFrameUS int    `json:"codec_frame_us"`
+	SampleRate   int    `json:"sample_rate"`
+	Channels     int    `json:"channels"`
+	SampleFormat string `json:"sample_format"`
+	FrameSamples int    `json:"frame_samples"`
 }
 
-var LC3Format = Format{Codec: "lc3", CodecFrameUS: 10000, CodecFrameBytes: 40, SampleRate: 16000, Channels: 1, SampleFormat: "s16le", FrameSamples: 320}
-var format = LC3Format
+// OpusFormat describes the helper's codec frames and the 16 kHz PCM they decode to.
+var OpusFormat = Format{Codec: "opus", CodecFrameUS: 20000, SampleRate: 16000, Channels: 1, SampleFormat: "s16le", FrameSamples: 320}
+var format = OpusFormat
 
 type Created struct {
 	ID     string `json:"session_id"`
@@ -440,7 +440,7 @@ func (m *Manager) relay(s *session, src, dst net.Conn, direction byte) {
 			return
 		}
 		dst.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-		if writeAll(dst, frame[:]) != nil {
+		if WriteFrame(dst, s.result.ID, direction, frame) != nil {
 			m.fail(s, "media_write")
 			return
 		}
