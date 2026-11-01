@@ -85,7 +85,8 @@ func TestStreamMediaFirstFailure(t *testing.T) {
 				cancel()
 			}
 			reason := streamMedia(ctx, cancel, peer, localMedia{conn: conn, id: id}, &bridgeCounters{}, connected(track))
-			if reason != kind {
+			// A closed helper socket fails playout writes as well as capture reads.
+			if reason != kind && !(kind == "local_read_closed" && reason == "local_write_closed") {
 				t.Fatalf("got %s want %s", reason, kind)
 			}
 		})

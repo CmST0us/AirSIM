@@ -202,13 +202,18 @@ func (m *Manager) stopLocked(s *session, reason string) {
 	}
 	s.cancel()
 }
+
+// Stop returns once the session's helper has exited, so the next Create can
+// start the following session.
 func (m *Manager) Stop(id string) int {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.active != nil && m.active.result.ID == id {
-		m.stopLocked(m.active, "requested_stop")
+	if s := m.active; s != nil && s.result.ID == id {
+		m.stopLocked(s, "requested_stop")
+		m.mu.Unlock()
+		<-s.done
 		return 204
 	}
+	defer m.mu.Unlock()
 	for _, old := range m.closed {
 		if old.sessionID == id {
 			return 204

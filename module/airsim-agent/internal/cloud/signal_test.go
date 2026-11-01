@@ -19,12 +19,11 @@ func TestSignalSnapshots(t *testing.T) {
 	a := &Agent{Control: &fakeControl{boot: uid(), epoch: uid(), call: uid()}, Media: &fakeMedia{}, Signal: s}
 	c := &connection{agent: a, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 8)}
 	u := &USB{agent: a}
-	var snap, messages string
-	var sent time.Time
+	var last synced
 	observed := time.Now().UTC().Add(-time.Second)
 	for _, rssi := range []int{0, 20, 31, 99} {
 		s.Commit(map[string]hal.Field{"signal": {Status: "available", ObservedAt: &observed, Data: hal.Signal{RSSI: rssi}}}, true, "")
-		if !c.sync(&snap, &messages, &sent) {
+		if !c.sync(&last) {
 			t.Fatal("cloud snapshot failed")
 		}
 		var cloudSignal any

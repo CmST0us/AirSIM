@@ -680,11 +680,11 @@ func (u *USB) mediaOffer(w http.ResponseWriter, r *http.Request, client, call, i
 	go func() {
 		defer cancel()
 		defer func() { u.mu.Lock(); m.Cancel = nil; u.mu.Unlock() }()
-		u.agent.runMedia(ctx, mediaRun{
+		u.agent.runMedia(ctx, cancel, mediaRun{
 			request: m.Request, session: m.ID, call: m.Call, boot: o.boot, epoch: o.epoch, offer: b.SDP,
 			config:    rtc.Config{LocalIP: net.ParseIP(host), GatherTimeout: 2 * time.Second},
 			answer:    func(sdp string) bool { answers <- sdp; return true },
-			streaming: func() bool { return true },
+			streaming: func() {},
 		})
 	}()
 	select {

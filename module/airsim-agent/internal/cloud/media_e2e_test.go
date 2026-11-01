@@ -94,8 +94,8 @@ func (a *testApp) accept(t *testing.T, ctx context.Context, answer string) {
 }
 
 // helperSocket stands in for the media manager's Unix socket and the native
-// helper: it acknowledges the Opus format, reports whether the App's packet
-// reached playout and sends one capture packet every 20 ms.
+// helper: for each session it acknowledges the Opus format, reports whether
+// the App's packet reached playout and sends one capture packet every 20 ms.
 func helperSocket(t *testing.T, ctx context.Context, fm *fakeMedia) chan bool {
 	t.Helper()
 	dir, e := os.MkdirTemp("/tmp", "rtc-")
@@ -113,44 +113,49 @@ func helperSocket(t *testing.T, ctx context.Context, fm *fakeMedia) chan bool {
 	t.Cleanup(func() { listener.Close() })
 	played := make(chan bool, 1)
 	go func() {
-		conn, e := listener.Accept()
-		if e != nil {
-			return
-		}
-		defer conn.Close()
-		conn.SetDeadline(time.Now().Add(3 * time.Second))
-		if _, e = media.ReadJSON(conn, 1024); e != nil {
-			return
-		}
-		ack := map[string]any{"ok": true, "codec": "opus", "codec_frame_us": 20000, "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320}
-		if media.WriteJSON(conn, ack, 1024) != nil {
-			return
-		}
-		conn.SetDeadline(time.Time{})
-		go func() {
-			for seq := uint64(1); ctx.Err() == nil; seq++ {
-				conn.SetWriteDeadline(time.Now().Add(time.Second))
-				if media.WriteFrame(conn, fm.id, 2, media.Frame{Sequence: seq, Payload: modulePacket}) != nil {
-					return
-				}
-				time.Sleep(rtc.FrameDuration)
-			}
-		}()
-		var last uint64
-		reported := false
 		for {
-			conn.SetReadDeadline(time.Now().Add(3 * time.Second))
-			f, _, e := media.ReadFrame(conn, fm.id, 1, &last)
+			conn, e := listener.Accept()
 			if e != nil {
 				return
 			}
-			if !reported && f.Flags == media.FlagOpus && bytes.Equal(f.Payload, appPacket) {
-				reported = true
-				played <- true
-			}
+			go serveHelper(ctx, conn, fm.id, played)
 		}
 	}()
 	return played
+}
+func serveHelper(ctx context.Context, conn net.Conn, id string, played chan bool) {
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, e := media.ReadJSON(conn, 1024); e != nil {
+		return
+	}
+	ack := map[string]any{"ok": true, "codec": "opus", "codec_frame_us": 20000, "sample_rate": 16000, "channels": 1, "sample_format": "s16le", "frame_samples": 320}
+	if media.WriteJSON(conn, ack, 1024) != nil {
+		return
+	}
+	conn.SetDeadline(time.Time{})
+	go func() {
+		for seq := uint64(1); ctx.Err() == nil; seq++ {
+			conn.SetWriteDeadline(time.Now().Add(time.Second))
+			if media.WriteFrame(conn, id, 2, media.Frame{Sequence: seq, Payload: modulePacket}) != nil {
+				return
+			}
+			time.Sleep(rtc.FrameDuration)
+		}
+	}()
+	var last uint64
+	reported := false
+	for {
+		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		f, _, e := media.ReadFrame(conn, id, 1, &last)
+		if e != nil {
+			return
+		}
+		if !reported && f.Flags == media.FlagOpus && bytes.Equal(f.Payload, appPacket) {
+			reported = true
+			played <- true
+		}
+	}
 }
 func expectDuplex(t *testing.T, ctx context.Context, app *testApp, played chan bool) {
 	t.Helper()
@@ -282,11 +287,11 @@ func TestRunMediaThroughRelay(t *testing.T) {
 			streaming := make(chan struct{})
 			done := make(chan string, 1)
 			go func() {
-				done <- a.runMedia(ctx, mediaRun{
+				done <- a.runMedia(ctx, cancel, mediaRun{
 					request: uid(), session: uid(), call: uid(), boot: uid(), epoch: uid(), offer: app.offer,
 					config:    rtc.Config{Servers: []rtc.ICEServer{{URLs: []string{"turn:" + address + "?transport=" + transport}, Username: username, Credential: "secret"}}, GatherTimeout: 5 * time.Second},
 					answer:    func(sdp string) bool { answers <- sdp; return true },
-					streaming: func() bool { close(streaming); return true },
+					streaming: func() { close(streaming) },
 				})
 			}()
 			var answer string

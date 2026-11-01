@@ -375,16 +375,15 @@ func TestSnapshotRefreshDuringCalls(t *testing.T) {
 			defer cancel()
 			fc := &snapshotControl{fakeControl: fakeControl{boot: uid(), epoch: uid(), call: uid()}, state: state}
 			c := &connection{agent: &Agent{Control: fc, Media: &fakeMedia{}}, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 8)}
-			var snap, messages string
-			var sent time.Time
-			if !c.sync(&snap, &messages, &sent) {
+			var last synced
+			if !c.sync(&last) {
 				t.Fatal("initial snapshot")
 			}
 			for len(c.queue) > 0 {
 				<-c.queue
 			}
-			sent = time.Now().Add(-2 * time.Second)
-			if !c.sync(&snap, &messages, &sent) {
+			last.sent = time.Now().Add(-2 * time.Second)
+			if !c.sync(&last) {
 				t.Fatal("refresh")
 			}
 			got := false

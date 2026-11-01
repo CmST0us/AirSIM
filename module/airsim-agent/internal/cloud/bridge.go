@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"runtime/metrics"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,11 +60,24 @@ type BridgeStats struct {
 	RTPStallMax     int64  `json:"rtp_stall_max_ms"`
 	PlayoutStalls   uint64 `json:"playout_stalls"`
 	PlayoutStallMax int64  `json:"playout_stall_max_ms"`
+	// Garbage collections since the session began and the heap they left live.
+	GCCycles   uint64 `json:"gc_cycles"`
+	HeapLiveKB uint64 `json:"heap_live_kb"`
 }
 type bridgeCounters struct {
 	received, sent, lost, late, fec, plc, drops, local atomic.Uint64
 	localStall, sendStall, rtpStall, playoutStall      stall
 	candidate                                          atomic.Value
+	gcStart                                            uint64
+}
+
+var collector = []metrics.Sample{{Name: "/gc/cycles/total:gc-cycles"}, {Name: "/gc/heap/live:bytes"}}
+
+// garbage reads the collector's cycle count and live heap.
+func garbage() (cycles, live uint64) {
+	samples := append([]metrics.Sample(nil), collector...)
+	metrics.Read(samples)
+	return samples[0].Value.Uint64(), samples[1].Value.Uint64()
 }
 
 // stall counts intervals above a threshold and keeps the longest. Each stall
@@ -148,33 +162,27 @@ func (c *connection) startMediaAt(b []byte, now time.Time) bool {
 	if usbOwned || !ok || o.client != r.Client || o.generation != r.Generation || o.boot != r.Boot || o.epoch != r.Epoch {
 		return c.send("media_status", map[string]string{"session_id": r.Session, "state": "closed", "reason": "media_owner"})
 	}
-	if c.mediaCancel != nil {
-		select {
-		case <-c.mediaDone:
-			c.mediaCancel = nil
-		default:
-			return c.send("media_status", map[string]string{"session_id": r.Session, "state": "closed", "reason": "media_busy"})
-		}
+	// Media outlives this control connection: the WebRTC path does not cross
+	// it, so a reconnect leaves the call's audio running. It still ends at the
+	// certificate deadline.
+	deadline := now.Add(30 * time.Minute)
+	if d, ok := c.ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
 	}
-	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Minute)
-	c.mediaCancel = cancel
-	c.mediaID = r.Session
-	c.mediaDone = make(chan struct{})
-	done := c.mediaDone
-	c.wg.Add(1)
+	ctx, cancel := context.WithDeadline(c.life, deadline)
+	c.agent.media.Add(1)
 	go func() {
-		defer c.wg.Done()
-		defer close(done)
+		defer c.agent.media.Done()
 		defer cancel()
 		c.send("media_status", map[string]string{"session_id": r.Session, "state": "starting", "reason": ""})
-		reason := c.agent.runMedia(ctx, mediaRun{
+		reason := c.agent.runMedia(ctx, cancel, mediaRun{
 			request: r.Request, session: r.Session, call: r.Call, boot: r.Boot, epoch: r.Epoch, offer: r.Offer,
 			config: rtc.Config{Servers: servers, GatherTimeout: gatherTimeout},
 			answer: func(sdp string) bool {
 				return c.send("media_answer", map[string]string{"session_id": r.Session, "answer": sdp})
 			},
-			streaming: func() bool {
-				return c.send("media_status", map[string]string{"session_id": r.Session, "state": "streaming", "reason": ""})
+			streaming: func() {
+				c.send("media_status", map[string]string{"session_id": r.Session, "state": "streaming", "reason": ""})
 			},
 		})
 		c.send("media_status", map[string]string{"session_id": r.Session, "state": "closed", "reason": reason})
@@ -188,7 +196,47 @@ type mediaRun struct {
 	config                                     rtc.Config
 	// answer delivers the complete answer to the App's signaling path.
 	answer    func(string) bool
-	streaming func() bool
+	streaming func()
+}
+
+// bridge is the module's one media session; the helper serves a single call.
+type bridge struct {
+	session string
+	cancel  context.CancelFunc
+	done    chan struct{}
+}
+
+// takeBridge makes session the module's media session. Only the call's owner
+// reaches this point, and the App recovers a failed session by offering a new
+// one, so the newer session stops the older and waits until its helper has
+// exited. release must run after the session's helper has stopped.
+func (a *Agent) takeBridge(session string, cancel context.CancelFunc) (release func()) {
+	b := &bridge{session: session, cancel: cancel, done: make(chan struct{})}
+	a.bridgeMu.Lock()
+	old := a.bridge
+	a.bridge = b
+	a.bridgeMu.Unlock()
+	if old != nil {
+		old.cancel()
+		<-old.done
+	}
+	return func() {
+		a.bridgeMu.Lock()
+		if a.bridge == b {
+			a.bridge = nil
+		}
+		a.bridgeMu.Unlock()
+		close(b.done)
+	}
+}
+
+// stopBridge ends the media session if it is still the current one.
+func (a *Agent) stopBridge(session string) {
+	a.bridgeMu.Lock()
+	defer a.bridgeMu.Unlock()
+	if a.bridge != nil && a.bridge.session == session {
+		a.bridge.cancel()
+	}
 }
 
 type localMedia struct {
@@ -233,12 +281,13 @@ func (a *Agent) openLocal(ctx context.Context, r mediaRun) localMedia {
 	return localMedia{conn: conn, id: local.ID}
 }
 
-func (a *Agent) runMedia(parent context.Context, r mediaRun) (reason string) {
+// runMedia serves one session until cancel or a failure ends it.
+func (a *Agent) runMedia(ctx context.Context, cancel context.CancelFunc, r mediaRun) (reason string) {
 	counts := &bridgeCounters{}
 	a.beginBridge(r.session, counts)
 	defer func() { a.endBridge(r.session, reason) }()
-	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	defer a.takeBridge(r.session, cancel)()
 	setup, scancel := context.WithTimeout(ctx, mediaSetup)
 	defer scancel()
 	peer, answer, e := rtc.Answer(setup, r.config, r.offer)
@@ -281,9 +330,7 @@ func (a *Agent) runMedia(parent context.Context, r mediaRun) (reason string) {
 		}
 		counts.candidate.Store(peer.Candidate())
 		a.bridgeState(r.session, "streaming", "")
-		if !r.streaming() {
-			return nil, "control_disconnected"
-		}
+		r.streaming()
 		return track, ""
 	})
 }
@@ -439,6 +486,8 @@ func countersInto(s BridgeStats, c *bridgeCounters) BridgeStats {
 		s.SendStalls, s.SendStallMax = c.sendStall.count.Load(), c.sendStall.max.Load()
 		s.RTPStalls, s.RTPStallMax = c.rtpStall.count.Load(), c.rtpStall.max.Load()
 		s.PlayoutStalls, s.PlayoutStallMax = c.playoutStall.count.Load(), c.playoutStall.max.Load()
+		cycles, live := garbage()
+		s.GCCycles, s.HeapLiveKB = cycles-c.gcStart, live/1024
 		if v, ok := c.candidate.Load().(string); ok {
 			s.Candidate = v
 		}
@@ -446,6 +495,7 @@ func countersInto(s BridgeStats, c *bridgeCounters) BridgeStats {
 	return s
 }
 func (a *Agent) beginBridge(id string, c *bridgeCounters) {
+	c.gcStart, _ = garbage()
 	a.statsMu.Lock()
 	defer a.statsMu.Unlock()
 	a.lastBridge = BridgeStats{SessionID: id, State: "starting"}

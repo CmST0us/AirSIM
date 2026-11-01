@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,9 @@ type Agent struct {
 	statsMu        sync.Mutex
 	lastBridge     BridgeStats
 	activeCounters *bridgeCounters
+	bridgeMu       sync.Mutex
+	bridge         *bridge
+	media          sync.WaitGroup
 	owners         map[string]owner
 	bindings       map[string]string
 }
@@ -64,25 +68,26 @@ type pendingReceipt struct {
 	acceptedUntil      time.Time
 }
 type connection struct {
-	agent       *Agent
-	config      *saved
-	ctx         context.Context
-	cancel      context.CancelFunc
-	ws          *websocket.Conn
-	queue       chan outgoing
-	epoch       string
-	seq         uint64
-	pending     map[string]*pendingReceipt
-	owners      map[string]owner
-	mediaID     string
-	mediaCancel context.CancelFunc
-	mediaDone   chan struct{}
-	wg          sync.WaitGroup
+	agent  *Agent
+	config *saved
+	// life outlasts the connection and bounds the media sessions it starts.
+	life    context.Context
+	ctx     context.Context
+	cancel  context.CancelFunc
+	ws      *websocket.Conn
+	queue   chan outgoing
+	epoch   string
+	seq     uint64
+	pending map[string]*pendingReceipt
+	owners  map[string]owner
+	wg      sync.WaitGroup
 }
 
+// Each connection attempt is short: after a cellular outage the next attempt
+// starts soon after the network returns instead of waiting out a stalled one.
 const (
-	discoveryTimeout        = 30 * time.Second
-	controlHandshakeTimeout = 15 * time.Second
+	discoveryTimeout        = 10 * time.Second
+	controlHandshakeTimeout = 10 * time.Second
 )
 
 func (a *Agent) status(connected bool, epoch, code string) {
@@ -104,6 +109,7 @@ func (a *Agent) Run(ctx context.Context) {
 		go a.USB.Serve(ctx)
 	}
 	a.bindings = map[string]string{}
+	defer a.media.Wait()
 	delays := []time.Duration{250 * time.Millisecond, 500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second, 5 * time.Second}
 	attempt := 0
 	for ctx.Err() == nil {
@@ -241,12 +247,9 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 		return "control_protocol"
 	}
 	ws.SetReadLimit(131072)
-	c := &connection{agent: a, config: s, ctx: ctx, cancel: cancel, ws: ws, queue: make(chan outgoing, 32), pending: map[string]*pendingReceipt{}, owners: a.owners}
+	c := &connection{agent: a, config: s, life: parent, ctx: ctx, cancel: cancel, ws: ws, queue: make(chan outgoing, 32), pending: map[string]*pendingReceipt{}, owners: a.owners}
 	defer func() {
 		cancel()
-		if c.mediaCancel != nil {
-			c.mediaCancel()
-		}
 		c.wg.Wait()
 	}()
 	status, e := a.controlView(handshake)
@@ -311,9 +314,8 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 	defer receipts.Stop()
 	heart := time.NewTicker(5 * time.Second)
 	defer heart.Stop()
-	var lastSnapshot, lastMessages string
-	var sent time.Time
-	if !c.sync(&lastSnapshot, &lastMessages, &sent) {
+	var last synced
+	if !c.sync(&last) {
 		return "snapshot_failed"
 	}
 	for {
@@ -325,11 +327,8 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 				return "control_protocol"
 			}
 		case <-tick.C:
-			if !c.sync(&lastSnapshot, &lastMessages, &sent) {
+			if !c.sync(&last) {
 				return "snapshot_failed"
-			}
-			if _, e := a.P.validate(s, true); e != nil {
-				return "certificate_expired"
 			}
 		case <-receipts.C:
 			for id, p := range c.pending {
@@ -420,7 +419,15 @@ func (c *connection) writer() {
 		}
 	}
 }
-func (c *connection) sync(lastSnap, lastMessages *string, lastSent *time.Time) bool {
+
+// synced is what the connection last sent.
+type synced struct {
+	snapshot string
+	messages *control.MessagesView
+	sent     time.Time
+}
+
+func (c *connection) sync(last *synced) bool {
 	a := c.agent
 	first, e := a.controlView(c.ctx)
 	if e != nil {
@@ -452,13 +459,13 @@ func (c *connection) sync(lastSnap, lastMessages *string, lastSent *time.Time) b
 			break
 		}
 	}
-	if string(b) != *lastSnap || time.Since(*lastSent) >= interval {
+	if string(b) != last.snapshot || time.Since(last.sent) >= interval {
 		payload["observed_at"] = time.Now().UTC().Format(time.RFC3339Nano)
 		if !c.send("snapshot", payload) {
 			return false
 		}
-		*lastSnap = string(b)
-		*lastSent = time.Now()
+		last.snapshot = string(b)
+		last.sent = time.Now()
 	}
 	// Ownership expires on observed disconnect or boot/backend replacement.
 	a.ownerMu.Lock()
@@ -482,8 +489,7 @@ func (c *connection) sync(lastSnap, lastMessages *string, lastSent *time.Time) b
 	if messages.Boot != second.Boot || messages.Epoch != second.Epoch {
 		return true
 	}
-	mb, _ := json.Marshal(messages)
-	if string(mb) == *lastMessages {
+	if p := last.messages; p != nil && p.Boot == messages.Boot && p.Epoch == messages.Epoch && p.Available == messages.Available && p.Gap == messages.Gap && p.Dropped == messages.Dropped && slices.Equal(p.Messages, messages.Messages) {
 		return true
 	}
 	batch := []control.Message{}
@@ -507,7 +513,7 @@ func (c *connection) sync(lastSnap, lastMessages *string, lastSent *time.Time) b
 			return false
 		}
 	}
-	*lastMessages = string(mb)
+	last.messages = &messages
 	return true
 }
 func (c *connection) receipt(p *pendingReceipt, v any, code int) bool {
@@ -647,9 +653,7 @@ func (c *connection) handle(f envelope) bool {
 		if exact(f.Payload, "session_id,reason", &v) != nil || !control.ValidID(v.ID) || len(v.Reason) > 128 {
 			return false
 		}
-		if v.ID == c.mediaID && c.mediaCancel != nil {
-			c.mediaCancel()
-		}
+		c.agent.stopBridge(v.ID)
 		return true
 	default:
 		return false

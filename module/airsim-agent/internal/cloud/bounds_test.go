@@ -15,7 +15,7 @@ func testConnection(t *testing.T) (*connection, *fakeControl) {
 	t.Cleanup(cancel)
 	fc := &fakeControl{boot: uid(), epoch: uid(), call: uid(), commands: map[string]control.Request{}}
 	a := &Agent{Control: fc, Media: &fakeMedia{}, owners: map[string]owner{}, bindings: map[string]string{}}
-	return &connection{agent: a, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 32), pending: map[string]*pendingReceipt{}, owners: a.owners}, fc
+	return &connection{agent: a, life: ctx, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 32), pending: map[string]*pendingReceipt{}, owners: a.owners}, fc
 }
 func TestControlBoundsAndNoOwnershipAdoption(t *testing.T) {
 	c, fc := testConnection(t)
@@ -75,13 +75,14 @@ func TestMediaOwnerWrongSessionStopAndOfferValidation(t *testing.T) {
 		t.Fatal("foreign owner created media")
 	}
 	canceled := false
-	c.mediaID = uid()
-	c.mediaCancel = func() { canceled = true }
+	session := uid()
+	release := c.agent.takeBridge(session, func() { canceled = true })
+	defer release()
 	stop, _ := json.Marshal(map[string]string{"session_id": uid(), "reason": "client_stop"})
 	if !c.handle(envelope{Type: "media_stop", Payload: stop}) || canceled {
 		t.Fatal("wrong session stopped")
 	}
-	stop, _ = json.Marshal(map[string]string{"session_id": c.mediaID, "reason": "client_stop"})
+	stop, _ = json.Marshal(map[string]string{"session_id": session, "reason": "client_stop"})
 	if !c.handle(envelope{Type: "media_stop", Payload: stop}) || !canceled {
 		t.Fatal("matching stop")
 	}
@@ -122,9 +123,8 @@ func BenchmarkCloudSnapshot(b *testing.B) {
 	c := &connection{agent: a, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 32), owners: map[string]owner{}}
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		var s, m string
-		var at time.Time
-		if !c.sync(&s, &m, &at) {
+		var last synced
+		if !c.sync(&last) {
 			b.Fatal("sync")
 		}
 		for len(c.queue) > 0 {

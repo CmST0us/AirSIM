@@ -20,7 +20,7 @@ func TestLocalMediaStatsLifecycleAndRace(t *testing.T) {
 			t.Fatal(w.Code)
 		}
 		var s BridgeStats
-		if e := exact(w.Body.Bytes(), "session_id,state,reason,candidate,packets_received,packets_sent,packets_lost,packets_late,fec_frames,plc_frames,queue_drops,local_input_gaps,local_stalls,local_stall_max_ms,send_stalls,send_stall_max_ms,rtp_stalls,rtp_stall_max_ms,playout_stalls,playout_stall_max_ms", &s); e != nil {
+		if e := exact(w.Body.Bytes(), "session_id,state,reason,candidate,packets_received,packets_sent,packets_lost,packets_late,fec_frames,plc_frames,queue_drops,local_input_gaps,local_stalls,local_stall_max_ms,send_stalls,send_stall_max_ms,rtp_stalls,rtp_stall_max_ms,playout_stalls,playout_stall_max_ms,gc_cycles,heap_live_kb", &s); e != nil {
 			t.Fatal("stats fields", e)
 		}
 		return s

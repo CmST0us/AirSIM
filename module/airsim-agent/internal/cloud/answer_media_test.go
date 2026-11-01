@@ -92,7 +92,7 @@ func testAnswerStartsMedia(t *testing.T, query bool) {
 	}
 	fm := &fakeMedia{id: uid(), socket: filepath.Join(t.TempDir(), "absent.sock")}
 	a := &Agent{Control: coordinator, Media: fm, P: f.p, owners: map[string]owner{}, bindings: map[string]string{}}
-	c := &connection{agent: a, config: f.p.config, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 32), pending: map[string]*pendingReceipt{}, owners: a.owners}
+	c := &connection{agent: a, config: f.p.config, life: ctx, ctx: ctx, cancel: cancel, queue: make(chan outgoing, 32), pending: map[string]*pendingReceipt{}, owners: a.owners}
 	client, generation := uid(), uid()
 	req := control.Request{CommandID: uid(), BootID: boot, Epoch: backend.epoch, Deadline: time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339Nano), Action: "call.answer", Args: control.Args{CallID: call}}
 	raw, _ := json.Marshal(map[string]any{"client_installation_id": client, "generation": generation, "command": req})
@@ -147,11 +147,7 @@ func testAnswerStartsMedia(t *testing.T, query bool) {
 	if !c.handle(envelope{Type: "media_start", Payload: raw}) {
 		t.Fatal("media_start rejected")
 	}
-	if c.mediaDone == nil {
-		t.Fatal("observed answer did not establish media ownership")
-	}
-	<-c.mediaDone
-	c.wg.Wait()
+	a.media.Wait()
 	// The test offer is not negotiable, so the session ends at the answer step.
 	if s := a.LastBridgeStats(); s.SessionID != start.Session || s.Reason != "media_offer" {
 		t.Fatalf("media_start did not reach WebRTC negotiation: %+v", s)
