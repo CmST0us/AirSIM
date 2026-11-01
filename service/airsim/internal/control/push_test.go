@@ -18,6 +18,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 type mockPush struct {
@@ -218,9 +219,13 @@ func TestPushDatabaseContract(t *testing.T) {
 	if len(provider.sent) != 3 || provider.sent[2].Kind != "alert" {
 		t.Fatal("SMS push")
 	}
-	encoded, _ = json.Marshal(provider.sent[2].Payload)
-	if bytes.Contains(encoded, []byte("private")) {
-		t.Fatal("SMS privacy")
+	sms := provider.sent[2].Payload.(map[string]any)
+	alert := sms["aps"].(map[string]any)["alert"].(map[string]string)
+	if alert["title"] != "private sender" || alert["body"] != "private body" || sms["sender"] != "private sender" {
+		t.Fatal("SMS alert shows sender and text", alert)
+	}
+	if !provider.sent[0].Expiration.IsZero() || time.Until(provider.sent[2].Expiration) < smsStoreWindow-time.Minute {
+		t.Fatal("only SMS notifications are stored by APNs")
 	}
 	s.pushCycle(ctx)
 	if len(provider.sent) != 3 {
@@ -264,6 +269,24 @@ func TestPushDatabaseContract(t *testing.T) {
 	}
 	provider.err = nil
 	provider.result = push.Result{}
+	// An App polling from the foreground rings in its own interface; the call
+	// push waits until it stops polling.
+	p.snapshot.Calls.Calls[0].ID = wire.ID()
+	count = len(provider.sent)
+	s.mu.Lock()
+	s.markForeground(client, module)
+	s.mu.Unlock()
+	s.pushCycle(ctx)
+	if len(provider.sent) != count {
+		t.Fatal("foreground App received a call push")
+	}
+	s.mu.Lock()
+	s.foreground[client+"/"+module] = time.Now().Add(-foregroundWindow - time.Second)
+	s.mu.Unlock()
+	s.pushCycle(ctx)
+	if len(provider.sent) != count+1 {
+		t.Fatal("call push held after the App left the foreground")
+	}
 	p.snapshot.Calls.Calls[0].ID = wire.ID()
 	count = len(provider.sent)
 	p.snapshot.Observed = time.Now().Add(-9 * time.Second)
@@ -298,5 +321,17 @@ func TestClientTTLBounds(t *testing.T) {
 		if admin.ClientTTL(context.Background(), nil, filepath.Join(t.TempDir(), "client.json"), ttl) == nil {
 			t.Fatal("invalid TTL accepted")
 		}
+	}
+}
+
+func TestAlertTextKeepsWholeCharacters(t *testing.T) {
+	short := "验证码 123456"
+	if alertText(short) != short {
+		t.Fatal("short text changed")
+	}
+	long := strings.Repeat("短信", maxAlertText)
+	cut := alertText(long)
+	if !utf8.ValidString(cut) || !strings.HasSuffix(cut, "…") || len(cut) > maxAlertText+len("…") {
+		t.Fatal("long text not cut on a character boundary", len(cut))
 	}
 }

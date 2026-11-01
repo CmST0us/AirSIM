@@ -13,9 +13,10 @@ import (
 
 const (
 	// mediaCodec is the only codec negotiated in the WebRTC audio track.
-	mediaCodec   = "opus"
-	offerWindow  = 30 * time.Second
-	answerWindow = 15 * time.Second
+	mediaCodec  = "opus"
+	offerWindow = 30 * time.Second
+	// answerWindow covers the Agent's candidate gathering, which ends within 8 s.
+	answerWindow = 10 * time.Second
 	maxSDP       = 32768
 )
 
@@ -217,13 +218,20 @@ func (s *Server) mediaCreate(w http.ResponseWriter, r *http.Request, client, mod
 		return
 	}
 	count := 0
+	var replaced []*mediaSession
 	for _, m := range s.sessions {
-		if !m.Closed {
-			count++
-			if m.Spec.Module == module || m.Spec.Client == client {
-				wire.Error(w, 409, "session_conflict")
-				return
-			}
+		if m.Closed {
+			continue
+		}
+		// The App recovers lost audio with a new session; it replaces the older one for the same call.
+		if m.Spec.Module == module && m.Spec.Client == client && m.Spec.Call == call {
+			replaced = append(replaced, m)
+			continue
+		}
+		count++
+		if m.Spec.Module == module || m.Spec.Client == client {
+			wire.Error(w, 409, "session_conflict")
+			return
 		}
 	}
 	if count >= 32 {
@@ -245,6 +253,9 @@ func (s *Server) mediaCreate(w http.ResponseWriter, r *http.Request, client, mod
 	if tx.Commit(r.Context()) != nil {
 		wire.Error(w, 503, "database_unavailable")
 		return
+	}
+	for _, old := range replaced {
+		s.stopMedia(old, "replaced")
 	}
 	m := &mediaSession{Request: b.Request, Spec: spec, answered: make(chan struct{})}
 	s.sessions[b.Request] = m

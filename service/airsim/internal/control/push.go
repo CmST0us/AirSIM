@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type pushRegistration struct {
@@ -88,7 +89,43 @@ func (s *Server) pushRegistration(w http.ResponseWriter, r *http.Request, user, 
 }
 
 type pushEvent struct {
-	Module, Boot, Backend, Connection, Kind, ID, Number string
+	Module, Boot, Backend, Connection, Kind, ID, Number, Text string
+}
+
+// foregroundWindow spans two missed one-second polls. While an App polls a
+// module from the foreground it rings in its own interface, so incoming-call
+// pushes to it wait until it stops.
+const foregroundWindow = 3 * time.Second
+
+// markForeground is called with mu held.
+func (s *Server) markForeground(client, module string) {
+	now := time.Now()
+	if s.foreground == nil {
+		s.foreground = map[string]time.Time{}
+	}
+	for key, at := range s.foreground {
+		if now.Sub(at) > foregroundWindow {
+			delete(s.foreground, key)
+		}
+	}
+	s.foreground[client+"/"+module] = now
+}
+
+// maxAlertText keeps an SMS notification body well inside the 4 KB APNs payload.
+const maxAlertText = 1500
+
+// smsStoreWindow is how long APNs keeps an SMS notification for a device that is offline.
+const smsStoreWindow = 24 * time.Hour
+
+func alertText(text string) string {
+	if len(text) <= maxAlertText {
+		return text
+	}
+	cut := maxAlertText
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut] + "…"
 }
 
 // events copies only notification data while holding the control lock.
@@ -106,7 +143,7 @@ func (s *Server) pushEvents(sub subscription) []pushEvent {
 	}
 	base := pushEvent{Module: p.module, Boot: p.boot, Backend: p.backend, Connection: p.epoch}
 	var out []pushEvent
-	if sub.VoIP != "" {
+	if sub.VoIP != "" && now.Sub(s.foreground[sub.Client+"/"+sub.Module]) > foregroundWindow {
 		for _, c := range snap.Calls.Calls {
 			if (c.State == "incoming" || c.State == "ringing") && c.Direction == "incoming" {
 				v := base
@@ -123,6 +160,8 @@ func (s *Server) pushEvents(sub subscription) []pushEvent {
 				v := base
 				v.Kind = "incoming_sms"
 				v.ID = m.ID
+				v.Number = m.Sender
+				v.Text = m.Text
 				out = append(out, v)
 			}
 		}
@@ -177,8 +216,10 @@ func (s *Server) deliverPush(ctx context.Context, sub subscription, event pushEv
 		n.Topic += ".voip"
 		n.Token = sub.VoIP
 	} else {
-		payload["aps"] = map[string]any{"alert": "收到一条新短信，打开 AirSIM 查看"}
+		payload["aps"] = map[string]any{"alert": map[string]string{"title": current.Number, "body": alertText(current.Text)}, "thread-id": current.Number}
 		payload["message_id"] = event.ID
+		payload["sender"] = current.Number
+		n.Expiration = time.Now().Add(smsStoreWindow)
 	}
 	// Revalidate after database work and before entering the network provider.
 	if current, ok = s.currentPush(ctx, sub, event); !ok || !time.Now().Before(expires) {

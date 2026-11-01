@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTrip func(*http.Request) (*http.Response, error)
@@ -103,7 +104,7 @@ func TestHTTP2Transport(t *testing.T) {
 		if r.ProtoMajor != 2 {
 			t.Error("APNs transport is not HTTP/2")
 		}
-		if r.Header.Get("apns-push-type") != "alert" || r.Header.Get("apns-topic") != "com.example.test" {
+		if r.Header.Get("apns-push-type") != "alert" || r.Header.Get("apns-topic") != "com.example.test" || r.Header.Get("apns-expiration") != "1893456000" {
 			t.Error("alert headers")
 		}
 		w.WriteHeader(200)
@@ -122,7 +123,7 @@ func TestHTTP2Transport(t *testing.T) {
 		r.URL.Host = server.Listener.Addr().String()
 		return transport.RoundTrip(r)
 	})
-	if _, e := p.Send(context.Background(), Notification{Token: "synthetic", Environment: "production", Topic: "com.example.test", Kind: "alert", Payload: map[string]string{"event": "incoming_sms"}}); e != nil {
+	if _, e := p.Send(context.Background(), Notification{Token: "synthetic", Environment: "production", Topic: "com.example.test", Kind: "alert", Payload: map[string]string{"event": "incoming_sms"}, Expiration: time.Unix(1893456000, 0)}); e != nil {
 		t.Fatal(e)
 	}
 }

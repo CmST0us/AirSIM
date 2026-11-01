@@ -54,6 +54,8 @@ type Server struct {
 	peers        map[string]*peer
 	last         map[string]*peer
 	sessions     map[string]*mediaSession
+	// foreground holds when each App last polled each module from the foreground.
+	foreground map[string]time.Time
 }
 
 func New(db *store.Store, cfg Config) *Server {

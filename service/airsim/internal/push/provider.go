@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -23,6 +24,8 @@ import (
 type Notification struct {
 	Token, Environment, Topic, Kind string
 	Payload                         any
+	// Expiration lets APNs store the notification for an offline device; zero delivers once.
+	Expiration time.Time
 }
 type Result struct{ Retry, InvalidToken bool }
 type Sender interface {
@@ -114,7 +117,11 @@ func (p *Provider) Send(ctx context.Context, n Notification) (Result, error) {
 	req.Header.Set("apns-topic", n.Topic)
 	req.Header.Set("apns-push-type", n.Kind)
 	req.Header.Set("apns-priority", "10")
-	req.Header.Set("apns-expiration", "0")
+	expiration := "0"
+	if !n.Expiration.IsZero() {
+		expiration = strconv.FormatInt(n.Expiration.Unix(), 10)
+	}
+	req.Header.Set("apns-expiration", expiration)
 	res, e := p.client.Do(req)
 	if e != nil {
 		return Result{Retry: true}, errors.New("apns_transport_failed")

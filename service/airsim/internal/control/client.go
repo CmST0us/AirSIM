@@ -84,6 +84,9 @@ func (s *Server) client(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 2 && r.Method == "GET" {
 		switch parts[1] {
 		case "snapshot":
+			if r.URL.Query().Get("presence") == "foreground" {
+				s.markForeground(client, module)
+			}
 			wire.JSON(w, 200, map[string]any{"server_id": s.cfg.Server, "module_id": module, "online": online, "last_seen": last, "connection_epoch": epoch, "snapshot": snap})
 			return
 		case "messages":

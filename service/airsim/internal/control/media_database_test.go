@@ -215,11 +215,30 @@ func TestAnswerOwnershipNegotiatesWebRTCMedia(t *testing.T) {
 			if len(p.queue) != 0 {
 				t.Fatal("offer retry resent media_start")
 			}
-			if status, _ = pairingRequest(t, s.Handler(), "DELETE", path+"/"+created.ID, nil, clientToken); status != 204 {
-				t.Fatal("media release failed")
+			// Recovering lost audio, the owner's new session replaces the streaming one.
+			recovery := map[string]string{"request_id": wire.ID(), "connection_epoch": p.epoch, "generation": record.Generation, "codec": "opus"}
+			status, data = pairingRequest(t, s.Handler(), "POST", path, recovery, clientToken)
+			var next struct {
+				ID      string       `json:"session_id"`
+				Expires time.Time    `json:"expires_at"`
+				Servers []ice.Server `json:"ice_servers"`
 			}
-			if env = <-p.queue; env.Type != "media_stop" {
-				t.Fatal("release did not stop Agent media")
+			if status != 201 || wire.Decode(data, &next) != nil || next.ID == created.ID {
+				t.Fatalf("recovery create status %d", status)
+			}
+			var stopped struct {
+				ID     string `json:"session_id"`
+				Reason string `json:"reason"`
+			}
+			if env = <-p.queue; env.Type != "media_stop" || wire.Decode(env.Payload, &stopped) != nil || stopped.ID != created.ID || stopped.Reason != "replaced" {
+				t.Fatal("replaced session not stopped on the Agent")
+			}
+			if status, _ = pairingRequest(t, s.Handler(), "POST", path+"/"+created.ID+"/offer", map[string]string{"sdp": offer}, clientToken); status != 410 {
+				t.Fatalf("replaced session still accepts offers: %d", status)
+			}
+			created.ID = next.ID
+			if status, _ = pairingRequest(t, s.Handler(), "DELETE", path+"/"+created.ID, nil, clientToken); status != 204 || len(p.queue) != 0 {
+				t.Fatal("media release failed")
 			}
 			snap.Calls.Calls[0].State = "disconnected"
 			payload, _ = json.Marshal(snap)
