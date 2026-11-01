@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #include "audio_format.h"
-#include "airsim_lc3.h"
+#include "opus_codec.h"
 #include "protocol.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -72,10 +72,10 @@ static atomic_uint_fast64_t drops, capture_drops, playback_drops, gaps, silence,
     peak;
 static pthread_mutex_t qlock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t qready = PTHREAD_COND_INITIALIZER;
-static uint8_t queue[QUEUE][ASMP_PAYLOAD];
+static uint8_t queue[QUEUE][ASMP_MAX_PAYLOAD];
 static uint64_t queued_at[QUEUE];
-static uint8_t queue_erasure[QUEUE];
-static uint64_t queue_sequence[QUEUE];
+static uint8_t queue_kind[QUEUE];
+static uint16_t queue_size[QUEUE];
 static unsigned qhead, qcount;
 static uint8_t session[16];
 static uint64_t started;
@@ -244,8 +244,8 @@ static void *capture_worker(void *unused) {
   (void)unused;
   uint64_t seq = 0, recovery[3] = {0};
   unsigned recoveries = 0;
-  uint8_t frame[ASMP_SIZE], pcm[AIRSIM_LC3_PCM_BYTES];
-  airsim_lc3_encoder *encoder = airsim_lc3_encoder_create();
+  uint8_t frame[ASMP_MAX_FRAME], pcm[AIRSIM_OPUS_PCM_BYTES];
+  airsim_opus_encoder *encoder = airsim_opus_encoder_create();
   if (!encoder) {
     fail(1);
     return NULL;
@@ -267,22 +267,24 @@ static void *capture_worker(void *unused) {
       fail(7);
       break;
     }
-    asmp_header(frame, session, 2, seq);
-    if (airsim_lc3_encode(encoder, pcm, frame + 40) < 0) {
+    int size = airsim_opus_encode(encoder, pcm, frame + ASMP_HEADER);
+    if (size < 0) {
       fail(7);
       break;
     }
-    if (asmp_write(4, frame, sizeof(frame), 100)) {
+    asmp_header(frame, session, 2, seq, (uint32_t)size, ASMP_OPUS);
+    if (asmp_write(4, frame, ASMP_HEADER + (size_t)size, 100)) {
       if (!stopped()) fail(1);
       break;
     }
   }
-  airsim_lc3_encoder_destroy(encoder);
+  airsim_opus_encoder_destroy(encoder);
   return NULL;
 }
-static int take_packet(uint8_t payload[ASMP_PAYLOAD], uint64_t *source_sequence) {
-  int erasure = 1;
-  *source_sequence = 0;
+/* Returns how the frame is decoded; an empty queue conceals. */
+static int take_packet(uint8_t payload[ASMP_MAX_PAYLOAD], int *size) {
+  int kind = ASMP_ERASURE;
+  *size = 0;
   pthread_mutex_lock(&qlock);
   uint64_t now = asmp_now_ms();
   while (qcount && now - queued_at[qhead] > 100) {
@@ -303,34 +305,34 @@ static int take_packet(uint8_t payload[ASMP_PAYLOAD], uint64_t *source_sequence)
     pthread_cond_timedwait(&qready, &qlock, &until);
   }
   if (qcount) {
-    memcpy(payload, queue[qhead], ASMP_PAYLOAD);
-    erasure = queue_erasure[qhead];
-    *source_sequence = queue_sequence[qhead];
+    *size = queue_size[qhead];
+    memcpy(payload, queue[qhead], (size_t)*size);
+    kind = queue_kind[qhead];
     qhead = (qhead + 1) % QUEUE;
     qcount--;
   }
   pthread_mutex_unlock(&qlock);
-  return erasure;
+  return kind;
 }
 static void *playback_worker(void *unused) {
   (void)unused;
   uint64_t recovery[3] = {0};
   unsigned recoveries = 0;
-  uint8_t data[640], payload[ASMP_PAYLOAD];
-  airsim_lc3_decoder *decoder = airsim_lc3_decoder_create();
+  uint8_t data[AIRSIM_OPUS_PCM_BYTES], payload[ASMP_MAX_PAYLOAD];
+  airsim_opus_decoder *decoder = airsim_opus_decoder_create();
   if (!decoder) {
     fail(1);
     return NULL;
   }
   while (!stopped()) {
-    uint64_t source_sequence;
-    int zero_fill = take_packet(payload, &source_sequence);
-    if (airsim_lc3_decode_packet(decoder, zero_fill ? NULL : payload, source_sequence, data) < 0) {
+    int size;
+    int kind = take_packet(payload, &size);
+    if (airsim_opus_decode(decoder, payload, size, kind, data) < 0) {
       fail(7);
       break;
     }
     size_t native_samples = audio_reduce(data, playback_rate, &playback_previous);
-    zero_fill = 1;
+    int zero_fill = 1;
     for (size_t i = 0; i < native_samples * 2; i++) {
       if (data[i]) {
         zero_fill = 0;
@@ -344,13 +346,13 @@ static void *playback_worker(void *unused) {
     if (r > 0)
       atomic_fetch_add(&playback_drops, 1);
   }
-  airsim_lc3_decoder_destroy(decoder);
+  airsim_opus_decoder_destroy(decoder);
   return NULL;
 }
 static void *input_worker(void *unused) {
   (void)unused;
-  uint8_t frame[ASMP_SIZE];
-  size_t offset = 0;
+  uint8_t frame[ASMP_MAX_FRAME];
+  size_t offset = 0, need = ASMP_HEADER;
   uint64_t since = 0, last = 0, lost = 0;
   while (!stopped()) {
     struct pollfd p = {4, POLLIN, 0};
@@ -367,7 +369,7 @@ static void *input_worker(void *unused) {
     }
     if (r == 0)
       continue;
-    ssize_t n = recv(4, frame + offset, sizeof(frame) - offset, 0);
+    ssize_t n = recv(4, frame + offset, need - offset, 0);
     if (n < 0 && (errno == EAGAIN || errno == EINTR))
       continue;
     if (n <= 0) {
@@ -377,15 +379,24 @@ static void *input_worker(void *unused) {
     if (offset == 0)
       since = asmp_now_ms();
     offset += (size_t)n;
-    if (offset < sizeof(frame))
+    if (offset < need)
       continue;
+    if (need == ASMP_HEADER) {
+      int size = asmp_payload_size(frame, session, 1);
+      if (size < 0) {
+        fail(7);
+        break;
+      }
+      need += (size_t)size;
+      if (offset < need)
+        continue;
+    }
     uint64_t before = lost;
-    if (asmp_check(frame, session, 1, &last, &lost)) {
+    if (asmp_check(frame, need, session, 1, &last, &lost)) {
       fail(7);
       break;
     }
     atomic_fetch_add(&gaps, lost - before);
-    offset = 0;
     pthread_mutex_lock(&qlock);
     if (qcount == QUEUE) {
       qhead = (qhead + 1) % QUEUE;
@@ -393,15 +404,17 @@ static void *input_worker(void *unused) {
       atomic_fetch_add(&drops, 1);
     }
     unsigned tail = (qhead + qcount) % QUEUE;
-    memcpy(queue[tail], frame + 40, ASMP_PAYLOAD);
-    queue_erasure[tail] = frame[36];
-    queue_sequence[tail] = last;
+    memcpy(queue[tail], frame + ASMP_HEADER, need - ASMP_HEADER);
+    queue_size[tail] = (uint16_t)(need - ASMP_HEADER);
+    queue_kind[tail] = frame[36];
     queued_at[tail] = asmp_now_ms();
     qcount++;
     if (qcount > atomic_load(&peak))
       atomic_store(&peak, qcount);
     pthread_cond_signal(&qready);
     pthread_mutex_unlock(&qlock);
+    offset = 0;
+    need = ASMP_HEADER;
   }
   return NULL;
 }
@@ -447,7 +460,7 @@ int main(int argc, char **argv) {
     return eg25_audio_reset() ? 1 : 0;
 #endif
   if (argc == 2 && !strcmp(argv[1], "--version")) {
-    puts("airsim-audiod 0.5.0-lc3-wb liblc3-1.1.3 "
+    puts("airsim-audiod 0.6.0-opus libopus-1.5.2 "
          "tinyalsa-1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d");
     return 0;
   }
@@ -520,7 +533,7 @@ int main(int argc, char **argv) {
   }
   char ready[512];
   snprintf(ready, sizeof(ready),
-           "{\"type\":\"ready\",\"codec\":\"lc3\",\"codec_frame_us\":10000,\"codec_frame_bytes\":40,\"sample_rate\":16000,\"channels\":1,\"sample_"
+           "{\"type\":\"ready\",\"codec\":\"opus\",\"codec_frame_us\":20000,\"sample_rate\":16000,\"channels\":1,\"sample_"
            "format\":\"s16le\",\"frame_samples\":320,"
            "\"capture\":{\"sample_rate\":%u,\"period_size\":%u,\"period_"
            "count\":%u,\"buffer_"
@@ -537,11 +550,15 @@ int main(int argc, char **argv) {
   }
   ready_sent = 1;
   void *(*workers[])(void *) = {input_worker, capture_worker, playback_worker};
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_setstacksize(&attr, AIRSIM_OPUS_THREAD_STACK);
   for (; count < 3; count++)
-    if (pthread_create(&threads[count], NULL, workers[count], NULL)) {
+    if (pthread_create(&threads[count], &attr, workers[count], NULL)) {
       fail(11);
       break;
     }
+  pthread_attr_destroy(&attr);
   uint8_t control[2052];
   size_t have = 0, need = 4;
   uint64_t ping = asmp_now_ms(), partial = 0, stats = ping;

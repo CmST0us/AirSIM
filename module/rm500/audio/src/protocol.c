@@ -42,27 +42,33 @@ int asmp_uuid(const char *s, uint8_t out[16]) {
   }
   return j == 16 ? 0 : -1;
 }
-void asmp_header(uint8_t f[ASMP_SIZE], const uint8_t id[16], uint8_t dir,
-                 uint64_t seq) {
-  memset(f, 0, 40);
+void asmp_header(uint8_t f[ASMP_HEADER], const uint8_t id[16], uint8_t dir,
+                 uint64_t seq, uint32_t size, uint32_t flags) {
   memcpy(f, "ASMP", 4);
-  f[4] = 2;
+  f[4] = 3;
   f[5] = dir;
-  put(f + 6, 40, 2);
+  put(f + 6, ASMP_HEADER, 2);
   memcpy(f + 8, id, 16);
   put(f + 24, seq, 8);
-  put(f + 32, ASMP_PAYLOAD, 4);
+  put(f + 32, size, 4);
+  put(f + 36, flags, 4);
 }
-int asmp_check(const uint8_t f[ASMP_SIZE], const uint8_t id[16], uint8_t dir,
-               uint64_t *last, uint64_t *gaps) {
-  uint64_t seq = get(f + 24, 8);
-  if (memcmp(f, "ASMP", 4) || f[4] != 2 || f[5] != dir || get(f + 6, 2) != 40 ||
-      memcmp(f + 8, id, 16) || get(f + 32, 4) != ASMP_PAYLOAD || get(f + 36, 4) > 1 ||
-      seq == 0 || seq <= *last)
+int asmp_payload_size(const uint8_t f[ASMP_HEADER], const uint8_t id[16],
+                      uint8_t dir) {
+  uint64_t size = get(f + 32, 4), flags = get(f + 36, 4);
+  if (memcmp(f, "ASMP", 4) || f[4] != 3 || f[5] != dir ||
+      get(f + 6, 2) != ASMP_HEADER || memcmp(f + 8, id, 16) ||
+      size > ASMP_MAX_PAYLOAD || flags > ASMP_FEC ||
+      (flags == ASMP_ERASURE) != (size == 0))
     return -1;
-  if (f[36] == 1) {
-    for (unsigned i = 40; i < ASMP_SIZE; i++) if (f[i]) return -1;
-  }
+  return (int)size;
+}
+int asmp_check(const uint8_t *f, size_t n, const uint8_t id[16], uint8_t dir,
+               uint64_t *last, uint64_t *gaps) {
+  int size = asmp_payload_size(f, id, dir);
+  uint64_t seq = get(f + 24, 8);
+  if (size < 0 || n != ASMP_HEADER + (size_t)size || seq == 0 || seq <= *last)
+    return -1;
   *gaps += seq - *last - 1;
   *last = seq;
   return 0;

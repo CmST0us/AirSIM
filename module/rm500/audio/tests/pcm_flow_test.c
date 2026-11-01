@@ -163,21 +163,20 @@ int main(void) {
   unlink(path);
 
   reset();
-  uint8_t packet[ASMP_PAYLOAD];
-  uint64_t packet_sequence = 99;
+  uint8_t packet[ASMP_MAX_PAYLOAD];
+  int size = -1;
   qhead = 0; qcount = 2;
   fake_now = 1000;
   queued_at[0] = 899; queued_at[1] = 950;
-  queue_sequence[0] = 7; queue_sequence[1] = 9;
-  queue_erasure[1] = 0;
-  memset(queue[1], 42, ASMP_PAYLOAD);
-  assert(take_packet(packet, &packet_sequence) == 0);
-  assert(packet_sequence == 9 && packet[0] == 42 && qcount == 0);
+  queue_kind[1] = ASMP_FEC; queue_size[1] = 3;
+  memset(queue[1], 42, 3);
+  assert(take_packet(packet, &size) == ASMP_FEC);
+  assert(size == 3 && packet[0] == 42 && qcount == 0);
   assert(atomic_load(&drops) == 1);
-  assert(take_packet(packet, &packet_sequence) == 1 && packet_sequence == 0);
+  assert(take_packet(packet, &size) == ASMP_ERASURE && size == 0);
   qhead = 0; qcount = 1; queued_at[0] = fake_now;
-  queue_sequence[0] = 10; queue_erasure[0] = 1;
-  assert(take_packet(packet, &packet_sequence) == 1 && packet_sequence == 10);
+  queue_kind[0] = ASMP_ERASURE; queue_size[0] = 0;
+  assert(take_packet(packet, &size) == ASMP_ERASURE && size == 0);
 
   reset();
   capture = (struct pcm *)(uintptr_t)1;
