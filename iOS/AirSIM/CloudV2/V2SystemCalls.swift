@@ -302,6 +302,7 @@ final class V2SystemCallController: CallKitActionHandling {
 #endif
         audioGeneration &+= 1; let stamp = audioGeneration
         await model.media.stop()
+        model.media.callKitAudioActivated(AVAudioSession.sharedInstance())
         guard hasSystemCall, audioGeneration == stamp else {
 #if DEBUG
             NSLog("[AirSIM Media] stage=callKitActivateSkipped hasSystemCall=%d currentGeneration=%d", hasSystemCall ? 1 : 0, audioGeneration == stamp ? 1 : 0)
@@ -318,6 +319,7 @@ final class V2SystemCallController: CallKitActionHandling {
         NSLog("[AirSIM Media] stage=callKitDeactivate")
 #endif
         audioGeneration &+= 1; model.systemAudioActive = false; model.media.requestStop()
+        model.media.callKitAudioDeactivated(AVAudioSession.sharedInstance())
     }
     func callKitProviderDidReset() async {
         model.systemAudioActive = false; await model.media.stop()

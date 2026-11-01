@@ -40,7 +40,7 @@ private final class V2HTTPOperation: NSObject, URLSessionDataDelegate, @unchecke
         config.urlCache = nil; config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.connectionProxyDictionary = ["HTTPEnable": 0, "HTTPSEnable": 0, "SOCKSEnable": 0, "ProxyAutoConfigEnable": 0, "ProxyAutoDiscoveryEnable": 0]
         config.tlsMinimumSupportedProtocolVersion = .TLSv12
-        config.timeoutIntervalForRequest = 5; config.timeoutIntervalForResource = 5
+        config.timeoutIntervalForRequest = request.timeoutInterval; config.timeoutIntervalForResource = request.timeoutInterval
         let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
         let session = URLSession(configuration: config, delegate: self, delegateQueue: queue)
         self.session = session

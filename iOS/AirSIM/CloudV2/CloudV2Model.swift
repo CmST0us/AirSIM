@@ -40,9 +40,6 @@ final class CloudV2Model: ObservableObject {
             if !experimentalAudio { media.requestStop() }
         }
     }
-    @Published var diagnosticAudio = false
-    @Published private(set) var localAudioResult = "尚未测试"
-    private var localAudioTask: Task<Void, Never>?
     let media: V2MediaCoordinator
     private var mediaObservation: AnyCancellable?
     private var runtimeCallCommandID: String?
@@ -118,7 +115,7 @@ final class CloudV2Model: ObservableObject {
         self.tokens = tokens
         self.pairingClient = activePairingClient
         self.client = client
-        self.media = media ?? V2MediaCoordinator(socketFactory: { client.makeMediaSocket() }, create: { context, request in try await client.createMedia(context: context, requestID: request) }, delete: { context, session in try? await client.deleteMedia(context: context, sessionID: session) })
+        self.media = media ?? V2MediaCoordinator(create: { context, request in try await client.createMedia(context: context, requestID: request) }, offer: { context, session, sdp in try await client.offerMedia(context: context, sessionID: session, sdp: sdp) }, delete: { context, session in try? await client.deleteMedia(context: context, sessionID: session) })
         configurationStore = V2ConfigurationStore(tokens: tokens, defaults: defaults, pairings: activePairings)
         historyFile = V2ProtectedFile(url: root.appendingPathComponent("history.json"))
         do {
@@ -146,13 +143,6 @@ final class CloudV2Model: ObservableObject {
             self?.media.requestStop()
         }
         mediaObservation = self.media.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
-        self.media.onDiagnosticTimeout = { [weak self] context in
-            guard let self, self.ownedCall == context else { return }
-            Task {
-                guard self.ownedCall == context else { return }
-                await self.perform(action: "call.hangup", args: ["call_id": context.callID])
-            }
-        }
         refreshCommandStatus()
     }
     func activateSystemIntegration(calls: (any V2SystemCallReporting)? = nil, associationTimeout: Duration = .seconds(25), endAssociationTimeout: Duration = .seconds(10)) {
@@ -580,7 +570,6 @@ final class CloudV2Model: ObservableObject {
     func stop() async {
         cancelReconnect()
         invalidatePolling()
-        localAudioTask?.cancel(); await localAudioTask?.value; localAudioTask = nil
         await media.stop()
         await cancelConnection(); await cancelPolling()
         client.stop(); connected = false; busy = actionInFlight
@@ -898,36 +887,6 @@ final class CloudV2Model: ObservableObject {
         objectWillChange.send()
     }
 #if DEBUG
-    func testLocalAudio() {
-        guard !busy, !media.active, ownedCall == nil, activeCall == nil, foreground else { return }
-        busy = true; localAudioResult = "正在准备本机麦克风和播放测试…"
-        localAudioTask = Task { [weak self] in
-            guard let self else { return }
-            let audio = V2AudioEngine()
-            do {
-                try await audio.prepare(microphone: true)
-                var pcm = Data()
-                for i in 0..<V2PCM.frameSamples {
-                    let sample = Int16(sin(Double(i) * 2 * .pi * 400 / V2PCM.sampleRate) * 1200)
-                    pcm.append(UInt8(truncatingIfNeeded: sample)); pcm.append(UInt8(truncatingIfNeeded: sample >> 8))
-                }
-                let deadline = DispatchTime.now().uptimeNanoseconds + 3_000_000_000
-                while !Task.isCancelled, DispatchTime.now().uptimeNanoseconds < deadline {
-                    _ = audio.takeCaptured(); _ = audio.play(pcm)
-                    try await Task.sleep(for: .milliseconds(20))
-                }
-                let m = audio.metrics
-                self.localAudioResult = "本机测试：\(Int(m.sampleRate)) Hz / \(m.channels) 声道，语音处理 \(m.voiceProcessing ? "开启" : "关闭")；采集 \(m.captured) 帧，播放 \(m.rendered) 帧。"
-            } catch {
-                self.localAudioResult = (error as? V2AudioError)?.message ?? "本机音频测试已停止"
-            }
-            await audio.stop()
-            self.localAudioResult += " 引擎已停止。"
-            self.busy = false; self.localAudioTask = nil
-        }
-    }
-#endif
-#if DEBUG
     var selectedSnapshotAgeSeconds: Double? {
         guard let observed = snapshot?.snapshot?.observedAt else { return nil }
         return now().timeIntervalSince(observed)
@@ -974,7 +933,7 @@ final class CloudV2Model: ObservableObject {
 #endif
         attemptedAudioCall = ownedCall
         lastEligibilityFailure = nil
-        media.start(context: ownedCall, diagnosticMode: diagnosticAudio) { [weak self] in
+        media.start(context: ownedCall) { [weak self] in
             guard let self else { return false }
             let valid = self.audioReady == true && self.ownedCall == ownedCall
             if !valid { self.recordEligibilityFailure(for: ownedCall) }

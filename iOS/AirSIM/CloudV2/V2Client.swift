@@ -70,7 +70,6 @@ final class V2Client {
     private var discoveryData: Data?
     private var lastUSBRenewal = Date.distantPast
     var usingUSB: Bool { usbAuthorization != nil }
-    func makeMediaSocket() -> V2MediaSocket { if let usbAuthorization { return V2USBMediaSocket(authorization: usbAuthorization) }; return V2URLMediaSocket() }
     private let tokens: V2TokenStore
     private let now: () -> Date
     private(set) var gate = V2SessionGate()
@@ -165,13 +164,13 @@ final class V2Client {
         guard verified, token != nil || usbAuthorization != nil, let stamp else { throw V2Error.unauthorized }
         return stamp
     }
-    private func request(path: String, method: String, body: Data?, limit: Int, authorized: Bool = true, stamp: V2SessionStamp, forceCloud: Bool = false) async throws -> V2HTTPResponse {
+    private func request(path: String, method: String, body: Data?, limit: Int, authorized: Bool = true, stamp: V2SessionStamp, forceCloud: Bool = false, timeout: TimeInterval = 5) async throws -> V2HTTPResponse {
         guard gate.accepts(stamp), configuration != nil else { throw V2Error.stale }
         if !forceCloud, let usb = usbAuthorization, path.hasPrefix("/v2/modules") {
             guard let config = configuration else { throw V2Error.stale }
             try usb.validate(configuration: config, now: now())
             guard let url = URL(string: usb.api_origin + path) else { throw V2Error.invalidValue }
-            var local = URLRequest(url: url, timeoutInterval: 5); local.httpMethod = method; local.httpBody = body
+            var local = URLRequest(url: url, timeoutInterval: timeout); local.httpMethod = method; local.httpBody = body
             local.setValue("application/json", forHTTPHeaderField: "Content-Type")
             local = try usb.sign(local, now: now())
             let response: WiredHTTPResponse
@@ -194,7 +193,7 @@ final class V2Client {
                 try await refreshAccess(stamp)
                 continue
             }
-            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
             request.httpMethod = method; request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
@@ -358,14 +357,24 @@ final class V2Client {
     func createMedia(context: V2CallContext, requestID: String) async throws -> V2MediaCreated {
         let stamp = try activeStamp(); try validate(context, stamp: stamp); try V2Validation.uuid(requestID)
         guard ownedCalls.contains(context) else { throw V2Error.invalidIdentity }
-        let body = try JSONSerialization.data(withJSONObject: ["request_id": requestID, "connection_epoch": context.binding.connectionEpoch, "generation": context.generation, "codec": "lc3"])
+        let body = try JSONSerialization.data(withJSONObject: ["request_id": requestID, "connection_epoch": context.binding.connectionEpoch, "generation": context.generation, "codec": "opus"])
         let response = try await request(path: mediaPath(context), method: "POST", body: body, limit: 256 * 1024, stamp: stamp)
-        guard [200,201].contains(response.status), let config = configuration else { throw V2Error.protocolViolation }
+        guard [200,201].contains(response.status) else { throw V2Error.protocolViolation }
         let result = try V2JSON.decode(V2MediaCreated.self, from: response.body, limit: 256 * 1024)
-        guard result.media_url == "wss" + (usbAuthorization?.api_origin ?? config.mediaOrigin).dropFirst(5) + "/v2/media" else { throw V2Error.invalidIdentity }
+        // The USB link connects directly; the cloud always supplies its relay.
+        guard result.ice_servers.isEmpty == usingUSB else { throw V2Error.invalidIdentity }
         let remaining = try V2Validation.date(result.expires_at).timeIntervalSince(now())
         guard remaining > 0, remaining <= 35 else { throw V2Error.expired }
         return result
+    }
+    /// Submits the complete offer; the module's answer arrives once its candidates are gathered.
+    func offerMedia(context: V2CallContext, sessionID: String, sdp: String) async throws -> String {
+        let stamp = try activeStamp(); try validate(context, stamp: stamp); try V2Validation.uuid(sessionID)
+        guard ownedCalls.contains(context), sdp.utf8.count <= 32768 else { throw V2Error.invalidIdentity }
+        let body = try JSONSerialization.data(withJSONObject: ["sdp": sdp])
+        let response = try await request(path: mediaPath(context) + "/" + sessionID + "/offer", method: "POST", body: body, limit: 64 * 1024, stamp: stamp, timeout: 20)
+        guard response.status == 200 else { throw V2Error.protocolViolation }
+        return try V2JSON.decode(V2MediaAnswer.self, from: response.body, limit: 64 * 1024).sdp
     }
     func deleteMedia(context: V2CallContext, sessionID: String) async throws {
         let stamp = try activeStamp(); try validate(context, stamp: stamp); try V2Validation.uuid(sessionID)

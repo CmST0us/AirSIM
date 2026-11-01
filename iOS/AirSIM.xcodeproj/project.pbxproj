@@ -55,7 +55,6 @@
 		A50000000000000000000002 /* V2Commands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* V2Commands.swift */; };
 		A50000000000000000000003 /* V2Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000003 /* V2Configuration.swift */; };
 		A50000000000000000000004 /* V2JSON.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000004 /* V2JSON.swift */; };
-		A50000000000000000000005 /* V2Media.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000005 /* V2Media.swift */; };
 		A50000000000000000000006 /* V2Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000006 /* V2Models.swift */; };
 		A50000000000000000000007 /* V2Transport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000007 /* V2Transport.swift */; };
 		A500000000000000000000FF /* CloudV2Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000FF /* CloudV2Tests.swift */; };
@@ -65,10 +64,10 @@
 		A50000000000000000000066 /* CloudV2View.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000066 /* CloudV2View.swift */; };
 		A50000000000000000000067 /* LegacySwitchFence.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000067 /* LegacySwitchFence.swift */; };
 		A5000000000000000000006C /* V2LocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5000000000000000000006C /* V2LocalStore.swift */; };
-		A500000000000000000000C8 /* V2AudioEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000C8 /* V2AudioEngine.swift */; };
-		A500000000000000000000C9 /* V2MediaSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000C9 /* V2MediaSocket.swift */; };
 		A500000000000000000000CA /* V2MediaCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CA /* V2MediaCoordinator.swift */; };
-		A500000000000000000000CB /* V2DiagnosticAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CB /* V2DiagnosticAudio.swift */; };
+		A500000000000000000000CC /* V2WebRTC.swift in Sources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CC /* V2WebRTC.swift */; };
+		A500000000000000000000CD /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 9500000000000000000000CD /* WebRTC */; };
+		A500000000000000000000CE /* WebRTC-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B500000000000000000000CE /* WebRTC-LICENSE.txt */; };
 		A70000000000000000000002 /* MessagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000003 /* MessagingTests.swift */; };
 		A80000000000000000000001 /* V2SystemCalls.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000001 /* V2SystemCalls.swift */; };
 		A91000000000000000000001 /* A1DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000001 /* A1DesignSystem.swift */; };
@@ -81,22 +80,6 @@
 		A91000000000000000000006 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000006 /* OFL.txt */; };
 		A91000000000000000000009 /* A1CardsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000009 /* A1CardsView.swift */; };
 		A91000000000000000000010 /* A1CallStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000010 /* A1CallStateTests.swift */; };
-		A1C300000000000000000001 /* V2LC3Codec.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000001 /* V2LC3Codec.swift */; };
-		A1C300000000000000000002 /* attdet.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000002 /* attdet.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C300000000000000000003 /* bits.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000003 /* bits.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C300000000000000000004 /* bwdet.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000004 /* bwdet.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C300000000000000000005 /* energy.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000005 /* energy.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C300000000000000000006 /* lc3.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000006 /* lc3.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C300000000000000000007 /* ltpf.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000007 /* ltpf.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C300000000000000000008 /* mdct.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000008 /* mdct.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C300000000000000000009 /* plc.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C300000000000000000009 /* plc.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C30000000000000000000A /* sns.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C30000000000000000000A /* sns.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C30000000000000000000B /* spec.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C30000000000000000000B /* spec.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C30000000000000000000C /* tables.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C30000000000000000000C /* tables.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C30000000000000000000D /* tns.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C30000000000000000000D /* tns.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C30000000000000000000E /* airsim_lc3.c in Sources */ = {isa = PBXBuildFile; fileRef = B1C30000000000000000000E /* airsim_lc3.c */; settings = {COMPILER_FLAGS = "-DLC3_PLUS=0 -DLC3_PLUS_HR=0"; }; };
-		A1C3000000000000000000F0 /* LC3-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B1C3000000000000000000F0 /* LC3-LICENSE.txt */; };
-		A1C3000000000000000000F1 /* interop.json in Resources */ = {isa = PBXBuildFile; fileRef = B1C3000000000000000000F1 /* interop.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -207,7 +190,6 @@
 		B50000000000000000000002 /* V2Commands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Commands.swift; sourceTree = "<group>"; };
 		B50000000000000000000003 /* V2Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Configuration.swift; sourceTree = "<group>"; };
 		B50000000000000000000004 /* V2JSON.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2JSON.swift; sourceTree = "<group>"; };
-		B50000000000000000000005 /* V2Media.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Media.swift; sourceTree = "<group>"; };
 		B50000000000000000000006 /* V2Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Models.swift; sourceTree = "<group>"; };
 		B50000000000000000000007 /* V2Transport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2Transport.swift; sourceTree = "<group>"; };
 		B500000000000000000000FF /* CloudV2Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2Tests.swift; sourceTree = "<group>"; };
@@ -217,10 +199,9 @@
 		B50000000000000000000066 /* CloudV2View.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/CloudV2View.swift; sourceTree = "<group>"; };
 		B50000000000000000000067 /* LegacySwitchFence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/LegacySwitchFence.swift; sourceTree = "<group>"; };
 		B5000000000000000000006C /* V2LocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2LocalStore.swift; sourceTree = "<group>"; };
-		B500000000000000000000C8 /* V2AudioEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2AudioEngine.swift; sourceTree = "<group>"; };
-		B500000000000000000000C9 /* V2MediaSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2MediaSocket.swift; sourceTree = "<group>"; };
 		B500000000000000000000CA /* V2MediaCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2MediaCoordinator.swift; sourceTree = "<group>"; };
-		B500000000000000000000CB /* V2DiagnosticAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2DiagnosticAudio.swift; sourceTree = "<group>"; };
+		B500000000000000000000CC /* V2WebRTC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2WebRTC.swift; sourceTree = "<group>"; };
+		B500000000000000000000CE /* WebRTC-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "AirSIM/Resources/WebRTC-LICENSE.txt"; sourceTree = SOURCE_ROOT; };
 		B70000000000000000000003 /* MessagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingTests.swift; sourceTree = "<group>"; };
 		B80000000000000000000001 /* V2SystemCalls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudV2/V2SystemCalls.swift; sourceTree = "<group>"; };
 		B91000000000000000000001 /* A1DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1DesignSystem.swift"; sourceTree = "<group>"; };
@@ -233,22 +214,6 @@
 		B91000000000000000000006 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/OFL.txt"; sourceTree = "<group>"; };
 		B91000000000000000000009 /* A1CardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1CardsView.swift"; sourceTree = "<group>"; };
 		B91000000000000000000010 /* A1CallStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1CallStateTests.swift"; sourceTree = "<group>"; };
-		B1C300000000000000000001 /* V2LC3Codec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AirSIM/CloudV2/V2LC3Codec.swift"; sourceTree = SOURCE_ROOT; };
-		B1C300000000000000000002 /* attdet.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/attdet.c"; sourceTree = SOURCE_ROOT; };
-		B1C300000000000000000003 /* bits.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/bits.c"; sourceTree = SOURCE_ROOT; };
-		B1C300000000000000000004 /* bwdet.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/bwdet.c"; sourceTree = SOURCE_ROOT; };
-		B1C300000000000000000005 /* energy.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/energy.c"; sourceTree = SOURCE_ROOT; };
-		B1C300000000000000000006 /* lc3.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/lc3.c"; sourceTree = SOURCE_ROOT; };
-		B1C300000000000000000007 /* ltpf.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/ltpf.c"; sourceTree = SOURCE_ROOT; };
-		B1C300000000000000000008 /* mdct.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/mdct.c"; sourceTree = SOURCE_ROOT; };
-		B1C300000000000000000009 /* plc.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/plc.c"; sourceTree = SOURCE_ROOT; };
-		B1C30000000000000000000A /* sns.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/sns.c"; sourceTree = SOURCE_ROOT; };
-		B1C30000000000000000000B /* spec.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/spec.c"; sourceTree = SOURCE_ROOT; };
-		B1C30000000000000000000C /* tables.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/tables.c"; sourceTree = SOURCE_ROOT; };
-		B1C30000000000000000000D /* tns.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../third_party/liblc3/src/tns.c"; sourceTree = SOURCE_ROOT; };
-		B1C30000000000000000000E /* airsim_lc3.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "../shared/lc3/airsim_lc3.c"; sourceTree = SOURCE_ROOT; };
-		B1C3000000000000000000F0 /* LC3-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "AirSIM/Resources/LC3-LICENSE.txt"; sourceTree = SOURCE_ROOT; };
-		B1C3000000000000000000F1 /* interop.json */ = {isa = PBXFileReference; lastKnownFileType = text; path = "../shared/lc3/tests/interop.json"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -256,6 +221,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A500000000000000000000CD /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -306,28 +272,12 @@
 		D10000000000000000000002 /* AirSIM */ = {
 			isa = PBXGroup;
 			children = (
-                B1C3000000000000000000F0 /* LC3-LICENSE.txt */,
-				B1C300000000000000000001 /* V2LC3Codec.swift */,
-				B1C300000000000000000002 /* attdet.c */,
-				B1C300000000000000000003 /* bits.c */,
-				B1C300000000000000000004 /* bwdet.c */,
-				B1C300000000000000000005 /* energy.c */,
-				B1C300000000000000000006 /* lc3.c */,
-				B1C300000000000000000007 /* ltpf.c */,
-				B1C300000000000000000008 /* mdct.c */,
-				B1C300000000000000000009 /* plc.c */,
-				B1C30000000000000000000A /* sns.c */,
-				B1C30000000000000000000B /* spec.c */,
-				B1C30000000000000000000C /* tables.c */,
-				B1C30000000000000000000D /* tns.c */,
-				B1C30000000000000000000E /* airsim_lc3.c */,
 				B50000000000000000000001 /* V2Client.swift */,
  B5B000000000000000000001 /* V2USB.swift */,
 				B50000000000000000000002 /* V2Commands.swift */,
 				B50000000000000000000003 /* V2Configuration.swift */,
 				B90000000000000000000001 /* V2Pairing.swift */,
 				B50000000000000000000004 /* V2JSON.swift */,
-				B50000000000000000000005 /* V2Media.swift */,
 				B50000000000000000000006 /* V2Models.swift */,
 				B50000000000000000000007 /* V2Transport.swift */,
 				B50000000000000000000064 /* AppRouting.swift */,
@@ -337,10 +287,9 @@
 				B50000000000000000000066 /* CloudV2View.swift */,
 				B50000000000000000000067 /* LegacySwitchFence.swift */,
 				B5000000000000000000006C /* V2LocalStore.swift */,
-				B500000000000000000000CB /* V2DiagnosticAudio.swift */,
 				B500000000000000000000CA /* V2MediaCoordinator.swift */,
-				B500000000000000000000C9 /* V2MediaSocket.swift */,
-				B500000000000000000000C8 /* V2AudioEngine.swift */,
+				B500000000000000000000CC /* V2WebRTC.swift */,
+				B500000000000000000000CE /* WebRTC-LICENSE.txt */,
 				B10000000000000000000001 /* AirSIMIPadApp.swift */,
 				B10000000000000000000002 /* APIModels.swift */,
 				B10000000000000000000003 /* AirSIMAPI.swift */,
@@ -417,7 +366,6 @@
 		D30000000000000000000001 /* AirSIMTests */ = {
 			isa = PBXGroup;
 			children = (
-                B1C3000000000000000000F1 /* interop.json */,
 				B500000000000000000000FF /* CloudV2Tests.swift */,
 				B30000000000000000000001 /* AirSIMTests.swift */,
 			);
@@ -465,6 +413,9 @@
 				H10000000000000000000002 /* PBXTargetDependency */,
 			);
 			name = "AirSIM";
+			packageProductDependencies = (
+				9500000000000000000000CD /* WebRTC */,
+			);
 			productName = AirSIM;
 			productReference = B1000000000000000000000C /* AirSIM.app */;
 			productType = "com.apple.product-type.application";
@@ -570,6 +521,9 @@
 				Base,
 			);
 			mainGroup = D10000000000000000000001;
+			packageReferences = (
+				9400000000000000000000CD /* XCRemoteSwiftPackageReference "WebRTC" */,
+			);
 			productRefGroup = D10000000000000000000003 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -588,11 +542,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-                A1C3000000000000000000F0 /* LC3-LICENSE.txt in Resources */,
 				A91000000000000000000004 /* Assets.xcassets in Resources */,
 				A91000000000000000000005 /* NotoSansSC-VF.ttf in Resources */,
 				A91000000000000000000006 /* OFL.txt in Resources */,
 				A10000000000000000000018 /* AppIcon.icon in Resources */,
+				A500000000000000000000CE /* WebRTC-LICENSE.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -607,7 +561,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-                A1C3000000000000000000F1 /* interop.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -633,27 +586,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1C300000000000000000001 /* V2LC3Codec.swift in Sources */,
-				A1C300000000000000000002 /* attdet.c in Sources */,
-				A1C300000000000000000003 /* bits.c in Sources */,
-				A1C300000000000000000004 /* bwdet.c in Sources */,
-				A1C300000000000000000005 /* energy.c in Sources */,
-				A1C300000000000000000006 /* lc3.c in Sources */,
-				A1C300000000000000000007 /* ltpf.c in Sources */,
-				A1C300000000000000000008 /* mdct.c in Sources */,
-				A1C300000000000000000009 /* plc.c in Sources */,
-				A1C30000000000000000000A /* sns.c in Sources */,
-				A1C30000000000000000000B /* spec.c in Sources */,
-				A1C30000000000000000000C /* tables.c in Sources */,
-				A1C30000000000000000000D /* tns.c in Sources */,
-				A1C30000000000000000000E /* airsim_lc3.c in Sources */,
 				A50000000000000000000001 /* V2Client.swift in Sources */,
  A5B000000000000000000001 /* V2USB.swift in Sources */,
 				A50000000000000000000002 /* V2Commands.swift in Sources */,
 				A50000000000000000000003 /* V2Configuration.swift in Sources */,
 				A90000000000000000000001 /* V2Pairing.swift in Sources */,
 				A50000000000000000000004 /* V2JSON.swift in Sources */,
-				A50000000000000000000005 /* V2Media.swift in Sources */,
 				A50000000000000000000006 /* V2Models.swift in Sources */,
 				A50000000000000000000007 /* V2Transport.swift in Sources */,
 				A50000000000000000000064 /* AppRouting.swift in Sources */,
@@ -663,10 +601,8 @@
 				A50000000000000000000066 /* CloudV2View.swift in Sources */,
 				A50000000000000000000067 /* LegacySwitchFence.swift in Sources */,
 				A5000000000000000000006C /* V2LocalStore.swift in Sources */,
-				A500000000000000000000CB /* V2DiagnosticAudio.swift in Sources */,
 				A500000000000000000000CA /* V2MediaCoordinator.swift in Sources */,
-				A500000000000000000000C9 /* V2MediaSocket.swift in Sources */,
-				A500000000000000000000C8 /* V2AudioEngine.swift in Sources */,
+				A500000000000000000000CC /* V2WebRTC.swift in Sources */,
 				A10000000000000000000001 /* AirSIMIPadApp.swift in Sources */,
 				A10000000000000000000002 /* APIModels.swift in Sources */,
 				A10000000000000000000003 /* AirSIMAPI.swift in Sources */,
@@ -814,9 +750,11 @@
 				AIRSIM_V2_PAIRING_ORIGIN = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "AirSIM/Info.plist";
-                SWIFT_OBJC_BRIDGING_HEADER = "AirSIM/AirSIM-Bridging-Header.h";
-                HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../shared/lc3", "$(SRCROOT)/../third_party/liblc3/include", "$(SRCROOT)/../third_party/liblc3/src");
 				IPHONEOS_DEPLOYMENT_TARGET = 16.3;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MARKETING_VERSION = 0.9.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eric3u.airsim2;
 				PRODUCT_NAME = AirSIM;
@@ -843,9 +781,11 @@
 				AIRSIM_V2_PAIRING_ORIGIN = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "AirSIM/Info.plist";
-                SWIFT_OBJC_BRIDGING_HEADER = "AirSIM/AirSIM-Bridging-Header.h";
-                HEADER_SEARCH_PATHS = ("$(inherited)", "$(SRCROOT)/../shared/lc3", "$(SRCROOT)/../third_party/liblc3/include", "$(SRCROOT)/../third_party/liblc3/src");
 				IPHONEOS_DEPLOYMENT_TARGET = 16.3;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
 				MARKETING_VERSION = 0.9.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.eric3u.airsim2;
 				PRODUCT_NAME = AirSIM;
@@ -1087,6 +1027,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		9400000000000000000000CD /* XCRemoteSwiftPackageReference "WebRTC" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stasel/WebRTC";
+			requirement = {
+				kind = exactVersion;
+				version = 155.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		9500000000000000000000CD /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9400000000000000000000CD /* XCRemoteSwiftPackageReference "WebRTC" */;
+			productName = WebRTC;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E10000000000000000000002 /* Project object */;
 }

@@ -233,28 +233,6 @@ struct V2AudioStatus: Decodable {
     }
 }
 
-struct V2MediaFormat: Decodable {
-    let codec: String
-    let sample_rate: Int
-    let channels: Int
-    let sample_format: String
-    let frame_samples: Int
-    let codec_frame_us: Int
-    let codec_frame_bytes: Int
-    init(from decoder: Decoder) throws {
-        let c = try decoder.v2Fields("codec sample_rate channels sample_format frame_samples codec_frame_us codec_frame_bytes", optional: "")
-        codec = try c.get("codec")
-        sample_rate = try c.get("sample_rate")
-        channels = try c.get("channels")
-        sample_format = try c.get("sample_format")
-        frame_samples = try c.get("frame_samples")
-        codec_frame_us = try c.get("codec_frame_us")
-        codec_frame_bytes = try c.get("codec_frame_bytes")
-        guard codec == "lc3", sample_rate == Int(V2PCM.sampleRate), channels == 1, sample_format == "s16le", frame_samples == V2PCM.frameSamples,
-              codec_frame_us == 10000, codec_frame_bytes == 40 else { throw V2Error.protocolViolation }
-    }
-}
-
 struct V2Signal: Decodable {
     let available: Bool
     let observed_at: String?
@@ -492,20 +470,25 @@ struct V2CommandRecord: Decodable {
 
 struct V2MediaCreated: Decodable {
     let session_id: String
-    let ticket: String
     let expires_at: String
-    let media_url: String
-    let format: V2MediaFormat
+    let ice_servers: [V2ICEServer]
     init(from decoder: Decoder) throws {
-        let c = try decoder.v2Fields("session_id ticket expires_at media_url format", optional: "")
+        let c = try decoder.v2Fields("session_id expires_at ice_servers", optional: "")
         session_id = try c.get("session_id")
-        ticket = try c.get("ticket")
         expires_at = try c.get("expires_at")
-        media_url = try c.get("media_url")
-        format = try c.get("format")
+        ice_servers = try c.get("ice_servers")
         try V2Validation.uuid(session_id, empty: false)
         _ = try V2Validation.date(expires_at)
-        guard V2Validation.matches(ticket, "^[0-9a-f]{64}$") else { throw V2Error.invalidValue }
+        guard ice_servers.count <= 4 else { throw V2Error.invalidValue }
+    }
+}
+
+struct V2MediaAnswer: Decodable {
+    let sdp: String
+    init(from decoder: Decoder) throws {
+        let c = try decoder.v2Fields("sdp", optional: "")
+        sdp = try c.get("sdp")
+        guard sdp.hasPrefix("v=0\r\n"), sdp.utf8.count <= 32768 else { throw V2Error.invalidValue }
     }
 }
 
