@@ -7,6 +7,7 @@ import (
 	"airsim.local/server/internal/store"
 	"crypto/x509"
 	"errors"
+	"net"
 	"net/url"
 	"os"
 )
@@ -19,7 +20,10 @@ func main() {
 	rt.Exit(e)
 	defer db.Close()
 	rt.Exit(db.Ready(ctx))
-	cfg := control.Config{API: os.Getenv("AIRSIM_API_ORIGIN"), Device: os.Getenv("AIRSIM_DEVICE_ORIGIN"), Media: os.Getenv("AIRSIM_MEDIA_ORIGIN"), MediaInternal: rt.Env("MEDIA_INTERNAL_ORIGIN", "http://media:8080")}
+	cfg := control.Config{API: os.Getenv("AIRSIM_API_ORIGIN"), Device: os.Getenv("AIRSIM_DEVICE_ORIGIN"), Media: os.Getenv("AIRSIM_MEDIA_ORIGIN"), TURNHost: os.Getenv("AIRSIM_TURN_IP")}
+	if ip := net.ParseIP(cfg.TURNHost); ip == nil || ip.To4() == nil {
+		rt.Exit(errors.New("turn_ip_invalid"))
+	}
 	for _, origin := range []string{cfg.API, cfg.Device, cfg.Media} {
 		u, e := url.Parse(origin)
 		if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
@@ -29,7 +33,7 @@ func main() {
 	rt.Exit(db.QueryRow(ctx, "SELECT server_id FROM identity").Scan(&cfg.Server))
 	cfg.EdgeToken, e = control.Secret(os.Getenv("EDGE_TOKEN_FILE"))
 	rt.Exit(e)
-	cfg.MediaToken, e = control.Secret(os.Getenv("MEDIA_TOKEN_FILE"))
+	cfg.TURNSecret, e = control.Secret(os.Getenv("TURN_SECRET_FILE"))
 	rt.Exit(e)
 	cfg.HMAC, e = control.Secret(os.Getenv("COMMAND_HMAC_FILE"))
 	rt.Exit(e)

@@ -3,7 +3,7 @@ package integration
 import (
 	"airsim.local/server/internal/admin"
 	"airsim.local/server/internal/control"
-	"airsim.local/server/internal/media"
+	"airsim.local/server/internal/ice"
 	"airsim.local/server/internal/wire"
 	"bytes"
 	"context"
@@ -12,8 +12,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -33,14 +31,14 @@ import (
 )
 
 type fixture struct {
-	t                             *testing.T
-	dir, port, api, device, media string
-	http                          *http.Client
-	tokens                        [2]string
-	clients                       [2]string
-	modules                       [2]string
-	tls                           [2]*tls.Config
-	server                        string
+	t                      *testing.T
+	dir, port, api, device string
+	http                   *http.Client
+	tokens                 [2]string
+	clients                [2]string
+	modules                [2]string
+	tls                    [2]*tls.Config
+	server                 string
 }
 
 func setup(t *testing.T) *fixture {
@@ -53,7 +51,7 @@ func setup(t *testing.T) *fixture {
 	if port == "" {
 		port = "18443"
 	}
-	f := &fixture{t: t, dir: dir, port: port, api: "https://api.airsim.test:" + port, device: "wss://device.airsim.test:" + port, media: "wss://media.airsim.test:" + port}
+	f := &fixture{t: t, dir: dir, port: port, api: "https://api.airsim.test:" + port, device: "wss://device.airsim.test:" + port}
 	root, e := os.ReadFile(filepath.Join(dir, "tls/root.pem"))
 	if e != nil {
 		t.Fatal("test_root_missing")
@@ -154,7 +152,7 @@ func (f *fixture) connect(i int) *fake {
 		f.t.Fatal("device_tls_dial_failed")
 	}
 	p := &fake{f: f, i: i, conn: c, boot: wire.ID(), backend: wire.ID(), commands: make(chan control.Envelope, 32), done: make(chan struct{}), cancel: cancel, calls: []control.Call{}}
-	p.send("hello", map[string]string{"agent_boot_id": p.boot, "backend_epoch": p.backend, "agent_version": "r4-test", "media_codec": "lc3"})
+	p.send("hello", map[string]string{"agent_boot_id": p.boot, "backend_epoch": p.backend, "agent_version": "r4-test", "media_codec": "opus"})
 	rc, cc := context.WithTimeout(ctx, 5*time.Second)
 	typ, b, e := c.Read(rc)
 	cc()
@@ -301,98 +299,60 @@ func TestComposeControlAndMedia(t *testing.T) {
 	f.awaitCall(f.modules[0], call, "active")
 	f.status(409, "POST", path, 1, p.body("call.hangup", map[string]string{"call_id": call}))
 	mp := "/v2/modules/" + f.modules[0] + "/calls/" + call + "/media-sessions"
-	mb := map[string]string{"request_id": wire.ID(), "connection_epoch": p.epoch, "generation": rec.Generation, "codec": "lc3"}
+	mb := map[string]string{"request_id": wire.ID(), "connection_epoch": p.epoch, "generation": rec.Generation, "codec": "opus"}
 	f.status(409, "POST", mp, 1, mb)
 	b = f.status(201, "POST", mp, 0, mb)
 	var result struct {
-		Session string            `json:"session_id"`
-		Format  media.AudioFormat `json:"format"`
-		Ticket  string            `json:"ticket"`
+		Session string       `json:"session_id"`
+		Servers []ice.Server `json:"ice_servers"`
 	}
 	json.Unmarshal(b, &result)
 	f.status(200, "POST", mp, 0, mb)
+	offer := "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\n"
+	type reply struct {
+		status int
+		body   []byte
+	}
+	replies := make(chan reply, 1)
+	go func() {
+		raw, _ := json.Marshal(map[string]string{"sdp": offer})
+		req, _ := http.NewRequest("POST", f.api+mp+"/"+result.Session+"/offer", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+f.tokens[0])
+		resp, e := f.http.Do(req)
+		if e != nil {
+			replies <- reply{}
+			return
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		replies <- reply{resp.StatusCode, body}
+	}()
 	env := p.next("media_start")
 	var start struct {
-		Format media.AudioFormat `json:"format"`
-		Ticket string            `json:"ticket"`
+		Session string       `json:"session_id"`
+		Offer   string       `json:"offer"`
+		Servers []ice.Server `json:"ice_servers"`
 	}
 	json.Unmarshal(env.Payload, &start)
-	if start.Format != media.Format || result.Format != media.Format {
-		t.Fatal("media_format_mismatch")
+	if start.Session != result.Session || start.Offer != offer || len(start.Servers) != 1 || len(result.Servers) != 1 || !strings.HasSuffix(start.Servers[0].Username, ":agent") || !strings.HasSuffix(result.Servers[0].Username, ":client") {
+		t.Fatal("media_start_mismatch")
 	}
-	agent := f.mediaConnect(result.Session, "agent", start.Ticket)
-	defer agent.CloseNow()
-	client := f.mediaConnect(result.Session, "client", result.Ticket)
-	defer client.CloseNow()
-	f.mediaText(agent, "paired")
-	f.mediaText(client, "paired")
-	for i := uint64(1); i <= 10; i++ {
-		f.frame(client, result.Session, 1, i)
-		f.readFrame(agent, result.Session, 1, i)
-		f.frame(agent, result.Session, 2, i)
-		f.readFrame(client, result.Session, 2, i)
+	description := "v=0\r\no=- 3 4 IN IP4 127.0.0.1\r\ns=-\r\n"
+	p.send("media_answer", map[string]string{"session_id": result.Session, "answer": description})
+	got := <-replies
+	var answered struct {
+		SDP string `json:"sdp"`
 	}
-	oldSession, oldTicket := result.Session, result.Ticket
-	if _, err := exec.Command("docker", "restart", "--time", "1", "airsim-r4-test-media-1").CombinedOutput(); err != nil {
-		t.Fatal("isolated_media_restart_failed")
+	if got.status != 200 || json.Unmarshal(got.body, &answered) != nil || answered.SDP != description {
+		t.Fatal("media_answer_not_returned")
 	}
-	faultCtx, faultCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	_, _, faultErr := agent.Read(faultCtx)
-	faultCancel()
-	if faultErr == nil {
-		t.Fatal("media_restart_did_not_close_peer")
+	if !f.relayHealthy() {
+		t.Fatal("relay_unhealthy")
 	}
-	reclaimed := false
-	faultDeadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(faultDeadline) {
-		status, _ := f.request("POST", mp, 0, mb)
-		if status == 410 {
-			reclaimed = true
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if !reclaimed {
-		t.Fatal("media_restart_not_reclaimed")
-	}
-	mb = map[string]string{"request_id": wire.ID(), "connection_epoch": p.epoch, "generation": rec.Generation, "codec": "lc3"}
-	b = f.status(201, "POST", mp, 0, mb)
-	json.Unmarshal(b, &result)
-	env = p.next("media_start")
-	json.Unmarshal(env.Payload, &start)
-	if start.Format != media.Format || result.Format != media.Format {
-		t.Fatal("media_format_mismatch")
-	}
-	agent = f.mediaConnect(result.Session, "agent", start.Ticket)
-	defer agent.CloseNow()
-	client = f.mediaConnect(result.Session, "client", result.Ticket)
-	defer client.CloseNow()
-	f.mediaText(agent, "paired")
-	f.mediaText(client, "paired")
-	replayCtx, replayCancel := context.WithTimeout(context.Background(), time.Second)
-	replay, _, replayErr := websocket.Dial(replayCtx, f.media+"/v2/media", &websocket.DialOptions{HTTPClient: f.http, Subprotocols: []string{"airsim.media.v2"}})
-	if replayErr != nil {
-		t.Fatal("replay_transport_failed")
-	}
-	auth, _ := json.Marshal(map[string]string{"session_id": oldSession, "role": "client", "ticket": oldTicket})
-	_ = replay.Write(replayCtx, websocket.MessageText, auth)
-	_, _, replayErr = replay.Read(replayCtx)
-	replay.CloseNow()
-	replayCancel()
-	if replayErr == nil {
-		t.Fatal("old_media_ticket_survived_restart")
-	}
-	f.frame(client, result.Session, 1, 1)
-	f.readFrame(agent, result.Session, 1, 1)
-	f.frame(agent, result.Session, 2, 1)
-	f.readFrame(client, result.Session, 2, 1)
 	f.status(204, "DELETE", mp+"/"+result.Session, 0, nil)
+	p.next("media_stop")
 	f.status(410, "POST", mp, 0, mb)
-	ctx2, cc := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cc()
-	if _, _, e = agent.Read(ctx2); e == nil {
-		t.Fatal("revoked_media_still_open")
-	}
 	q.cancel()
 	q.conn.CloseNow()
 	f.awaitOnline(f.modules[1], false)
@@ -421,57 +381,12 @@ func TestComposeControlAndMedia(t *testing.T) {
 	f.awaitCall(f.modules[0], incoming, "disconnected")
 
 	f.status(200, "GET", "/v2/modules/"+f.modules[0]+"/snapshot", 0, nil)
-	t.Log("TLS/mTLS, two-module routing, two-client ownership, persistent idempotency, old epoch, offline rejection, media pairing/duplex/revocation passed")
+	t.Log("TLS/mTLS, two-module routing, two-client ownership, persistent idempotency, old epoch, offline rejection, media signaling/revocation passed")
 }
-func (f *fixture) mediaConnect(id, role, ticket string) *websocket.Conn {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	c, _, e := websocket.Dial(ctx, f.media+"/v2/media", &websocket.DialOptions{HTTPClient: f.http, Subprotocols: []string{"airsim.media.v2"}})
-	if e != nil {
-		f.t.Fatal("media_dial_failed")
-	}
-	b, _ := json.Marshal(map[string]string{"session_id": id, "role": role, "ticket": ticket})
-	if c.Write(ctx, websocket.MessageText, b) != nil {
-		f.t.Fatal("media_auth_write_failed")
-	}
-	f.mediaText(c, "waiting")
-	return c
-}
-func (f *fixture) mediaText(c *websocket.Conn, want string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	typ, b, e := c.Read(ctx)
-	var v struct {
-		Type   string            `json:"type"`
-		Format media.AudioFormat `json:"format"`
-	}
-	if e != nil || typ != websocket.MessageText || json.Unmarshal(b, &v) != nil || v.Type != want || (want == "paired" && v.Format != media.Format) {
-		f.t.Fatal("media_handshake_failed")
-	}
-}
-func (f *fixture) frame(c *websocket.Conn, id string, d byte, seq uint64) {
-	b := make([]byte, 120)
-	copy(b, "ASMP")
-	b[4] = 2
-	b[5] = d
-	binary.LittleEndian.PutUint16(b[6:8], 40)
-	sid, _ := hex.DecodeString(strings.ReplaceAll(id, "-", ""))
-	copy(b[8:24], sid)
-	binary.LittleEndian.PutUint64(b[24:32], seq)
-	binary.LittleEndian.PutUint32(b[32:36], 80)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if c.Write(ctx, websocket.MessageBinary, b) != nil {
-		f.t.Fatal("media_frame_write_failed")
-	}
-}
-func (f *fixture) readFrame(c *websocket.Conn, id string, d byte, seq uint64) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	typ, b, e := c.Read(ctx)
-	if e != nil || typ != websocket.MessageBinary || !validReceivedFrame(b, id, d, seq) {
-		f.t.Fatal("media_frame_read_failed")
-	}
+
+// relayHealthy runs the relay's own STUN health probe inside its container.
+func (f *fixture) relayHealthy() bool {
+	return exec.Command("docker", "exec", "airsim-r4-test-media-1", "/bin/airsim-media", "healthcheck").Run() == nil
 }
 func TestRejectUnregisteredDeviceAndForgedAPIHeaders(t *testing.T) {
 	f := setup(t)
@@ -732,9 +647,4 @@ func TestFailedReservationsAndUnknownOwnership(t *testing.T) {
 	p.calls[0].State = "disconnected"
 	p.snapshot()
 	f.awaitCall(f.modules[0], call, "disconnected")
-}
-
-func validReceivedFrame(b []byte, id string, direction byte, sequence uint64) bool {
-	got, ok := media.ValidateFrame(b, id, direction, sequence-1)
-	return ok && got == sequence
 }

@@ -66,7 +66,8 @@ services:
       AIRSIM_DEVICE_ORIGIN: ${AIRSIM_DEVICE_ORIGIN:?}
       AIRSIM_MEDIA_ORIGIN: ${AIRSIM_MEDIA_ORIGIN:?}
       EDGE_TOKEN_FILE: /run/secrets/edge-token
-      MEDIA_TOKEN_FILE: /run/secrets/media-token
+      TURN_SECRET_FILE: /run/secrets/turn-secret
+      AIRSIM_TURN_IP: ${AIRSIM_TURN_IP:?}
       COMMAND_HMAC_FILE: /run/secrets/command-hmac
       DEVICE_CA_FILE: /run/secrets/device-ca.pem
       APNS_KEY_ID: ${APNS_KEY_ID:-}
@@ -81,9 +82,9 @@ services:
       - ${AIRSIM_SECRET_DIR}/database-password:/run/secrets/database-password:ro
       - ${AIRSIM_SECRET_DIR}/identity/device-ca.pem:/run/secrets/device-ca.pem:ro
       - ${AIRSIM_SECRET_DIR}/identity/edge-token:/run/secrets/edge-token:ro
-      - ${AIRSIM_SECRET_DIR}/identity/media-token:/run/secrets/media-token:ro
+      - ${AIRSIM_SECRET_DIR}/identity/turn-secret:/run/secrets/turn-secret:ro
       - ${AIRSIM_SECRET_DIR}/identity/command-hmac:/run/secrets/command-hmac:ro
-    networks: [database, control, media, push_egress]
+    networks: [database, control, push_egress]
     depends_on:
       migrate: {condition: service_completed_successfully}
     healthcheck:
@@ -94,13 +95,14 @@ services:
   media:
     <<: *business
     entrypoint: [/bin/airsim-media]
+    # TURN allocates one UDP relay port per peer; host networking avoids a
+    # proxy process for each published port.
+    network_mode: host
     environment:
-      MEDIA_TOKEN_FILE: /run/secrets/media-token
+      TURN_SECRET_FILE: /run/secrets/turn-secret
+      AIRSIM_TURN_IP: ${AIRSIM_TURN_IP:?}
     volumes:
-      - ${AIRSIM_SECRET_DIR}/identity/media-token:/run/secrets/media-token:ro
-    networks: [media]
-    depends_on:
-      control: {condition: service_healthy}
+      - ${AIRSIM_SECRET_DIR}/identity/turn-secret:/run/secrets/turn-secret:ro
     healthcheck:
       test: [CMD, /bin/airsim-media, healthcheck]
       interval: 2s
@@ -132,16 +134,14 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
-    networks: [ingress, control, media]
+    networks: [ingress, control]
     depends_on:
       control: {condition: service_healthy}
-      media: {condition: service_healthy}
 networks:
   ingress: {}
   push_egress: {}
   database: {internal: true}
   control: {internal: true}
-  media: {internal: true}
 volumes:
   database:
   tls-state:

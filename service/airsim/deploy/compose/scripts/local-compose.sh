@@ -3,6 +3,7 @@ set -eu
 : "${AIRSIM_SECRET_DIR:?}"
 export AIRSIM_EDGE_PORT=${AIRSIM_EDGE_PORT:-18443}
 export AIRSIM_API_ORIGIN="https://api.airsim.test:$AIRSIM_EDGE_PORT" AIRSIM_DEVICE_ORIGIN="https://device.airsim.test:$AIRSIM_EDGE_PORT" AIRSIM_MEDIA_ORIGIN="https://media.airsim.test:$AIRSIM_EDGE_PORT"
+export AIRSIM_TURN_IP=${AIRSIM_TURN_IP:-203.0.113.7}
 export AIRSIM_UID=$(id -u) AIRSIM_GID=$(id -g)
 if [ -f "$AIRSIM_SECRET_DIR/identity/identity.json" ]; then
  export AIRSIM_SERVER_ID=$(python3 -c 'import json,os;print(json.load(open(os.path.join(os.environ["AIRSIM_SECRET_DIR"],"identity/identity.json")))["server_id"])')

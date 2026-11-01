@@ -68,7 +68,7 @@ func Init(ctx context.Context, db *store.Store, dir string) error {
 	if e != nil {
 		return e
 	}
-	files := map[string][]byte{"device-ca.pem": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), "device-ca-key.pem": pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pk}), "edge-token": []byte(wire.Token()), "media-token": []byte(wire.Token()), "command-hmac": []byte(wire.Token())}
+	files := map[string][]byte{"device-ca.pem": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), "device-ca-key.pem": pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pk}), "edge-token": []byte(wire.Token()), "turn-secret": []byte(wire.Token()), "command-hmac": []byte(wire.Token())}
 	server, owner := wire.ID(), wire.ID()
 	meta, _ := json.Marshal(map[string]string{"server_id": server, "user_id": owner})
 	files["identity.json"] = meta

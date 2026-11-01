@@ -26,14 +26,6 @@ config='''{
  }
 }
 '''
-def proxy(host, target, path=''):
-    return f"""https://{host} {{
- reverse_proxy {path} {target}:8080 {{
-  header_up -X-AirSIM-Client-Cert
-  header_up -X-AirSIM-Edge-Token
- }}
-}}
-"""
 config+=f"""https://{api} {{
 """
 config+=""" route {
@@ -45,14 +37,6 @@ config+=""" route {
      header_up X-AirSIM-Remote-IP {http.request.remote.host}
     }
    }
-"""
-if media==api:
-    config+="""  handle /v2/media {
-  reverse_proxy media:8080 {
-   header_up -X-AirSIM-Client-Cert
-   header_up -X-AirSIM-Edge-Token
-  }
- }
 """
 config+=""" @control path /.well-known/airsim /v2/device/control /v2/modules /v2/modules/* /v2/push/registration /v2/client-sessions/refresh /healthz /readyz
   handle @control {
@@ -78,8 +62,6 @@ config+=""" @control path /.well-known/airsim /v2/device/control /v2/modules /v2
  }
 }
 """
-if media!=api:
-    config+=proxy(media,'media','/v2/media')
 config+=f"""https://{device} {{
  tls {{
   protocols tls1.2 tls1.3

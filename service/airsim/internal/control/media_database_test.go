@@ -3,18 +3,18 @@ package control
 import (
 	"context"
 	"encoding/json"
-	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
-	"airsim.local/server/internal/media"
+	"airsim.local/server/internal/ice"
 	"airsim.local/server/internal/store"
 	"airsim.local/server/internal/wire"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestAnswerOwnershipCreatesLC3Media(t *testing.T) {
+func TestAnswerOwnershipNegotiatesWebRTCMedia(t *testing.T) {
 	databaseURL := os.Getenv("AIRSIM_MEDIA_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("isolated empty PostgreSQL URL required")
@@ -39,7 +39,7 @@ func TestAnswerOwnershipCreatesLC3Media(t *testing.T) {
 	for _, transition := range []string{"initial", "boot", "backend"} {
 		t.Run(transition, func(t *testing.T) {
 			server, user, client, module := wire.ID(), wire.ID(), wire.ID(), wire.ID()
-			clientToken, mediaToken := wire.Token(), wire.Token()
+			clientToken := wire.Token()
 			exec := func(sql string, args ...any) {
 				t.Helper()
 				if _, err := db.Exec(ctx, sql, args...); err != nil {
@@ -49,14 +49,11 @@ func TestAnswerOwnershipCreatesLC3Media(t *testing.T) {
 			exec("INSERT INTO identity(server_id,user_id) VALUES($1,$2) ON CONFLICT (singleton) DO UPDATE SET server_id=EXCLUDED.server_id,user_id=EXCLUDED.user_id", server, user)
 			exec("INSERT INTO clients(id,user_id,token_hash,expires_at) VALUES($1,$2,$3,$4)", client, user, wire.Hash(clientToken), time.Now().Add(time.Hour))
 			exec("INSERT INTO modules(id,user_id,server_id,public_key,serial,certificate) VALUES($1,$2,$3,'test','test','test')", module, user, server)
-			backend := httptest.NewServer(media.New(mediaToken).Handler())
-			defer backend.Close()
-			s := New(db, Config{Server: server, Media: "https://media.invalid", MediaInternal: backend.URL, MediaToken: mediaToken, HMAC: wire.Token()})
-			defer s.mediaHTTP.CloseIdleConnections()
+			s := New(db, Config{Server: server, Media: "https://media.invalid", TURNSecret: wire.Token(), TURNHost: "203.0.113.7", HMAC: wire.Token()})
 			call, command := wire.ID(), wire.ID()
 			pctx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			p := &peer{module: module, epoch: wire.ID(), boot: wire.ID(), backend: wire.ID(), mediaCodec: "lc3", ctx: pctx, cancel: cancel, queue: make(chan Envelope, 32), queried: true, last: time.Now()}
+			p := &peer{module: module, epoch: wire.ID(), boot: wire.ID(), backend: wire.ID(), mediaCodec: "opus", ctx: pctx, cancel: cancel, queue: make(chan Envelope, 32), queried: true, last: time.Now()}
 			snap := Snapshot{Boot: p.boot, Backend: p.backend, Observed: time.Now().UTC(), Control: Status{Schema: 1, Boot: p.boot, Backend: p.backend, Ready: true}, Calls: Calls{Boot: p.boot, Backend: p.backend, Available: true, Calls: []Call{{ID: call, State: "incoming", Ownership: "managed", Observed: time.Now().UTC()}}}, Audio: json.RawMessage(`{"available":true,"implementation":"native","verification":"unverified","voice_ready":true,"reason":""}`)}
 			p.snapshot = &snap
 			s.peers[module] = p
@@ -146,46 +143,83 @@ func TestAnswerOwnershipCreatesLC3Media(t *testing.T) {
 			if err = db.QueryRow(ctx, "SELECT client_id=$2 AND generation=$3 AND agent_boot_id=$4 AND backend_epoch=$5 AND call_id=$6 FROM reservations WHERE module_id=$1", module, client, record.Generation, p.boot, p.backend, call).Scan(&matching); err != nil || !matching {
 				t.Fatal("connection-only reconnect lost ownership")
 			}
-			request := map[string]string{"request_id": wire.ID(), "connection_epoch": p.epoch, "generation": record.Generation, "codec": "lc3"}
+			request := map[string]string{"request_id": wire.ID(), "connection_epoch": p.epoch, "generation": record.Generation, "codec": "opus"}
 			path := "/v2/modules/" + module + "/calls/" + call + "/media-sessions"
 			status, data = pairingRequest(t, s.Handler(), "POST", path, request, clientToken)
 			if status != 201 {
 				t.Fatalf("media create status %d", status)
 			}
 			var created struct {
-				ID      string            `json:"session_id"`
-				Ticket  string            `json:"ticket"`
-				Expires time.Time         `json:"expires_at"`
-				URL     string            `json:"media_url"`
-				Format  media.AudioFormat `json:"format"`
+				ID      string       `json:"session_id"`
+				Expires time.Time    `json:"expires_at"`
+				Servers []ice.Server `json:"ice_servers"`
 			}
-			if wire.Decode(data, &created) != nil || created.Format != media.Format {
-				t.Fatal("media response format mismatch")
+			if wire.Decode(data, &created) != nil || len(created.Servers) != 1 || !strings.HasSuffix(created.Servers[0].Username, created.ID+":client") || len(p.queue) != 0 {
+				t.Fatal("media create response or early media_start")
 			}
+			if status, _ = pairingRequest(t, s.Handler(), "POST", path, request, clientToken); status != 200 || len(p.queue) != 0 {
+				t.Fatal("idempotent create changed session or sent media_start")
+			}
+			offer := "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n"
+			type reply struct {
+				status int
+				data   []byte
+			}
+			replies := make(chan reply, 2)
+			go func() {
+				status, data := pairingRequest(t, s.Handler(), "POST", path+"/"+created.ID+"/offer", map[string]string{"sdp": offer}, clientToken)
+				replies <- reply{status, data}
+			}()
 			env = <-p.queue
 			var start struct {
-				Request    string            `json:"request_id"`
-				Session    string            `json:"session_id"`
-				Call       string            `json:"call_id"`
-				Boot       string            `json:"agent_boot_id"`
-				Backend    string            `json:"backend_epoch"`
-				Client     string            `json:"client_installation_id"`
-				Generation string            `json:"generation"`
-				Ticket     string            `json:"ticket"`
-				Expires    time.Time         `json:"expires_at"`
-				Format     media.AudioFormat `json:"format"`
+				Request    string       `json:"request_id"`
+				Session    string       `json:"session_id"`
+				Call       string       `json:"call_id"`
+				Boot       string       `json:"agent_boot_id"`
+				Backend    string       `json:"backend_epoch"`
+				Client     string       `json:"client_installation_id"`
+				Generation string       `json:"generation"`
+				Expires    time.Time    `json:"expires_at"`
+				Offer      string       `json:"offer"`
+				Servers    []ice.Server `json:"ice_servers"`
 			}
 			if env.Type != "media_start" || wire.Decode(env.Payload, &start) != nil {
 				t.Fatal("media_start schema mismatch")
 			}
-			if start.Request != request["request_id"] || start.Session != created.ID || start.Call != call || start.Boot != directed.Command.Boot || start.Backend != directed.Command.Backend || start.Client != directed.Client || start.Generation != directed.Generation || start.Format != created.Format || !start.Expires.Equal(created.Expires) {
-				t.Fatal("media_start ownership or format differs from answer")
+			if start.Request != request["request_id"] || start.Session != created.ID || start.Call != call || start.Boot != directed.Command.Boot || start.Backend != directed.Command.Backend || start.Client != directed.Client || start.Generation != directed.Generation || start.Offer != offer || len(start.Servers) != 1 || !strings.HasSuffix(start.Servers[0].Username, created.ID+":agent") || time.Until(start.Expires) > answerWindow {
+				t.Fatal("media_start ownership or offer differs from answer")
 			}
-			if status, _ = pairingRequest(t, s.Handler(), "POST", path, request, clientToken); status != 200 || len(p.queue) != 0 {
-				t.Fatal("idempotent create changed session or resent media_start")
+			go func() {
+				status, data := pairingRequest(t, s.Handler(), "POST", path+"/"+created.ID+"/offer", map[string]string{"sdp": offer}, clientToken)
+				replies <- reply{status, data}
+			}()
+			if status, _ = pairingRequest(t, s.Handler(), "POST", path+"/"+created.ID+"/offer", map[string]string{"sdp": offer + "a=x\r\n"}, clientToken); status != 409 {
+				t.Fatalf("different offer status %d", status)
+			}
+			answer := "v=0\r\no=- 3 4 IN IP4 127.0.0.1\r\n"
+			payload, _ = json.Marshal(map[string]string{"session_id": created.ID, "answer": answer})
+			s.mu.Lock()
+			if !s.consume(p, Envelope{Type: "media_answer", Payload: payload}) {
+				t.Fatal("media_answer rejected")
+			}
+			s.mu.Unlock()
+			for i := 0; i < 2; i++ {
+				got := <-replies
+				var result struct {
+					SDP string `json:"sdp"`
+				}
+				if got.status != 200 || wire.Decode(got.data, &result) != nil || result.SDP != answer {
+					t.Fatalf("offer reply %d %s", got.status, got.data)
+				}
+			}
+			if len(p.queue) != 0 {
+				t.Fatal("offer retry resent media_start")
 			}
 			if status, _ = pairingRequest(t, s.Handler(), "DELETE", path+"/"+created.ID, nil, clientToken); status != 204 {
 				t.Fatal("media release failed")
+			}
+			if env = <-p.queue; env.Type != "media_stop" {
+				t.Fatal("release did not stop Agent media")
 			}
 			snap.Calls.Calls[0].State = "disconnected"
 			payload, _ = json.Marshal(snap)

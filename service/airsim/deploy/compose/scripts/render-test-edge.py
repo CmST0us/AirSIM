@@ -48,15 +48,6 @@ https://api.airsim.test:8443 {
   }
  }
 }
-https://media.airsim.test:8443 {
- tls /run/tls/server.pem /run/tls/server-key.pem {
-  protocols tls1.2 tls1.3
- }
- reverse_proxy /v2/media media:8080 {
-  header_up -X-AirSIM-Client-Cert
-  header_up -X-AirSIM-Edge-Token
- }
-}
 https://device.airsim.test:8443 {
  tls /run/tls/server.pem /run/tls/server-key.pem {
   protocols tls1.2 tls1.3

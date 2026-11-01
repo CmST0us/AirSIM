@@ -1,7 +1,6 @@
 package control
 
 import (
-	"airsim.local/server/internal/media"
 	"airsim.local/server/internal/push"
 	"airsim.local/server/internal/store"
 	"airsim.local/server/internal/wire"
@@ -15,16 +14,19 @@ import (
 	"github.com/coder/websocket"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
 
 type Config struct {
-	Server, API, Device, Media, EdgeToken, MediaToken, HMAC, MediaInternal string
-	Roots                                                                  *x509.CertPool
-	Push                                                                   push.Sender
-	PushBundle                                                             string
+	Server, API, Device, Media, EdgeToken, HMAC string
+	// TURNSecret signs relay credentials; TURNHost is the relay's public address.
+	TURNSecret, TURNHost string
+	Roots                *x509.CertPool
+	Push                 push.Sender
+	PushBundle           string
 }
 type peer struct {
 	queried                      bool
@@ -45,8 +47,7 @@ type peer struct {
 type Server struct {
 	pairingRates pairingLimiter
 	mediaJobs    chan *mediaSession
-	mediaOwner   func(context.Context, media.Spec) (bool, error)
-	mediaHTTP    *http.Client
+	mediaOwner   func(context.Context, mediaSpec) (bool, error)
 	db           *store.Store
 	cfg          Config
 	mu           sync.Mutex
@@ -56,11 +57,11 @@ type Server struct {
 }
 
 func New(db *store.Store, cfg Config) *Server {
-	return &Server{mediaJobs: make(chan *mediaSession, 32), mediaOwner: func(ctx context.Context, spec media.Spec) (bool, error) {
+	return &Server{mediaJobs: make(chan *mediaSession, 32), mediaOwner: func(ctx context.Context, spec mediaSpec) (bool, error) {
 		var owned bool
 		e := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM reservations r JOIN clients c ON c.id=r.client_id WHERE r.module_id=$1 AND r.client_id=$2 AND r.generation=$3 AND `+sessionAuthorization+` AND EXISTS(SELECT 1 FROM modules m WHERE m.id=r.module_id AND m.user_id=c.user_id AND NOT m.revoked AND (c.module_id IS NULL OR c.module_id=m.id)))`, spec.Module, spec.Client, spec.Generation).Scan(&owned)
 		return owned, e
-	}, mediaHTTP: &http.Client{Timeout: time.Second, Transport: &http.Transport{Proxy: nil, MaxIdleConns: 4, MaxIdleConnsPerHost: 4, MaxConnsPerHost: 4, IdleConnTimeout: 30 * time.Second, ResponseHeaderTimeout: time.Second}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, db: db, cfg: cfg, peers: map[string]*peer{}, last: map[string]*peer{}, sessions: map[string]*mediaSession{}}
+	}, db: db, cfg: cfg, peers: map[string]*peer{}, last: map[string]*peer{}, sessions: map[string]*mediaSession{}}
 }
 func (s *Server) Handler() http.Handler {
 	m := http.NewServeMux()
@@ -150,7 +151,7 @@ func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 	if old := s.peers[module]; old != nil {
 		for _, m := range s.sessions {
 			if m.Spec.Module == module && !m.Closed {
-				s.stopMedia(ctx, m, "connection_replaced")
+				s.stopMedia(m, "connection_replaced")
 			}
 		}
 		old.cancel()
@@ -165,7 +166,7 @@ func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 			delete(s.peers, module)
 			for _, m := range s.sessions {
 				if m.Spec.Module == module && m.Spec.Connection == p.epoch {
-					s.stopMedia(context.Background(), m, "control_closed")
+					s.stopMedia(m, "control_closed")
 				}
 			}
 		}
@@ -268,12 +269,26 @@ func (s *Server) consume(p *peer, env Envelope) bool {
 			return false
 		}
 		if v.State == "closed" {
+			reason := "agent_closed"
+			if agentReason.MatchString(v.Reason) {
+				reason = "agent_" + v.Reason
+			}
 			for _, m := range s.sessions {
 				if m.Spec.ID == v.ID && m.Spec.Module == p.module && m.Spec.Connection == p.epoch {
-					s.stopMedia(p.ctx, m, "agent_closed")
+					s.stopMedia(m, reason)
 				}
 			}
 		}
+		return true
+	case "media_answer":
+		var v struct {
+			ID     string `json:"session_id"`
+			Answer string `json:"answer"`
+		}
+		if wire.Decode(env.Payload, &v, "session_id", "answer") != nil || !wire.UUID.MatchString(v.ID) || !validSDP(v.Answer) {
+			return false
+		}
+		s.mediaAnswer(p, v.ID, v.Answer)
 		return true
 	case "heartbeat":
 		var v struct{}
@@ -357,6 +372,10 @@ type agentHello struct {
 	MediaCodec string `json:"media_codec,omitempty"`
 }
 
+var agentReason = regexp.MustCompile(`^[a-z0-9_]{1,48}$`)
+
+// Agents built before WebRTC media declare lc3 or nothing; they keep control
+// and messaging while media requests report media_unavailable.
 func decodeAgentHello(payload []byte, hello *agentHello) bool {
-	return wire.Decode(payload, hello, "agent_boot_id", "backend_epoch", "agent_version") == nil && wire.UUID.MatchString(hello.Boot) && (hello.Backend == "" || wire.UUID.MatchString(hello.Backend)) && (hello.MediaCodec == "" || hello.MediaCodec == "lc3")
+	return wire.Decode(payload, hello, "agent_boot_id", "backend_epoch", "agent_version") == nil && wire.UUID.MatchString(hello.Boot) && (hello.Backend == "" || wire.UUID.MatchString(hello.Backend)) && (hello.MediaCodec == "" || hello.MediaCodec == "lc3" || hello.MediaCodec == mediaCodec)
 }
