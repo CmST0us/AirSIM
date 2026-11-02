@@ -50,7 +50,7 @@ func parse(b []byte) (Request, Args, error) {
 		return r, a, wire.ErrInvalid
 	}
 	if r.Action == "call.dial" || r.Action == "sms.send" {
-		if !regexp.MustCompile(`^\+?[0-9]{7,15}$`).MatchString(a.Number) {
+		if !regexp.MustCompile(`^\+?[0-9]{6,15}$`).MatchString(a.Number) {
 			return r, a, wire.ErrInvalid
 		}
 	}

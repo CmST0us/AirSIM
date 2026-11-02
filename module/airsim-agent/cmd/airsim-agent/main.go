@@ -46,6 +46,12 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 	var adapter platformAdapter
 	switch profile {
 	case rm500u.Profile:
+		// The RM500 backend cannot run on ARMv7. Keep this architecture guard
+		// here (not only in Validate) so its oFono stack is removed from the
+		// tightly space-constrained EG25 binary by the linker.
+		if runtime.GOARCH != "arm64" {
+			return errors.New("profile_mismatch")
+		}
 		if err := rm500u.Validate(profile, device, runtime.GOOS, runtime.GOARCH); err != nil {
 			return err
 		}
@@ -182,19 +188,26 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 	}()
 	commands, journalErr := journal.Open(filepath.Join(data, "state"))
 	coordinator := control.New(boot, id.CommandDigest, func() bool { _, ready := store.View(time.Now()); return ready.Ready }, commands, journalErr)
+	var smsDiagnosticView func() any
 	if profile == eg25.Profile {
 		smsLedger := eg25.OpenSMSLedger(filepath.Join(data, "state", "eg25-sms-seen"))
+		var diagnosticPort atmodem.Querier
+		if manager != nil {
+			diagnosticPort = manager
+		}
+		smsDiagnostics := eg25.NewSMSDiagnostics(child, diagnosticPort)
+		smsDiagnosticView = func() any { return smsDiagnostics.View() }
 		go coordinator.RunWithBackend(child, func(ctx context.Context) (hal.ControlSession, error) {
 			if manager == nil {
 				return nil, errors.New("backend_unavailable")
 			}
-			s, err := eg25.Connect(ctx, manager, smsLedger)
+			s, err := eg25.Connect(ctx, manager, smsLedger, smsDiagnostics)
 			if err != nil {
 				return nil, err
 			}
 			return s, nil
 		})
-	} else {
+	} else if runtime.GOARCH == "arm64" {
 		go coordinator.Run(child)
 	}
 	audio := media.New(coordinator, audioHelper, filepath.Join(runDir, "media.sock"), profile)
@@ -211,7 +224,7 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 	}
 	cloudDone := make(chan struct{})
 	go func() { defer close(cloudDone); cloudAgent.Run(child) }()
-	e = local.Serve(ctx, filepath.Join(runDir, "control.sock"), cloud.WithLocal(local.WithAudio(local.Handler(store, version, boot, coordinator), audio), provisioner, cloudAgent))
+	e = local.Serve(ctx, filepath.Join(runDir, "control.sock"), cloud.WithLocal(local.WithSMSDiagnostics(local.WithAudio(local.Handler(store, version, boot, coordinator), audio), smsDiagnosticView), provisioner, cloudAgent))
 	cancel()
 	if manager != nil {
 		manager.GracefulClose()

@@ -17,6 +17,7 @@
 | `listGrantedDevices(signal)` | 读取已授权设备；不得弹出选择器或进行网络发现 |
 | `requestDevice(signal)` | 用户点击触发；必须在第一个异步等待前调用系统选择器 |
 | `inspect(device, signal)` | 返回经设备核实的名称、短标识、Engine 安装/启动/版本状态与适配器设备标识 |
+| `enableAdb(device, signal, progress)` | 显式确认后对受支持的出厂 QDC507 开启 ADB 并重启；重新选择原模块后才可安装 |
 | `install(device, signal, progress)` | 校验并部署 Engine、启动器和音频 Helper，写入持久开机启动；保留身份、云配置、状态与现有配对 |
 | `connect(operation, signal)` | 显式确认后执行；相同操作标识不得产生第二次写入 |
 | `status(operation, signal)` | 只查指定操作；用于等待、未知结果、未联网状态 |
@@ -37,6 +38,8 @@
 - 手机显示电脑连接说明。桌面需要安全上下文和 WebUSB 能力。缺少适配器时停止在不可用页面，不回退到测试实现。
 
 ## 验证记录
+
+2026-11-01：58 项网页测试、Agent Go 测试与构建通过；已通过 Workbench 发布网页与模块包，源站 HTTPS 校验 26 个文件，服务未重启。补齐出厂 EG25 的 WebUSB AT 路径，并修复未安装/启动中的 Agent 被误报断线。新增服务拒绝、AT 超时/授权/配置检查、无序列号多设备和两个平台持久安装脚本回归。EG25 已实测 ADB 关闭后网页开启、完整安装、更新与两条路径的断电自启；身份与配对保持。兼容范围及本地/真机边界见 [模块安装器](MODULE_WEB_INSTALLER.md)。
 
 2026-10-27：35 项 Vitest 测试通过；TypeScript 检查和 Vite 生产构建通过。覆盖同步选择器调用、重复点击、取消选择、设备占用/拔线/不支持、Engine 安装/启动/就绪、八位连接码、未知结果查询、刷新恢复、持久化失败、迟到响应、设备句柄释放、纯文本渲染、焦点迁移、tar 安装包与本机 HTTP 分块响应读取。
 

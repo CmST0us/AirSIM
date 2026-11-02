@@ -1,5 +1,17 @@
 # AirSIM AVF Linux Agent 安装与无损排障
 
+2026-11-02 22:01：EG25 收件故障确认为 ME 短信存储满（23/23）。新版 Engine 满仓时按时间回收旧的完整短信，已在真机两次触发清理并恢复模块→云端→SkySIM 收件；用户确认测试短信已显示。网页诊断与 Engine 已通过 Workbench 发布 `sms-receive-20261102`。App、ECS 业务容器和启动器不变；另一次修复前的自主重启原因未定，详见 [收件修复](EG25_SMS_RECEIVE_INVESTIGATION.md)。 此项属于 EG25 v2，不使用本文的 AVF Debian 安装流程。
+
+2026-11-02：SkySIM `0.9.6 (82)` 的短信交互更新已进入 TestFlight 内部测试，仅需更新 App，见 [发布记录](IOS_TESTFLIGHT.md)；不涉及本指南的 AVF Debian 安装。
+
+EG25 v2 的短信编码修复包已于 2026-11-02 14:35 发布，需再次网页更新 Engine；与本指南的 AVF Debian 无关，见 [短信修复](EG25_SMS_FIX.md)。
+
+模块 v2 更新：2026-11-02 已发布 6 位短号修复的云端服务和网页 Engine 包，SkySIM `0.9.6 (81)` 已进入 TestFlight 内部测试，详见 [短号部署](SHORT_NUMBER_UPDATE.md)；这不是本指南的 AVF Debian 更新。
+
+嵌入式 EG25/RM500U 的网页安装、自启动校验和 EG25 macOS 出厂 ADB 初始化见 [模块网页安装器](MODULE_WEB_INSTALLER.md)；与下文旧 AVF Debian 安装流程分开，本轮修改已通过 Workbench 发布网页与模块安装包，同一块 EG25 的网页安装、更新及两条路径的真实断电自启已通过，详见模块验收记录。
+
+v2 Apple 客户端显示名称为 SkySIM，使用 `com.eric3u.airsim2` 的独立 App Store Connect 记录；它不兼容旧 AirSIM/v1。发布与签名说明见 [SkySIM TestFlight](IOS_TESTFLIGHT.md)。下文旧 AVF 安装说明不因此改名或迁移。
+
 当前嵌入式 v2 的媒体更新必须配套部署 App、ECS control／media、Agent 与原生 helper，并保留成对回滚版本；见 [WebRTC 音频](WEBRTC_AUDIO.md)。下文 AVF/v1 安装流程不用于覆盖这些组件。
 
 本指南适用于支持 Android AVF Linux Terminal 的三星手机。AirSIM Android App、AVF 中的 `airsim-agent`、独立的 `airsim-installerd` 是三个不同组件；App 能打开 Terminal，并不等于 Agent 已安装。`8575` Agent 健康端点可达，也不等于 `8576` 安装服务和控制令牌已就绪。

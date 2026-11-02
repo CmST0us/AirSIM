@@ -8,7 +8,63 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestSixDigitDialWritesExactCommand(t *testing.T) {
+	for _, number := range []string{"123456", "012345", "+123456"} {
+		t.Run(number, func(t *testing.T) {
+			a, b := net.Pipe()
+			defer b.Close()
+			b.SetDeadline(time.Now().Add(3 * time.Second))
+			m := New(a, filepath.Join(t.TempDir(), "inflight"))
+			defer m.Close()
+			done := make(chan error, 1)
+			go func() {
+				cmd, err := bufio.NewReader(b).ReadString('\r')
+				if err != nil {
+					done <- err
+					return
+				}
+				if cmd != "ATD"+number+";\r" {
+					t.Error("dial command changed the number")
+				}
+				_, err = b.Write([]byte("\r\nOK\r\n"))
+				done <- err
+			}()
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			if _, err := m.Command(ctx, "ATD"+number+";", ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestDialRejectsInvalidNumbersBeforeWriting(t *testing.T) {
+	// No transport is needed: invalid commands must fail before reaching submit.
+	m := &Manager{}
+	for _, number := range []string{"12345", "1234567890123456", "１２３４５６", "123 456", "123456\n", "123456;\rAT+CFUN=1,1", "*123456#", "++123456"} {
+		if _, err := m.Command(context.Background(), "ATD"+number+";", ""); err != ErrInvalid {
+			t.Fatalf("invalid dial number accepted: %q", number)
+		}
+	}
+}
+
+func TestSMSDeleteOnlyBoundedIndexWithoutArguments(t *testing.T) {
+	m := &Manager{}
+	for _, cmd := range []string{"AT+CMGD=-1", "AT+CMGD=65536", "AT+CMGD=01", "AT+CMGD=1,0", "AT+CMGD=1;AT+CFUN=1,1"} {
+		if _, err := m.Command(context.Background(), cmd, ""); err != ErrInvalid {
+			t.Fatal("unbounded SMS deletion accepted")
+		}
+	}
+	if _, err := m.Command(context.Background(), "AT+CMGD=1", "00"); err != ErrInvalid {
+		t.Fatal("deletion accepted payload")
+	}
+}
 
 func TestSMSPromptAndPrivateFence(t *testing.T) {
 	a, b := net.Pipe()

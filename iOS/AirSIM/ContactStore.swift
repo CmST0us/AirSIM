@@ -209,7 +209,7 @@ final class ContactStore: ObservableObject {
             await requestAccessAndLoad()
         }
         guard ContactFetcher().authorizationState() == .authorized else {
-            errorMessage = "请在系统设置中允许 AirSIM 访问通讯录后再保存"
+            errorMessage = "请在系统设置中允许 SkySIM 访问通讯录后再保存"
             return false
         }
         do {

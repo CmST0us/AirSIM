@@ -18,7 +18,7 @@ struct V2Command: Encodable {
         default: throw V2Error.invalidValue
         }
         guard Set(args.keys) == keys else { throw V2Error.invalidValue }
-        if let number = args["number"], !V2Validation.matches(number, "^\\+?[0-9]{7,15}$") { throw V2Error.invalidValue }
+        if let number = args["number"], !V2Validation.matches(number, "^\\+?[0-9]{6,15}$") { throw V2Error.invalidValue }
         if let call = args["call_id"] { try V2Validation.uuid(call) }
         if let tones = args["tones"], !V2Validation.matches(tones, "^[0-9A-D*#]{1,16}$") { throw V2Error.invalidValue }
         if let text = args["text"], text.utf16.isEmpty || text.utf16.count > 70 || text.contains("\0") { throw V2Error.invalidValue }
@@ -88,6 +88,7 @@ final class V2CommandMachine {
     private(set) var pending: V2PendingCommand?
     private(set) var phase: V2CommandPhase = .idle
     private var requestInFlight = false
+    private(set) var receiptMessageID: String?
     private(set) var ownedCall: V2CallContext?
     var blocksConfigurationChange: Bool { pending != nil }
     init(client: V2Client, store: V2PendingStore, ownedStore: V2OwnedCallStore? = nil) throws {
@@ -101,6 +102,7 @@ final class V2CommandMachine {
         let metadata = V2PendingCommand(binding: binding, commandID: command.command_id, action: command.action, generation: nil, callID: command.args["call_id"])
         // Save first. Failure must prevent any POST.
         try store.save(metadata); pending = metadata; phase = .submitting; requestInFlight = true
+        receiptMessageID = nil
         defer { requestInFlight = false }
         do {
             let record = try await client.submit(command, binding: binding)
@@ -132,6 +134,7 @@ final class V2CommandMachine {
         }
         try store.save(pending); self.pending = pending
         guard let receipt = record.receipt else { phase = record.state == "outcome_unknown" ? .unknown : .waiting; return }
+        receiptMessageID = receipt.message_id
         if ["call.dial", "call.answer"].contains(pending.action), ["accepted", "observed"].contains(receipt.state), let callID = pending.callID {
             guard callID == receipt.call_id else { throw V2Error.invalidIdentity }
             ownedCall = try client.recordOwnership(record, pending: pending)

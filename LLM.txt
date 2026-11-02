@@ -1,5 +1,14 @@
+SKYSIM_SMS_INTERACTION_20261102=SkySIM 0.9.6 (82) processed by Apple and testing in the existing internal group with 2 testers; immediate SMS bubbles, left-side failure retry and iPad keyboard visibility; App-only update, no additional ECS/Engine deployment; no physical Build 82 installation or live SMS acceptance; docs/IOS_SMS_INTERACTION.md; docs/IOS_SMS_INTERACTION_VERIFICATION.json; docs/IOS_TESTFLIGHT.md
+
+2026-11-02 22:01：EG25 收件故障确认为 ME 短信存储满（23/23）。新版 Engine 满仓时按时间回收旧的完整短信，已在真机两次触发清理并恢复模块→云端→SkySIM 收件；用户确认测试短信已显示。网页诊断与 Engine 已通过 Workbench 发布 `sms-receive-20261102`。App、ECS 业务容器和启动器不变；另一次修复前的自主重启原因未定，详见 [收件修复](docs/EG25_SMS_RECEIVE_INVESTIGATION.md)。
+EG25_SMS_PDU_20261102=Workbench published sms-pdu-20261102; unprefixed destinations use TON unknown, explicit plus remains international; UTF-16BE encoding before UCS2; user updates Engine; App 81 unchanged; docs/EG25_SMS_FIX.md
+V2_SHORT_NUMBER_20261102=control and web Engine packages deployed via Workbench to airsim.eric3u.cc; EG25 update by user; SkySIM 0.9.6 (81) processed by Apple and available to the existing internal TestFlight group; no physical short-number acceptance; docs/SHORT_NUMBER_UPDATE.md
 AIRSIM PROJECT CONTEXT
+
+2026-11-01: The module web installer now supports factory QDC507 USB AT discovery and explicit ADB enable/reboot/reselection on macOS. Missing or starting Agent sockets no longer imply USB disconnection. Readiness checks the served artifacts, unique init entry and running executable. Published to airsim.eric3u.cc through Workbench on 2026-11-01; the same EG25 passed disabled-ADB activation, full installation, update and physical power-cycle autostart after both flows. Identity/pairing were retained; never-authorized factory state and new cloud enrollment remain separate. See docs/MODULE_WEB_INSTALLER.md and docs/MODULE_WEB_INSTALLER_DEPLOYMENT.json.
 ======================
+
+2026-11-01: The v2 Apple client is named SkySIM (display name), with unchanged bundle ID com.eric3u.airsim2 and a separate App Store Connect record (6829440499). Do not upload it to the incompatible v1 AirSIM record (com.eric3u.airsim). Technical names and persisted keys remain AirSIM. Build, signing, and TestFlight evidence: docs/IOS_TESTFLIGHT.md.
 
 V2 call media is a WebRTC audio connection between the App and the module: Opus in 20 ms packets, the module encoding 16 kHz wideband at 32 kbps with in-band FEC. The App uses libwebrtc, the module Agent embeds Pion and the native helper encodes/decodes with fixed-point libopus; ECS relays SDP and runs TURN for the cellular module, and USB local media connects directly. Update and roll back App, ECS control/media, Agent and helper together. ECS and EG25 run the WebRTC build; real calls are accepted after the matching iPad App is installed. RM500 needs an Engine update from the pairing page before its call audio works. Protocol: protocol/v2/WEBRTC.md; parameters, deployment, diagnostics and validation: docs/WEBRTC_AUDIO.md.
 

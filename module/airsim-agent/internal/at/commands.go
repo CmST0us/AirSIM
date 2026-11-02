@@ -3,14 +3,16 @@ package at
 import (
 	"context"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
 
-var dialCommand = regexp.MustCompile(`^ATD\+?[0-9]{7,15};$`)
+var dialCommand = regexp.MustCompile(`^ATD\+?[0-9]{6,15};$`)
 var hangupCommand = regexp.MustCompile(`^AT\+CHLD=1[1-9][0-9]?$`)
 var toneCommand = regexp.MustCompile(`^AT\+VTS="[0-9A-D*#]"$`)
 var smsCommand = regexp.MustCompile(`^AT\+CMGS=[1-9][0-9]{0,2}$`)
+var smsDeleteCommand = regexp.MustCompile(`^AT\+CMGD=(0|[1-9][0-9]{0,4})$`)
 var hexPDU = regexp.MustCompile(`^(?:[0-9A-Fa-f]{2}){1,256}$`)
 
 // Command is the bounded write surface used by the EG25 HAL. Arguments and
@@ -24,6 +26,16 @@ func (m *Manager) Command(ctx context.Context, cmd, payload string) ([]string, e
 		r.label = "sms.list"
 		r.prefix = "+CMGL:"
 		r.pduLines = true
+	case cmd == "AT+CMGD=1,4":
+		// Used only by the explicitly confirmed, exclusive maintenance CLI.
+		// No local/cloud business route accepts this command.
+		r.label = "sms.clear"
+	case smsDeleteCommand.MatchString(cmd):
+		index, _ := strconv.Atoi(strings.TrimPrefix(cmd, "AT+CMGD="))
+		if index > 65535 {
+			return nil, ErrInvalid
+		}
+		r.label = "sms.delete"
 	case dialCommand.MatchString(cmd):
 		r.label = "call.dial"
 		r.timeout = 30 * time.Second

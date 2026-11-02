@@ -27,6 +27,8 @@ MTU 固定为 1400；固件默认的 1500 会让冷启动后的 TLS 握手出现
 
 ## 网页安装
 
+2026-11-01 源码修复将 Agent socket 尚未就绪与 USB 断开分开处理。安装后的启动等待最长四分钟，完成检查要求当前进程的二进制哈希、启动器和唯一 init 条目均匹配；查不到发布 manifest 不再宣称已是最新版。本轮没有重新执行 RM500U 真机部署。EG25 出厂初始化及共同验证规则见 [网页安装器](../../docs/MODULE_WEB_INSTALLER.md)。
+
 `https://airsim.eric3u.cc/` 的配对页会在模块未安装、版本不一致或缺少开机启动项时
 提供“安装并启用”或“更新并启用”。`service/airsim/web` 的构建会从
 `module/airsim-agent` 和 `module/rm500/audio` 生成 arm64 Agent、启动器、原生音频

@@ -13,6 +13,23 @@ async function setup() {
 }
 
 describe('device flow', () => {
+  it('only enables factory ADB after confirmation and requires a new picker after reboot', async () => {
+    const { controller, transport } = await setup();
+    transport.inspect.mockResolvedValue({ ...device, engine: { state: 'adb_disabled', compatible: true } });
+    await controller.requestDevice();
+    await controller.installEngine(); await controller.connect();
+    expect(transport.install).not.toHaveBeenCalled();
+    expect(transport.connect).not.toHaveBeenCalled();
+    expect(transport.enableAdb).not.toHaveBeenCalled();
+    const operation = deferred<void>(); transport.enableAdb.mockReturnValue(operation.promise);
+    const enabling = controller.enableAdb();
+    await controller.enableAdb(); await controller.requestDevice();
+    expect(transport.enableAdb).toHaveBeenCalledTimes(1);
+    expect(transport.requestDevice).toHaveBeenCalledTimes(1);
+    operation.resolve(); await enabling;
+    expect(controller.state).toMatchObject({ kind: 'failed', code: 'adb_reconnect' });
+    expect(transport.install).not.toHaveBeenCalled();
+  });
   it('starts empty and calls the picker synchronously only after requestDevice', async () => {
     const { controller, transport } = await setup();
     expect(controller.state).toEqual({ kind: 'devices', devices: [] });

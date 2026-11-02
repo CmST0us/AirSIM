@@ -103,3 +103,4 @@ dialog::backdrop { background: #14141b45; backdrop-filter: blur(8px); }
 .connection-code[hidden] { display: none; }
 .code-expiry { text-align: center; color: var(--muted); font-size: 13px; margin: 0; }
 @media (max-width: 600px) { .connection-code { font-size: 30px; letter-spacing: 3px; } }
+.diagnostic-result { width: 100%; box-sizing: border-box; resize: vertical; min-height: 12rem; padding: 12px; font: 12px/1.5 monospace; border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; }

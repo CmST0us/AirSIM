@@ -41,7 +41,7 @@ final class ExpiredLegacyPushReporter: NSObject, CXProviderDelegate {
         NSLog("[AirSIM Push] rejected reason=%@", reason)
 #endif
         let id = UUID(); let update = CXCallUpdate()
-        update.remoteHandle = CXHandle(type: .generic, value: "AirSIM 来电已失效")
+        update.remoteHandle = CXHandle(type: .generic, value: "SkySIM 来电已失效")
         provider.reportNewIncomingCall(with: id, update: update) { [weak self] _ in
             Task { @MainActor in
                 self?.provider.reportCall(with: id, endedAt: Date(), reason: .failed)
@@ -203,7 +203,12 @@ private struct FixtureTokens: V2TokenStore {
     func read(account: String) throws -> String { String(repeating: "a", count: 64) }
     func remove(account: String) throws {}
 }
+private actor FixtureSMSAttempts {
+    private var count = 0
+    func next() -> Int { count += 1; return count }
+}
 private struct FixtureTransport: V2HTTPTransport {
+    private static let smsAttempts = FixtureSMSAttempts()
     static let first = "00112233-4455-4677-8899-aabbccddeeff"
     static let second = "10112233-4455-4677-8899-aabbccddeeff"
     static let config = V2Configuration(identity: V2Identity(apiOrigin: "https://example.invalid", serverID: first, clientInstallationID: first), mediaOrigin: "https://media.example.invalid", expiresAt: Date().addingTimeInterval(3600))
@@ -345,6 +350,17 @@ private struct FixtureTransport: V2HTTPTransport {
                       "inbox_gap": false, "inbox_dropped": 0, "messages": messages]
         } else if path.contains("commands") {
             if UITestScenario.name == "v2-command-unknown" { throw V2Error.transport }
+            if UITestScenario.name == "v2-send-failure", request.httpMethod == "POST" {
+                let attempt = await Self.smsAttempts.next()
+                try await Task.sleep(for: .seconds(5))
+                if attempt > 1, let data = request.httpBody,
+                   let wrapper = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let command = wrapper["command"] as? [String: Any], let commandID = command["command_id"] as? String {
+                    let receipt = ["command_id": commandID, "action": "sms.send", "state": "accepted", "result_code": "ok", "updated_at": date]
+                    return V2HTTPResponse(status: 200, body: try JSONSerialization.data(withJSONObject:
+                        ["command_id": commandID, "generation": id, "state": "completed", "receipt": receipt]))
+                }
+            }
             return V2HTTPResponse(status: 409, body: Data())
         } else { throw V2Error.transport }
         return V2HTTPResponse(status: 200, body: try JSONSerialization.data(withJSONObject: object))

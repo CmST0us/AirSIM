@@ -73,6 +73,20 @@ it('offers persistent Engine installation before pairing a bare module', async (
   await deployment.promise;
 });
 
+it('explains factory ADB setup and waits for an explicit click before writing', async () => {
+  const { root, controller, transport } = await setup();
+  transport.inspect.mockResolvedValue({ ...device, name: 'EG25 QDC507', engine: { state: 'adb_disabled', compatible: true } });
+  await controller.requestDevice();
+  expect(root.querySelector('h1')?.textContent).toBe('准备 EG25 模块');
+  expect(root.textContent).toContain('持久开启');
+  expect(transport.enableAdb).not.toHaveBeenCalled();
+  [...root.querySelectorAll('button')].find(button => button.textContent === '开启 ADB 并重启')!.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(root.querySelector('h1')?.textContent).toBe('重新选择模块');
+  expect(root.textContent).not.toContain('需要开启 ADB');
+  expect(transport.enableAdb).toHaveBeenCalledTimes(1);
+});
+
 it('continues to device confirmation when the persistent Engine is ready', async () => {
   const { root, controller, transport } = await setup();
   transport.inspect.mockResolvedValue({

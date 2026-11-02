@@ -1,0 +1,64 @@
+{
+  "date": "2026-11-02",
+  "feature": "optimistic SMS bubbles and left-side failure retry",
+  "results": [
+    {
+      "path": "/tmp/airsim-optimistic-verified-20261102.xcresult",
+      "result": "Passed",
+      "passed": 113,
+      "failed": 0
+    },
+    {
+      "path": "/tmp/airsim-sms-final-phone-20261102.xcresult",
+      "result": "Passed",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "path": "/tmp/airsim-sms-final-ipad-20261102.xcresult",
+      "result": "Passed",
+      "passed": 2,
+      "failed": 0
+    }
+  ],
+  "excluded_existing_unsigned_keychain_test": "CloudV2Tests/testRealKeychainRoundTripWithIsolatedAccount",
+  "source_sha256": {
+    "iOS/AirSIM/A1MessagesViews.swift": "9a16abb64993bf5fb09ca68f5d2f6cee6df1534e8132a94fe1880a8ab105ee58",
+    "iOS/AirSIM/AppModel.swift": "4187a09508399cde9cbb26fccba111b51ecddda44d85880b7ba5bc67389f62ae",
+    "iOS/AirSIM/CloudV2/CloudV2Model.swift": "8747bf9f250720723e125b20b41deffe01999eee62e61bf2e08b9e0710841b21",
+    "iOS/AirSIM/CloudV2/V2Commands.swift": "36d989a6c71413a5269f70e3894f28c4ec884d1ffdf380e98fdf1027a3c1cd61",
+    "iOS/AirSIM/CloudV2/V2LocalStore.swift": "fbf034db7fae563b57ff7cb04a9db039fc19a7979de83e1d84301c6be255655a",
+    "iOS/AirSIM/CloudV2/AppRouting.swift": "f702a84d8a9c6c65380e72db001685729d882e42abc7d71d03c05cd37d4586c3",
+    "iOS/AirSIMTests/CloudV2Tests.swift": "17429317ffecc96d627be18f0ef5b8cbcf52816aa306d6e463706d52e50de62b",
+    "iOS/AirSIMUITests/MessagingTests.swift": "02fccccfcb30b7dcb0681002703a5c9f7913997768d1e4b4b9a7b99acd607b67"
+  },
+  "screenshots": "/Users/eki/Project/Embedded_Project/AirSIM/iOS/build/sms-interaction-20261102",
+  "live_sms_sent": false,
+  "testflight": {
+    "status": "testing",
+    "thread_id": "01a19731-62ce-7292-94d4-f1dbbc801f8b",
+    "latest_published_before_handoff": "0.9.6 (81)",
+    "version": "0.9.6",
+    "build": "82",
+    "app_id": "6829440499",
+    "bundle_id": "com.eric3u.airsim2",
+    "latest_existing_build_confirmed": "81",
+    "source_hashes_match_release": true,
+    "archive": "passed",
+    "distribution_checks": "passed",
+    "ipa_sha256": "0cf86dc5bad49cf7dfc456af6b05b52aabec2683ee6308ce84e47fee7a20398e",
+    "artifacts": "/Users/eki/Project/Embedded_Project/AirSIM/iOS/build/testflight-20261102-build82",
+    "uploaded_at": "2026-11-02T15:14:24+08:00",
+    "upload_warnings": [],
+    "processing_complete_observed_at": "2026-11-02T15:17+08:00",
+    "build_id": "396ff354-0d13-46d8-91bb-8da8b9028728",
+    "build_url": "https://appstoreconnect.apple.com/teams/69a6de87-b902-47e3-e053-5b8c7c11a4d1/apps/6829440499/testflight/ios/396ff354-0d13-46d8-91bb-8da8b9028728",
+    "internal_group_id": "dfc78074-31d3-4700-acd8-3745d1046910",
+    "internal_group_name": "内部测试",
+    "internal_testers": 2,
+    "internal_testing_observed_at": "2026-11-02T15:20+08:00",
+    "test_notes_saved": true,
+    "screenshot": "/Users/eki/Project/Embedded_Project/AirSIM/iOS/build/testflight-20261102-build82/skysim-internal-testing.jpg",
+    "physical_install_performed": false
+  }
+}

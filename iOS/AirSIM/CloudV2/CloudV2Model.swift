@@ -128,6 +128,19 @@ final class CloudV2Model: ObservableObject {
             configuration = try configurationStore.load()
             history = try historyFile.load() ?? V2History()
             machine = try V2CommandMachine(client: client, store: V2FilePendingStore(url: root.appendingPathComponent("pending.json")), ownedStore: V2FileOwnedCallStore(file: V2ProtectedFile(url: root.appendingPathComponent("owned-call.json"))))
+            // A staged row without a matching journal never reached the POST.
+            // Rows with an unresolved journal remain non-retryable after restart.
+            if var outgoing = history.outgoingMessages {
+                for index in outgoing.indices where outgoing[index].state == "pending" {
+                    if outgoing[index].commandID == nil || outgoing[index].commandID != machine?.pending?.commandID {
+                        outgoing[index].state = "failed"
+                    }
+                }
+                if outgoing != history.outgoingMessages {
+                    history.outgoingMessages = outgoing
+                    try historyFile.save(history)
+                }
+            }
             if let configuration { selectedModuleID = configuration.moduleID ?? defaults.string(forKey: V2LocalPaths.selectionKey(configuration.identity)) }
         } catch { persistenceFailed = true; self.error = "本地状态读取失败，已禁止控制。" }
         experimentalAudio = true
@@ -783,6 +796,48 @@ final class CloudV2Model: ObservableObject {
         try historyFile.save(history)
         historyDirty = false
     }
+    func stageOutgoingMessage(_ message: V2OutgoingMessage) -> Bool {
+        guard canAct, message.identity == configuration?.identity else { return false }
+        var candidate = history
+        var outgoing = candidate.outgoingMessages ?? []
+        if let index = outgoing.firstIndex(where: { $0.id == message.id }) {
+            guard outgoing[index].state == "failed" else { return false }
+            outgoing[index].state = "pending"
+            outgoing[index].commandID = nil
+        } else { outgoing.append(message) }
+        // Keep unresolved rows even when trimming old presentation history.
+        let settled = outgoing.filter { $0.state != "pending" }.suffix(2000)
+        candidate.outgoingMessages = Array(settled) + outgoing.filter { $0.state == "pending" }
+        do {
+            try historyFile.save(candidate)
+            history = candidate; historyDirty = false
+            return true
+        } catch {
+            self.error = "短信未发送，无法保存本机记录。"
+            return false
+        }
+    }
+
+    func finishOutgoingMessage(_ id: String, succeeded: Bool) {
+        guard let index = history.outgoingMessages?.firstIndex(where: { $0.id == id }),
+              history.outgoingMessages?[index].state == "pending",
+              history.outgoingMessages?[index].commandID == nil || history.outgoingMessages?[index].commandID != pendingSMSCommandID else { return }
+        history.outgoingMessages?[index].state = succeeded ? "sent" : "failed"
+        historyDirty = true
+        do { try saveDirtyHistory() }
+        catch { self.error = "短信记录保存失败，请等待同步恢复。" }
+    }
+
+    private func attachOutgoingCommand(_ id: String, command: V2Command) throws {
+        guard let index = history.outgoingMessages?.firstIndex(where: { $0.id == id }),
+              history.outgoingMessages?[index].identity == configuration?.identity,
+              history.outgoingMessages?[index].moduleID == selectedModuleID,
+              history.outgoingMessages?[index].state == "pending" else { throw V2Error.invalidIdentity }
+        history.outgoingMessages?[index].commandID = command.command_id
+        historyDirty = true
+        // Persist the association before the command machine is allowed to POST.
+        try saveDirtyHistory()
+    }
     func dial() async { await perform(action: "call.dial", args: ["number": number]) }
     func answer(_ call: V2Call) async { await perform(action: "call.answer", args: ["call_id": call.call_id]) }
     /// Answers a call ringing in the App's own interface. Once the module reports
@@ -796,7 +851,9 @@ final class CloudV2Model: ObservableObject {
     func hangup() async { guard let ownedCall else { return }; await perform(action: "call.hangup", args: ["call_id": ownedCall.callID]) }
     func dtmf() async { guard let ownedCall else { return }; await perform(action: "call.dtmf", args: ["call_id": ownedCall.callID, "tones": tones]) }
     @discardableResult
-    func sendSMS() async -> Bool { await perform(action: "sms.send", args: ["number": smsNumber, "text": smsText]) }
+    func sendSMS(outgoingMessageID: String? = nil) async -> Bool {
+        await perform(action: "sms.send", args: ["number": smsNumber, "text": smsText], outgoingMessageID: outgoingMessageID)
+    }
     var userStatus: String {
         if configuration == nil { return "尚未连接设备，请在设置中添加设备。" }
         if !usingUSB, let configuration, !configuration.accessIsValid(at: now()) { return configuration.canRenew(at: now()) ? "设备连接正在续期，请稍候。" : "连接凭据已过期，请重新添加设备。" }
@@ -814,12 +871,20 @@ final class CloudV2Model: ObservableObject {
     func clearCurrentMessages() {
         guard let configuration, let selectedModuleID else { error = "请先选择模块。"; return }
         var candidate = history
-        let cleared = candidate.messages.filter { $0.domain.identity == configuration.identity && $0.domain.moduleID == selectedModuleID }.map(\.id)
+        let local = (candidate.outgoingMessages ?? []).filter {
+            $0.identity == configuration.identity && $0.moduleID == selectedModuleID && $0.state != "pending"
+        }
+        let cleared = Array(Set(candidate.messages.filter {
+            $0.domain.identity == configuration.identity && $0.domain.moduleID == selectedModuleID
+        }.map(\.id) + local.flatMap(\.storedMessageIDs)))
         var ids = candidate.clearedMessageIDs ?? []
         ids.removeAll { cleared.contains($0) }
         ids.append(contentsOf: cleared)
         candidate.clearedMessageIDs = Array(ids.suffix(2000))
         candidate.messages.removeAll { cleared.contains($0.id) }
+        candidate.outgoingMessages?.removeAll {
+            $0.identity == configuration.identity && $0.moduleID == selectedModuleID && $0.state != "pending"
+        }
         do { try historyFile.save(candidate); history = candidate; historyDirty = false }
         catch { self.error = "清理失败，已保留本机短信。" }
     }
@@ -828,7 +893,7 @@ final class CloudV2Model: ObservableObject {
         do { try await machine?.recover(); try finishResolvedCommand() } catch { self.error = "查询失败，操作结果仍未确认。" }
     }
     @discardableResult
-    private func perform(action: String, args: [String: String], expectedBinding: V2ControlBinding? = nil, submitted: ((V2SystemCommandSubmission) -> Void)? = nil) async -> Bool {
+    private func perform(action: String, args: [String: String], expectedBinding: V2ControlBinding? = nil, submitted: ((V2SystemCommandSubmission) -> Void)? = nil, outgoingMessageID: String? = nil) async -> Bool {
 #if DEBUG
         if action.hasPrefix("call.") {
             V2DebugTrace.record("perform \(action) canAct=\(canAct) busy=\(busy) unresolved=\(hasUnresolvedCommand) persistence=\(!persistenceFailed) foreground=\(foreground) systemCall=\(systemCalls?.hasSystemCall == true) fresh=\(freshBinding != nil) telephony=\(telephonyReady) expectedMatches=\(expectedBinding == nil || expectedBinding == freshBinding)")
@@ -840,7 +905,10 @@ final class CloudV2Model: ObservableObject {
         if action == "call.dtmf" || (action == "call.hangup" && ownedCall != nil) {
             guard ownedControlReady, let context = ownedCall else { error = "原通话状态尚未核对，不能控制。"; return false }; binding = context.binding
         } else {
-            guard let freshBinding, action == "sms.send" ? messagingReady : telephonyReady else { error = "模块状态或对应能力尚未就绪。"; return false }; binding = freshBinding
+            guard let freshBinding, action == "sms.send" ? messagingReady : telephonyReady else {
+                if action != "sms.send" { error = "模块状态或对应能力尚未就绪。" }
+                return false
+            }; binding = freshBinding
         }
         guard expectedBinding == nil || expectedBinding == binding else { return false }
         busy = true; actionInFlight = true
@@ -848,6 +916,7 @@ final class CloudV2Model: ObservableObject {
         do {
             if action == "call.hangup" { await media.stop() }
             let command = try V2Command(binding: binding, action: action, args: args, now: now())
+            if let outgoingMessageID { try attachOutgoingCommand(outgoingMessageID, command: command) }
             if action == "call.dial" || action == "call.answer" { runtimeCallCommandID = command.command_id }
             submitted?(V2SystemCommandSubmission(commandID: command.command_id, binding: binding, outcome: .pending))
 #if DEBUG
@@ -861,7 +930,7 @@ final class CloudV2Model: ObservableObject {
             if case let .receipt(server, state) = machine.phase { succeeded = server == "completed" && ["accepted", "observed"].contains(state) }
             else { succeeded = false }
             try finishResolvedCommand()
-            if !succeeded, submitted == nil, !hasUnresolvedCommand {
+            if !succeeded, submitted == nil, !hasUnresolvedCommand, action != "sms.send" {
                 error = "操作未成功，请核对连接与模块状态。"
             }
             return succeeded
@@ -870,7 +939,7 @@ final class CloudV2Model: ObservableObject {
             V2DebugTrace.record("performFailed \(action) error=\(String(describing: type(of: error))) status=\((error as? V2HTTPFailure).map { String($0.status) } ?? "-") code=\((error as? V2Error)?.rawValue ?? "-") pending=\(machine.pending != nil)")
 #endif
             if submitted != nil, machine.pending == nil { systemSubmission?.outcome = .failed }
-            if machine.pending == nil {
+            if machine.pending == nil, action != "sms.send" {
                 self.error = "操作未成功，请核对连接与模块能力后重试。"
             }
             return false
@@ -888,6 +957,18 @@ final class CloudV2Model: ObservableObject {
             case .rejected:
                 lastSMSResolution = (pending.commandID, false)
             default: break
+            }
+            if let resolution = lastSMSResolution, resolution.commandID == pending.commandID,
+               let index = history.outgoingMessages?.firstIndex(where: { $0.commandID == pending.commandID && $0.identity == pending.binding.identity }) {
+                history.outgoingMessages?[index].state = resolution.succeeded ? "sent" : "failed"
+                if let messageID = machine.receiptMessageID {
+                    let binding = pending.binding
+                    let storedID = binding.identity.account + binding.moduleID + binding.bootID + binding.backendEpoch + messageID
+                    if history.outgoingMessages?[index].storedMessageIDs.contains(storedID) == false {
+                        history.outgoingMessages?[index].storedMessageIDs.append(storedID)
+                    }
+                }
+                historyDirty = true
             }
             if let retry = history.pendingMessageRetry, let resolution = lastSMSResolution,
                retry.commandID == resolution.commandID {

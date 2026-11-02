@@ -405,7 +405,7 @@ private struct A1SIMCardFace: View {
                 Label(isDefault ? "默认呼出" : "通话与短信", systemImage: isDefault ? "checkmark.circle.fill" : "phone")
                     .font(.footnote.weight(.medium))
                 Spacer(minLength: 8)
-                Text("AirSIM")
+                Text("SkySIM")
                     .font(.footnote.weight(.semibold))
                     .accessibilityHidden(true)
             }

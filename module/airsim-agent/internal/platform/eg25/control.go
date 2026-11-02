@@ -28,21 +28,23 @@ type voiceCall struct {
 	direction int
 }
 type Session struct {
-	mu       sync.Mutex
-	at       Controller
-	epoch    string
-	sequence uint64
-	calls    map[int]voiceCall
-	sms      *SMSLedger
-	events   chan hal.ControlEvent
-	overflow chan struct{}
-	done     chan struct{}
-	dropped  atomic.Uint64
-	cancel   context.CancelFunc
+	mu          sync.Mutex
+	at          Controller
+	epoch       string
+	sequence    uint64
+	calls       map[int]voiceCall
+	sms         *SMSLedger
+	diagnostics *SMSDiagnostics
+	previousSMS map[string]bool
+	events      chan hal.ControlEvent
+	overflow    chan struct{}
+	done        chan struct{}
+	dropped     atomic.Uint64
+	cancel      context.CancelFunc
 }
 
 // Connect starts a control session; ledger may be nil for an in-memory ledger.
-func Connect(ctx context.Context, port Controller, ledger *SMSLedger) (*Session, error) {
+func Connect(ctx context.Context, port Controller, ledger *SMSLedger, diagnostics ...*SMSDiagnostics) (*Session, error) {
 	if port == nil {
 		return nil, errors.New("backend_unavailable")
 	}
@@ -60,6 +62,9 @@ func Connect(ctx context.Context, port Controller, ledger *SMSLedger) (*Session,
 	}
 	child, cancel := context.WithCancel(ctx)
 	s := &Session{at: port, epoch: epoch, calls: map[int]voiceCall{}, sms: ledger, events: make(chan hal.ControlEvent, 128), overflow: make(chan struct{}, 1), done: make(chan struct{}), cancel: cancel}
+	if len(diagnostics) > 0 {
+		s.diagnostics = diagnostics[0]
+	}
 	go s.run(child)
 	return s, nil
 }

@@ -1,4 +1,6 @@
-/** Page-level contract. No credentials or wire-protocol fields enter the view. */
+import type { SMSDiagnostics } from './sms-diagnostics';
+
+/** Page-level contract. No credentials enter the view. */
 export interface Device {
   id: string;
   name: string;
@@ -8,7 +10,7 @@ export interface Device {
 
 export interface EngineStatus {
   profile?: string;
-  state: 'ready' | 'starting' | 'missing' | 'incomplete' | 'outdated' | 'unavailable';
+  state: 'ready' | 'starting' | 'missing' | 'incomplete' | 'outdated' | 'unavailable' | 'adb_disabled';
   installedVersion?: string;
   targetVersion?: string;
   compatible: boolean;
@@ -27,7 +29,7 @@ export type ConnectionResult =
   | { state: 'connected'; online: boolean }
   | { state: 'failed' };
 
-export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'unsupported' | 'not_ready' | 'paired' | 'install_reconnect' | 'install_failed' | 'failed' | 'unknown';
+export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'timeout' | 'unsupported' | 'not_ready' | 'paired' | 'install_reconnect' | 'install_failed' | 'release_unavailable' | 'adb_failed' | 'adb_reconnect' | 'failed' | 'unknown';
 
 export class TransportFailure extends Error {
   constructor(readonly code: FailureCode, readonly detail?: string) { super(code); }
@@ -38,8 +40,12 @@ export interface DeviceTransport {
   listGrantedDevices(signal: AbortSignal): Promise<readonly Device[]>;
   requestDevice(signal: AbortSignal): Promise<Device>;
   inspect(device: Device, signal: AbortSignal): Promise<Device>;
+  /** Explicitly enable supported factory firmware's ADB and restart the module. */
+  enableAdb(device: Device, signal: AbortSignal, progress: (message: string) => void): Promise<void>;
   /** Installs the served Engine release and enables persistent boot startup. */
   install(device: Device, signal: AbortSignal, progress: (message: string) => void): Promise<Device>;
+  /** Read-only, count-only EG25 diagnostics via the Agent's private socket. */
+  diagnoseSMS(device: Device, signal: AbortSignal): Promise<SMSDiagnostics>;
   /** Repeated delivery of the same Operation must not start another write. */
   connect(operation: Operation, signal: AbortSignal): Promise<ConnectionResult>;
   status(operation: Operation, signal: AbortSignal): Promise<ConnectionResult>;

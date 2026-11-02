@@ -52,7 +52,11 @@ struct A1MessagesView: View {
             .navigationSplitViewStyle(.balanced)
             .environment(\.horizontalSizeClass, wideLayout ? .regular : .compact)
             .sheet(isPresented: $showingComposer, onDismiss: { pendingRecipient = nil }) {
-                A1NewMessageView(initialRecipient: pendingRecipient ?? "")
+                A1NewMessageView(initialRecipient: pendingRecipient ?? "") { conversation in
+                    selectedLine = nil
+                    search = ""
+                    selectedConversation = conversation
+                }
             }
             .task { await model.loadMessagesFromAgent(silently: true) }
             .onAppear { openPendingConversation(); openPendingComposer() }
@@ -274,10 +278,8 @@ private struct A1MessageThreadView: View {
     let conversation: SMSConversationID
     var embedded = false
     var showsContentTitle = false
-    @State private var sending = false
     @State private var showingInfo = false
-    @State private var sendStatus: String?
-    @State private var positionedHistory = false
+    @State private var positionedMessageID: String?
     private var messages: [AccountSMSMessage] {
         model.accountSMSThreads.first { $0.id == conversation }?.messages ?? []
     }
@@ -285,19 +287,16 @@ private struct A1MessageThreadView: View {
         Binding(get: { model.smsDraft(for: conversation) }, set: { model.setSMSDraft($0, for: conversation) })
     }
     private var canSend: Bool {
-        !sending && model.canSendSMS(in: conversation)
+        model.canSendSMS(in: conversation)
             && !draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     private var scrollsStatus: Bool { dynamicTypeSize.isAccessibilitySize || verticalSizeClass == .compact }
-    private var failed: Bool { messages.contains { $0.canRetry } }
     private var senderStatus: some View {
         VStack(spacing: 8) {
-            if let sendStatus { Text(sendStatus).font(A1Typography.font(12)).foregroundStyle(A1Palette.negative) }
             A1ModuleLabel(title: "发送自 \(model.lineTitle(moduleID: conversation.moduleID))", signal: model.moduleSignal(moduleID: conversation.moduleID))
                 .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
         }
     }
-    private var assetPrefix: String { failed ? "a1-sms-failure-" : "a1-sms-thread-" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -325,6 +324,7 @@ private struct A1MessageThreadView: View {
                                 .id(message.id)
                         }
                         if scrollsStatus { senderStatus.padding(.top, 16) }
+                        Color.clear.frame(height: 1).id("sms-bottom")
                     }.padding(.horizontal, 20).padding(.bottom, 20)
                         .background {
                             GeometryReader { content in
@@ -334,20 +334,18 @@ private struct A1MessageThreadView: View {
                     }
                     .scrollDismissesKeyboard(.interactively)
                     .onPreferenceChange(A1SMSContentHeight.self) { height in
-                        guard !positionedHistory, viewport.size.height > 0, height > 0, let last = messages.last else { return }
-                        positionedHistory = true
-                        if height > viewport.size.height { proxy.scrollTo(last.id, anchor: .bottom) }
+                        guard viewport.size.height > 0, height > 0, let last = messages.last,
+                              positionedMessageID != last.id else { return }
+                        positionedMessageID = last.id
+                        scrollToBottom(proxy)
                     }
-                    .onChange(of: messages.count) { _ in
-                        if let last = messages.last {
-                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) }
-                        }
-                    }
+                    .onChange(of: viewport.size.height) { _ in scrollToBottom(proxy) }
+                    .onChange(of: messages.last?.canRetry) { _ in scrollToBottom(proxy) }
                 }
             }
             VStack(spacing: 8) {
                 if !scrollsStatus { senderStatus }
-                A1SMSComposerBar(text: draft, canSend: canSend, sending: sending, asset: embedded ? "a1-duo-sms-send" : assetPrefix + "send", send: send)
+                A1SMSComposerBar(text: draft, canSend: canSend, send: send)
             }.padding(.horizontal, 20).padding(.bottom, 10).padding(.top, 12)
         }
         .frame(maxWidth: 600).frame(maxWidth: .infinity)
@@ -362,12 +360,6 @@ private struct A1MessageThreadView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .airsimOpenIncomingCall)) { _ in showingInfo = false }
-        .onChange(of: model.smsSendOutcome(for: conversation)) { outcome in
-            if let outcome { showOutcome(outcome) }
-        }
-        .onAppear {
-            if let outcome = model.smsSendOutcome(for: conversation) { showOutcome(outcome) }
-        }
         .sheet(isPresented: $showingInfo) {
             NavigationStack {
                 Form {
@@ -388,6 +380,17 @@ private struct A1MessageThreadView: View {
             || !Calendar.current.isDate(messages[index].timestamp, inSameDayAs: messages[index - 1].timestamp)
     }
 
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        // A new bubble and the keyboard both change the viewport. Scroll after
+        // that layout pass, using an anchor that exists even before insertion.
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                proxy.scrollTo("sms-bottom", anchor: .bottom)
+            }
+        }
+    }
+
     private func messageSpacing(at index: Int) -> CGFloat {
         guard index > 0 else { return 0 }
         return messages[index - 1].direction == messages[index].direction ? 8 : 16
@@ -395,61 +398,38 @@ private struct A1MessageThreadView: View {
 
     private func messageBubble(_ message: AccountSMSMessage) -> some View {
         let outgoing = message.direction == "outgoing"
-        return HStack(alignment: .top) {
-            if outgoing { Spacer(minLength: dynamicTypeSize.isAccessibilitySize ? 16 : 56) }
-            VStack(alignment: outgoing ? .trailing : .leading, spacing: 8) {
-                Text(message.text).font(A1Typography.font(17))
-                    .textSelection(.enabled)
-                    .frame(minHeight: 21)
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .foregroundStyle(outgoing ? .white : A1Palette.ink)
-                    .background(outgoing ? A1Palette.accentFill : A1Palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                if outgoing {
-                    if message.canRetry {
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text(message.statusText).font(A1Typography.font(12)).foregroundStyle(A1Palette.negative)
-                            Button {
-                                sending = true
-                                Task {
-                                    let outcome = await model.retrySMS(message)
-                                    sending = false
-                                    showOutcome(outcome)
-                                }
-                            } label: {
-                                A1ModuleLabel(title: "使用\(model.lineTitle(moduleID: conversation.moduleID))重试", signal: model.moduleSignal(moduleID: conversation.moduleID))
-                            }
-                            .font(A1Typography.font(14, weight: .medium)).foregroundStyle(A1Palette.linkBlue)
-                            .frame(minHeight: 44)
-                            .disabled(sending || !model.canSendSMS(in: conversation))
-                            .accessibilityIdentifier("a1-message-retry")
-                        }.frame(maxWidth: .infinity, alignment: .trailing)
-                    } else if message.state != "sent" {
-                        Text(message.statusText)
-                            .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
-                    }
+        return HStack(alignment: .center, spacing: 4) {
+            if outgoing { Spacer(minLength: dynamicTypeSize.isAccessibilitySize ? 8 : 32) }
+            if message.canRetry {
+                Button {
+                    Task { await model.retrySMS(message) }
+                } label: {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(A1Palette.negative)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(!model.canSendSMS(in: conversation))
+                .accessibilityLabel("发送失败，点击重发")
+                .accessibilityHint("使用\(model.lineTitle(moduleID: conversation.moduleID))重新发送这条短信")
+                .accessibilityIdentifier("a1-message-retry")
             }
+            Text(message.text).font(A1Typography.font(17))
+                .textSelection(.enabled)
+                .frame(minHeight: 21)
+                .padding(.horizontal, 16).padding(.vertical, 12)
+                .foregroundStyle(outgoing ? .white : A1Palette.ink)
+                .background(outgoing ? A1Palette.accentFill : A1Palette.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .accessibilityIdentifier("a1-message-bubble")
             if !outgoing { Spacer(minLength: dynamicTypeSize.isAccessibilitySize ? 16 : 56) }
         }
     }
 
     private func send() {
         guard canSend else { return }
-        let body = draft.wrappedValue
-        sending = true
-        Task {
-            let outcome = await model.sendSMS(in: conversation, content: body)
-            sending = false
-            showOutcome(outcome)
-            if case .sent = outcome, draft.wrappedValue == body { draft.wrappedValue = "" }
-        }
-    }
-    private func showOutcome(_ outcome: SMSSendOutcome) {
-        switch outcome {
-        case .sent: sendStatus = nil
-        case .notSent: sendStatus = "未发送，草稿已保留"
-        case .unknown: sendStatus = "发送结果待核对，请勿重复发送"
-        }
+        model.submitSMS(in: conversation, content: draft.wrappedValue)
     }
 }
 
@@ -458,8 +438,6 @@ private struct A1SMSComposerBar: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Binding var text: String
     let canSend: Bool
-    let sending: Bool
-    let asset: String
     let send: () -> Void
     @FocusState private var editing: Bool
     var body: some View {
@@ -473,14 +451,12 @@ private struct A1SMSComposerBar: View {
                 .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(editing ? A1Palette.accent : A1Palette.separator, lineWidth: 1))
                 .accessibilityLabel("短信内容").accessibilityIdentifier("message-reply")
             Button(action: send) {
-                Group {
-                    if sending { ProgressView().tint(.white) }
-                    else { Image(systemName: "arrow.up").font(.body.weight(.semibold)).foregroundStyle(canSend ? .white : A1Palette.secondary) }
-                }
-                .frame(width: 44, height: 44)
-                .background(canSend || sending ? A1Palette.accentFill : A1Palette.gray, in: Circle())
+                Image(systemName: "arrow.up").font(.body.weight(.semibold))
+                    .foregroundStyle(canSend ? .white : A1Palette.secondary)
+                    .frame(width: 44, height: 44)
+                    .background(canSend ? A1Palette.accentFill : A1Palette.gray, in: Circle())
             }.buttonStyle(A1PressButtonStyle()).disabled(!canSend)
-                .accessibilityLabel(sending ? "正在发送" : "发送").accessibilityIdentifier("message-send")
+                .accessibilityLabel("发送").accessibilityIdentifier("message-send")
         }
         .onDisappear { editing = false }
     }
@@ -507,24 +483,24 @@ private struct A1NewMessageView: View {
     @State private var recipient: String
     @State private var selectedLine: String?
     @State private var content = ""
-    @State private var sending = false
     @State private var showingContacts = false
-    @State private var lockedConversation: SMSConversationID?
-    @State private var sendStatus: String?
     @State private var initialized = false
     @State private var draftConversation: SMSConversationID?
-    @State private var lastSubmittedText: String?
     @State private var confirmingDiscard = false
     @FocusState private var editingRecipient: Bool
 
-    init(initialRecipient: String) { _recipient = State(initialValue: initialRecipient) }
+    let onSubmit: (SMSConversationID) -> Void
+    init(initialRecipient: String, onSubmit: @escaping (SMSConversationID) -> Void) {
+        _recipient = State(initialValue: initialRecipient)
+        self.onSubmit = onSubmit
+    }
 
     private var conversation: SMSConversationID? {
-        lockedConversation ?? model.smsConversation(to: ContactStore.normalized(recipient), moduleID: selectedLine)
+        model.smsConversation(to: ContactStore.normalized(recipient), moduleID: selectedLine)
     }
     private var canSend: Bool {
         guard let conversation, !conversation.peer.isEmpty else { return false }
-        return !sending && model.canSendSMS(in: conversation)
+        return model.canSendSMS(in: conversation)
             && !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     private var hasUnassignedDraft: Bool {
@@ -540,7 +516,6 @@ private struct A1NewMessageView: View {
     private var scrollsStatus: Bool { dynamicTypeSize.isAccessibilitySize || verticalSizeClass == .compact }
     private var senderStatus: some View {
         VStack(spacing: 8) {
-            if let sendStatus { Text(sendStatus).font(A1Typography.font(12)).foregroundStyle(A1Palette.negative) }
             A1ModuleLabel(title: "发送自 \(model.lineTitle(moduleID: conversation?.moduleID ?? selectedLine))", signal: model.moduleSignal(moduleID: conversation?.moduleID ?? selectedLine))
                 .font(A1Typography.font(12)).foregroundStyle(A1Palette.secondary)
         }
@@ -561,11 +536,10 @@ private struct A1NewMessageView: View {
                         .frame(minHeight: 44)
                         .onSubmit { switchDraft() }
                         .accessibilityIdentifier("a1-message-recipient")
-                        .disabled(lockedConversation != nil)
                     Button { showingContacts = true } label: {
                         A1AssetIcon("a1-contacts-plus").frame(width: 44, height: 44)
                             .background(A1Palette.soft, in: Circle())
-                    }.accessibilityLabel("从通讯录选择").disabled(lockedConversation != nil)
+                    }.accessibilityLabel("从通讯录选择")
                 }
                 .padding(.horizontal, 16).padding(.vertical, 8)
                 .background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -576,7 +550,7 @@ private struct A1NewMessageView: View {
                         Spacer()
                     }.accessibilityLabel("已识别联系人：\(contact.name)")
                 }
-                if !suggestions.isEmpty && lockedConversation == nil {
+                if !suggestions.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(suggestions) { contact in
@@ -604,7 +578,7 @@ private struct A1NewMessageView: View {
                         A1ModuleLabel(title: model.lineTitle(moduleID: conversation?.moduleID ?? selectedLine), signal: model.moduleSignal(moduleID: conversation?.moduleID ?? selectedLine))
                         A1AssetIcon("a1-detail-down")
                     }.font(.subheadline).padding(16).background(A1Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }.disabled(lockedConversation != nil)
+                }
                     .accessibilityIdentifier("sms-compose-line-picker")
                 if scrollsStatus { senderStatus }
             }
@@ -622,7 +596,7 @@ private struct A1NewMessageView: View {
                         content = body
                         if let draftConversation { model.setSMSDraft(body, for: draftConversation) }
                     }
-                ), canSend: canSend, sending: sending, asset: "a1-sms-thread-send", send: send)
+                ), canSend: canSend, send: send)
             }
             .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 10)
             .frame(maxWidth: 600).frame(maxWidth: .infinity)
@@ -636,9 +610,9 @@ private struct A1NewMessageView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") {
                     switchDraft()
                     if hasUnassignedDraft { confirmingDiscard = true } else { dismiss() }
-                }.disabled(sending) }
+                } }
             }
-            .interactiveDismissDisabled(sending || hasUnassignedDraft)
+            .interactiveDismissDisabled(hasUnassignedDraft)
             .confirmationDialog("放弃这条短信？", isPresented: $confirmingDiscard, titleVisibility: .visible) {
                 Button("放弃短信", role: .destructive) { dismiss() }
                 Button("继续编辑", role: .cancel) { }
@@ -657,9 +631,6 @@ private struct A1NewMessageView: View {
             .onChange(of: editingRecipient) { editing in
                 if !editing { switchDraft() }
             }
-            .onChange(of: lockedConversation.flatMap { model.smsSendOutcome(for: $0) }) { outcome in
-                if !sending, let outcome { showOutcome(outcome) }
-            }
             .task { await contacts.loadIfAuthorized() }
         }
     }
@@ -676,38 +647,15 @@ private struct A1NewMessageView: View {
         } else if hadTarget {
             content = ""
         }
-        sendStatus = nil
     }
 
     private func send() {
         switchDraft()
-        guard canSend, let conversation else { return }
-        let body = content
-        lockedConversation = conversation
-        lastSubmittedText = body
-        model.setSMSDraft(body, for: conversation)
-        sending = true
-        Task {
-            let outcome = await model.sendSMS(in: conversation, content: body)
-            sending = false
-            showOutcome(outcome)
-        }
-    }
-
-    private func showOutcome(_ outcome: SMSSendOutcome) {
-        switch outcome {
-        case .sent:
-            sendStatus = nil
-            if let lastSubmittedText, content == lastSubmittedText {
-                content = ""
-                if let lockedConversation, model.smsDraft(for: lockedConversation) == lastSubmittedText {
-                    model.setSMSDraft("", for: lockedConversation)
-                }
-                dismiss()
-            }
-        case .notSent: sendStatus = "未发送，草稿已保留。重试仍使用原号卡。"
-        case .unknown: sendStatus = "发送结果待核对，请勿重复发送。草稿已保留。"
-        }
+        guard canSend, let conversation,
+              model.submitSMS(in: conversation, content: content) else { return }
+        content = ""
+        onSubmit(conversation)
+        dismiss()
     }
 }
 

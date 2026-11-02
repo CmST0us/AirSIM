@@ -258,6 +258,24 @@ final class CloudV2Tests: XCTestCase {
         XCTAssertFalse(gate.accepts(first)); XCTAssertTrue(gate.accepts(second))
         _ = gate.start(v2Config(client: v2OtherID)); XCTAssertFalse(gate.accepts(second))
     }
+    func testSixDigitNumberContract() throws {
+        let valid = ["123456", "012345", "+123456", "1234567", "+12025550123", "123456789012345", "+123456789012345"]
+        let invalid = ["", "12345", "+12345", "1234567890123456", "１２３４５６", "123 456", "123-456", "123456\n", "123456\r", "123456;", "*123456#", "123456+", "++123456"]
+        for action in ["call.dial", "sms.send"] {
+            for number in valid {
+                var args = ["number": number]
+                if action == "sms.send" { args["text"] = "synthetic" }
+                let command = try V2Command(binding: v2Binding(), action: action, args: args, now: v2Now)
+                let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(command)) as? [String: Any])
+                XCTAssertEqual((encoded["args"] as? [String: String])?["number"], number)
+            }
+            for number in invalid {
+                var args = ["number": number]
+                if action == "sms.send" { args["text"] = "synthetic" }
+                XCTAssertThrowsError(try V2Command(binding: v2Binding(), action: action, args: args, now: v2Now), "\(action): \(number.debugDescription)")
+            }
+        }
+    }
     func testCommandArgumentsAndUTF16Boundaries() throws {
         XCTAssertNoThrow(try V2Command(binding: v2Binding(), action: "sms.send", args: ["number": "+12345678901", "text": String(repeating: "😀", count: 35)], now: v2Now))
         XCTAssertThrowsError(try V2Command(binding: v2Binding(), action: "sms.send", args: ["number": "+12345678901", "text": String(repeating: "😀", count: 35) + "a"], now: v2Now))
@@ -1316,6 +1334,7 @@ extension CloudV2Tests {
     var receiptCompletionAfter = 1
     var receiptFails = false
     var receiptUnknown = false
+    var receiptMessageID: String?
     var commands: [[String: Any]] = []
     init(media: V2MediaCoordinator? = nil, pushController: V2PushController? = .shared, restoredOwner: V2CallContext? = nil, restoredPending: V2PendingCommand? = nil, ringback: V2Ringback? = nil) throws {
         defaults = UserDefaults(suiteName: suite)!
@@ -1340,6 +1359,9 @@ extension CloudV2Tests {
                     return V2HTTPResponse(status: 200, body: try v2Data(["command_id": id, "state": receiptUnknown ? "outcome_unknown" : "pending", "generation": v2ID, "receipt": NSNull()]))
                 }
                 var result = try JSONSerialization.jsonObject(with: v2Accepted(id: id, action: command["action"] as! String)) as! [String: Any]
+                if let receiptMessageID {
+                    var receipt = result["receipt"] as! [String: Any]; receipt["message_id"] = receiptMessageID; result["receipt"] = receipt
+                }
                 if receiptFails {
                     var receipt = result["receipt"] as! [String: Any]; receipt["state"] = "failed"; result["receipt"] = receipt
                 }
@@ -2363,7 +2385,7 @@ extension CloudV2Tests {
         await fixture.close()
     }
 
-    @MainActor func testUnknownSMSUsesResolvedReceiptToRestoreDraftActions() async throws {
+    @MainActor func testUnknownSMSResolvesBubbleWithoutRestoringSubmittedDraft() async throws {
         for failed in [false, true] {
             let fixture = try V2PollFixture()
             fixture.delayedReceipts = true
@@ -2380,8 +2402,8 @@ extension CloudV2Tests {
             fixture.receiptCompletionAfter = 0
             await fixture.model.recoverPending()
             app.projectCloudState()
-            XCTAssertEqual(app.smsSendOutcome(for: conversation), failed ? .notSent : .sent)
-            XCTAssertEqual(app.smsDraft(for: conversation), failed ? "待核对测试" : "")
+            XCTAssertEqual(app.accountSMSThreads.first?.lastMessage.state, failed ? "failed" : "sent")
+            XCTAssertEqual(app.smsDraft(for: conversation), "")
             XCTAssertTrue(app.canSendSMS(in: conversation))
             XCTAssertEqual(fixture.writes, 1)
             await fixture.close()
@@ -2407,7 +2429,7 @@ extension CloudV2Tests {
         let reloadedApp = AppModel(cloudV2: reloadedCloud)
         reloadedApp.projectCloudState()
         XCTAssertEqual(reloadedApp.accountSMSThreads.first?.lastMessage.canRetry, false)
-        XCTAssertEqual(reloadedCloud.history.retriedMessageIDs, [original.id])
+        XCTAssertEqual(reloadedCloud.history.outgoingMessages?.first?.storedMessageIDs, [original.id])
         let repeated = await app.retrySMS(original)
         XCTAssertEqual(repeated, .unknown)
         XCTAssertEqual(fixture.writes, 1)
@@ -2433,7 +2455,7 @@ extension CloudV2Tests {
             let original = try XCTUnwrap(app.accountSMSThreads.first?.lastMessage)
             let outcome = await app.retrySMS(original)
             XCTAssertEqual(outcome, .unknown)
-            XCTAssertNotNil(fixture.model.history.pendingMessageRetry)
+            XCTAssertNotNil(fixture.model.history.outgoingMessages?.first?.commandID)
             await fixture.model.stop()
             fixture.receiptCompletionAfter = 0
             let restored = CloudV2Model(client: V2Client(transport: fixture.transport, tokens: fixture.tokens,
@@ -2448,7 +2470,7 @@ extension CloudV2Tests {
             restoredApp.projectCloudState()
             XCTAssertNil(restored.history.pendingMessageRetry)
             XCTAssertEqual(restoredApp.accountSMSThreads.first?.lastMessage.canRetry, failed)
-            XCTAssertEqual(restored.history.retriedMessageIDs?.contains(original.id) == true, !failed)
+            XCTAssertEqual(restored.history.outgoingMessages?.first?.state, failed ? "failed" : "sent")
             XCTAssertEqual(fixture.writes, 1)
             await fixture.close()
         }
@@ -2701,5 +2723,129 @@ extension CloudV2Tests {
         valid = false
         try await v2PollWait { !revoked.active }
         XCTAssertEqual(revoked.lastFailure?.code, .stale)
+    }
+}
+
+
+extension CloudV2Tests {
+    @MainActor func testSMSBubbleAppearsBeforeNetworkAndFailureRetriesSameRow() async throws {
+        let fixture = try V2PollFixture()
+        fixture.commandHTTPStatus = 409
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.messagingReady }
+        let app = AppModel(cloudV2: fixture.model)
+        let conversation = try XCTUnwrap(app.smsConversation(to: "000000"))
+        app.setSMSDraft("optimistic fixture", for: conversation)
+        XCTAssertTrue(app.submitSMS(in: conversation, content: "optimistic fixture"))
+        let bubble = try XCTUnwrap(app.accountSMSThreads.first?.lastMessage)
+        XCTAssertEqual(bubble.text, "optimistic fixture")
+        XCTAssertEqual(bubble.state, "pending")
+        XCTAssertFalse(bubble.canRetry)
+        XCTAssertEqual(fixture.writes, 0)
+        XCTAssertEqual(app.smsDraft(for: conversation), "")
+        XCTAssertFalse(app.submitSMS(in: conversation, content: "duplicate tap"))
+        app.setSMSDraft("next draft", for: conversation)
+        try await v2PollWait { app.canSendSMS(in: conversation) }
+        XCTAssertNil(app.errorMessage)
+        let failed = try XCTUnwrap(app.accountSMSThreads.first?.lastMessage)
+        XCTAssertEqual(failed.id, bubble.id)
+        XCTAssertTrue(failed.canRetry)
+        let restored = CloudV2Model(defaults: fixture.defaults, root: fixture.root, tokens: fixture.tokens, now: { v2Now })
+        let restoredApp = AppModel(cloudV2: restored)
+        restoredApp.projectCloudState()
+        XCTAssertEqual(restoredApp.accountSMSThreads.first?.lastMessage, failed)
+        fixture.commandHTTPStatus = 200
+        let result = await app.retrySMS(failed)
+        XCTAssertEqual(result, .sent)
+        XCTAssertEqual(app.accountSMSThreads.first?.messages.count, 1)
+        XCTAssertEqual(app.accountSMSThreads.first?.lastMessage.id, bubble.id)
+        XCTAssertFalse(app.accountSMSThreads.first!.lastMessage.canRetry)
+        XCTAssertEqual(app.smsDraft(for: conversation), "next draft")
+        let duplicate = await app.retrySMS(failed)
+        XCTAssertEqual(duplicate, .unknown)
+        XCTAssertEqual(fixture.writes, 2)
+        await fixture.close()
+    }
+
+    @MainActor func testSMSUnknownSurvivesRestartAndReceiptDeduplicatesOnlyExactMessage() async throws {
+        let fixture = try V2PollFixture()
+        fixture.delayedReceipts = true
+        fixture.receiptCompletionAfter = 1000
+        fixture.receiptMessageID = v2OtherID
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.messagingReady }
+        let app = AppModel(cloudV2: fixture.model)
+        let conversation = try XCTUnwrap(app.smsConversation(to: "000000"))
+        let result = await app.sendSMS(in: conversation, content: "same text")
+        XCTAssertEqual(result, .unknown)
+        let bubble = try XCTUnwrap(app.accountSMSThreads.first?.lastMessage)
+        XCTAssertFalse(bubble.canRetry)
+        XCTAssertNil(app.errorMessage)
+        await fixture.model.stop()
+        fixture.receiptCompletionAfter = 0
+        // The same body can occur twice; only the ID from the receipt is collapsed.
+        fixture.snapshotMessages = [v2ID, v2OtherID].map {
+            ["message_id": $0, "direction": "outgoing", "sender": "", "recipient": "000000",
+             "text": "same text", "state": "sent", "delivery": "unknown", "observed_at": V2Validation.timestamp(v2Now)]
+        }
+        let restored = CloudV2Model(client: V2Client(transport: fixture.transport, tokens: fixture.tokens,
+            now: { fixture.currentNow }), defaults: fixture.defaults, root: fixture.root,
+            tokens: fixture.tokens, now: { fixture.currentNow })
+        fixture.model = restored
+        let restoredApp = AppModel(cloudV2: restored)
+        restoredApp.projectCloudState()
+        XCTAssertEqual(restoredApp.accountSMSThreads.first?.lastMessage.id, bubble.id)
+        XCTAssertFalse(restoredApp.accountSMSThreads.first!.lastMessage.canRetry)
+        await restored.sceneChanged(.active)
+        try await v2PollWait { !restored.hasUnresolvedCommand && restored.visibleMessages.count == 2 }
+        restoredApp.projectCloudState()
+        XCTAssertEqual(restoredApp.accountSMSThreads.first?.messages.count, 2)
+        XCTAssertEqual(restoredApp.accountSMSThreads.first?.messages.filter { $0.id == bubble.id }.count, 1)
+        XCTAssertEqual(restored.history.outgoingMessages?.first?.state, "sent")
+        restored.clearCurrentMessages()
+        restoredApp.projectCloudState()
+        XCTAssertTrue(restoredApp.accountSMSThreads.isEmpty)
+        XCTAssertTrue(restored.history.outgoingMessages?.isEmpty == true)
+        XCTAssertEqual(restored.history.clearedMessageIDs?.count, 2)
+        XCTAssertEqual(fixture.writes, 1)
+        let journal = try? Data(contentsOf: fixture.root.appendingPathComponent("pending.json"))
+        XCTAssertNil(journal)
+        await fixture.close()
+    }
+}
+
+extension CloudV2Tests {
+    @MainActor func testSMSHistoryWriteFailureKeepsDraftAndDoesNotPost() async throws {
+        let fixture = try V2PollFixture()
+        fixture.commandHTTPStatus = 200
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.messagingReady }
+        let app = AppModel(cloudV2: fixture.model)
+        let conversation = try XCTUnwrap(app.smsConversation(to: "000000"))
+        app.setSMSDraft("unsaved fixture", for: conversation)
+        let file = fixture.root.appendingPathComponent("history.json")
+        try? FileManager.default.removeItem(at: file)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: true)
+        XCTAssertFalse(app.submitSMS(in: conversation, content: "unsaved fixture"))
+        XCTAssertEqual(app.smsDraft(for: conversation), "unsaved fixture")
+        XCTAssertTrue(app.accountSMSThreads.isEmpty)
+        XCTAssertEqual(fixture.writes, 0)
+        await fixture.close()
+    }
+
+    @MainActor func testSMSStagedBeforeJournalCanRetryAfterRestart() async throws {
+        let fixture = try V2PollFixture()
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.messagingReady }
+        let row = V2OutgoingMessage(id: v2OtherID, identity: v2Config().identity, moduleID: v2ID,
+            recipient: "000000", text: "interrupted fixture", timestamp: v2Now)
+        XCTAssertTrue(fixture.model.stageOutgoingMessage(row))
+        let restored = CloudV2Model(defaults: fixture.defaults, root: fixture.root, tokens: fixture.tokens, now: { v2Now })
+        let app = AppModel(cloudV2: restored)
+        app.projectCloudState()
+        XCTAssertEqual(app.accountSMSThreads.first?.lastMessage.id, row.id)
+        XCTAssertTrue(app.accountSMSThreads.first!.lastMessage.canRetry)
+        XCTAssertEqual(fixture.writes, 0)
+        await fixture.close()
     }
 }

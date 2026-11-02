@@ -1,5 +1,13 @@
 # AirSIM — Android 与 iPhone / Apple Watch 跨设备通话、短信和 VoWLAN
 
+2026-11-02 22:01：EG25 收件故障确认为 ME 短信存储满（23/23）。新版 Engine 满仓时按时间回收旧的完整短信，已在真机两次触发清理并恢复模块→云端→SkySIM 收件；用户确认测试短信已显示。网页诊断与 Engine 已通过 Workbench 发布 `sms-receive-20261102`。App、ECS 业务容器和启动器不变；另一次修复前的自主重启原因未定，详见 [收件修复](docs/EG25_SMS_RECEIVE_INVESTIGATION.md)。
+
+2026-11-02：SkySIM `0.9.6 (82)` 已进入 TestFlight 内部测试。短信点击发送立即显示气泡、清空输入；失败时气泡左侧红色感叹号可点按原号卡重发，并修复 iPad 横屏键盘遮挡。此次仅更新 App，无需额外更新 ECS 或 Engine；真实设备短信交互仍待验收。见 [短信交互](docs/IOS_SMS_INTERACTION.md) 与 [发布记录](docs/IOS_TESTFLIGHT.md)。
+
+> **SkySIM（2026-11-01）**：v2 Apple 客户端以 SkySIM 为显示名称，继续使用 `com.eric3u.airsim2`，与旧 AirSIM 独立分发。TestFlight 构建、签名和上传记录见 [SkySIM 发布说明](docs/IOS_TESTFLIGHT.md)。
+
+2026-11-02：SkySIM `0.9.6 (81)` 已进入 TestFlight 内部测试，包含 6 位短号拨号和短信修复。云端及网页 Engine 包已配套发布，模块须自行更新；真实短号通话和短信仍待验收。见 [短号更新](docs/SHORT_NUMBER_UPDATE.md)。
+
 > **v2 架构（2026-10-27）**：新 [airsim-agent](module/airsim-agent/README.md) 位于 `module/airsim-agent/`；[ECS 服务](service/airsim/README.md) 位于 `service/airsim/`，使用 [Docker Compose](service/airsim/deploy/compose/README.md)；[Worker v2](service/airsim-worker/README.md) 保留独立目录。RM500 已完成 Agent 本地与 ECS 云端通话、短信及音频限定范围验收，并已配置 BusyBox init 开机拉起和崩溃恢复；网页配对不依赖主机 ADB，部署与回滚见 [RM500U 开机启动](module/airsim-agent/RM500U_AUTOSTART.md)。App 统一使用 v2，启动与设置不再提供 v1／仅本地选择；设置仅保留设备、模块命名和外观，连接自动恢复，CallKit 接入已完成；[设备配对](docs/IOS_AIRSIM_PAIRING.md) 将“添加设备”接入真实 WebUSB、模块证明和可续期云端会话，完整原界面 UI 流程、真实 ECS claim 和模块范围绑定已验证。实体双向音频已连通，通话质量优化暂缓。旧 Agent 与旧 Worker 保留；架构边界见 [系统架构](docs/SYSTEM_ARCHITECTURE.md) 和 [Agent/HAL 架构](module/ARCHITECTURE.md)。下文发布基线与旧安装说明仍属于 v1。
 
 当前 iOS 采用“随身通信器”设计：与 iOS 电话 App 一致的 UIKit 动态系统色、系统语义字体和 SF Symbols；号卡突出真实模块身份。普通操作为系统蓝色，呼叫与接听为系统绿色，结束通话与错误为系统红色。导航保留“通话／联系人／短信／拨号键盘／号卡”五标签。iPad 和 iPhone Duo 展开窗口采用列表与详情双栏，窄窗口使用原生单栏导航。详见 [当前界面](iOS/README.md#当前界面)与 [界面设计与验证](docs/IOS_UI_REVIEW.md)。

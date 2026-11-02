@@ -390,7 +390,7 @@ struct AirSIMLiveActivityWidget: Widget {
                 EmptyView()
             }
         } else if state.phase == .incoming {
-            Text("打开 AirSIM 接听")
+            Text("打开 SkySIM 接听")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.62))
         }

@@ -1,5 +1,7 @@
 # airsim-agent v2
 
+EG25 已增加满箱按时间回收旧短信和受保护的只读短信诊断。回收按完整消息分组，避免拆散长短信，不删除 App 历史；诊断只提供容量、配置、计数和固定错误码。发布与真机验收状态见 [收件调查](../../docs/EG25_SMS_RECEIVE_INVESTIGATION.md)。`cmd/sms-maintenance` 是独立的离线维护工具，不随 Engine 分发；只允许在明确确认删除范围且 Agent 已停止时，核对固件与存储计数后执行一次 ME 全清。
+
 本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.webrtc`，依赖 godbus/dbus v5.2.2、Pion WebRTC v4 与 warthog618/sms，不依赖旧 Agent 或 RM500 CLI；未配置云端时可独立运行。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false；详细边界见 [R2 记录](R2_TESTING.md)。RM500U 的 headless 启动与恢复见[开机启动说明](RM500U_AUTOSTART.md)。
 
 支持 `rm500u-embedded` 与 `eg25-qdc507` 两个精确平台。RM500U 使用 oFono，EG25 使用 Agent 内的 AT 控制后端，两者共用 HAL、串行协调器、命令去重、本机 API、云端协议与媒体会话。EG25 固件、ARMv7 构建、DATA11、驱动、16 kHz mmap 音频和安装说明见 [EG25](../eg25/README.md)。短信 PDU 使用 `github.com/warthog618/sms v0.3.0`。
@@ -11,6 +13,10 @@ R3 已实现原生音频 helper、本机媒体会话与通话 lease；本机验�
 设备配对在现有身份上增加网页配对所需的新鲜 Ed25519 证明，不导出私钥，也不新增网络监听。实现和验证边界见 [配对记录](PAIRING_TESTING.md)。
 
 ## 范围
+
+2026-11-02 14:35：EG25 短信补修号码类型及正文编码，显式 `+` 才标记国际号码，正文先编码为 UTF-16BE 再生成 UCS-2 PDU。网页 Engine 已通过 Workbench 更新为 `sms-pdu-20261102`，仍需用户自行更新模块；没有自动重发短信，见 [修复记录](../../docs/EG25_SMS_FIX.md)。
+
+2026-11-02 放开 6 位短号：拨号与短信接受 `+?[0-9]{6,15}`，EG25 AT 拨号白名单同步调整，前导零原样传递。云端与 USB 共用此校验；ECS 和网页 Engine 包已通过 Workbench 发布，EG25 按用户指示自行更新，App 另由 TestFlight 会话发布。该变更尚未执行实体短号拨打验收，见 [部署记录](../../docs/SHORT_NUMBER_UPDATE.md)。
 
 R1 AT 只读采样与精确 RM500 profile 校验继续保留。R2 新增长期私有 oFono D-Bus 连接、串行控制协调器、有界持久去重记录及本机呼叫/短信控制。R3 Audio 已通过上述限定范围的本地内容验收，运行时 voice_ready 固定 false。
 

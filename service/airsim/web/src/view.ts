@@ -11,13 +11,17 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', 
 
 const failures: Record<FailureCode, [string, string]> = {
   cancelled: ['未选择设备', '选择设备，继续连接。'],
-  busy: ['设备被占用', '关闭使用此设备的程序。选择设备，重试连接。'],
+  busy: ['设备被占用', '关闭 Android Studio、ADB 工具及其他正在使用模块的程序；如运行过 adb，请先执行 adb kill-server，再重新选择设备。'],
   disconnected: ['设备连接已断开', '检查电源和数据线。连接原设备。'],
+  timeout: ['设备响应超时', '保持模块供电，关闭其他使用 USB 的程序后重试。'],
   unsupported: ['设备不受支持', '选择受支持的设备。'],
   not_ready: ['设备未准备', '完成设备准备后重试。'],
   paired: ['设备已连接', '重置当前连接，或选择其他设备。'],
   install_failed: ['Engine 安装失败', '检查数据线和设备权限，然后重新选择设备重试。'],
   install_reconnect: ['确认安装结果', '请再次选择原设备，完成安装状态确认。'],
+  release_unavailable: ['无法获取 Engine 版本', '检查电脑网络后重新选择设备，核对最新安装包。'],
+  adb_failed: ['模块初始化未完成', '关闭其他使用模块的程序后重试；若已开启 ADB，请重新选择设备。'],
+  adb_reconnect: ['重新选择模块', '等待模块重启后，再次选择原模块，继续安装 AirSIM Engine。若设备没有重新出现，请拔插模块电源。'],
   failed: ['连接失败', '检查设备电源和连接。选择设备，重试连接。'],
   unknown: ['无法读取设备', '检查设备连接。选择设备重试。'],
 };
@@ -52,8 +56,8 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
   dialogHead.append(title, close);
   const help = element('div', 'help-list');
   for (const [label, copy] of [
-    ['找不到设备', '检查设备电源和数据线。点击“选择设备”，核对设备名称。'],
-    ['设备被占用', '关闭使用此设备的程序。选择设备，重试连接。'],
+    ['找不到设备', '使用数据线连接模块。在“选择设备”中选择 Baiwang 或 Quectel 模块。全新 EG25 QDC507 可先开启 ADB，重启后再次选择并安装 Engine。'],
+    ['设备被占用', failures.busy[1]],
     ['连接结果未知', '保持原设备连接。点击“查询连接结果”。'],
   ]) {
     const details = element('details');
@@ -86,7 +90,8 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
         : ' · Engine 已启用 · 开机自启'
       : engine?.state === 'starting'
         ? ` · Engine ${engineVersion ? `${engineVersion} · ` : ''}启动中`
-      : engine?.state === 'missing' ? ' · Engine 未安装'
+      : engine?.state === 'adb_disabled' ? ' · 需要开启 ADB'
+        : engine?.state === 'missing' ? ' · Engine 未安装'
         : engine?.state === 'incomplete' ? ' · 缺少开机启动'
           : engine?.state === 'outdated' ? ' · Engine 可更新'
             : engine?.state === 'unavailable' ? ' · 设备架构不受支持' : '';
@@ -150,13 +155,24 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
         content.append(deviceCard(state.device)); loading(); break;
       case 'ready': {
         const engine = state.device.engine;
+        if (engine?.state === 'adb_disabled') {
+          copy('准备 EG25 模块', '开启 ADB 后即可安装 AirSIM Engine。');
+          content.append(deviceCard(state.device));
+          const note = element('div', 'install-note');
+          note.append(element('strong', '', '开启调试并重启'),
+            element('p', '', '这会持久开启模块的 USB 调试访问并重启模块。请结束通话，保持供电；重启后需再次选择原模块，继续安装。'));
+          content.append(note);
+          actions.append(button('开启 ADB 并重启', () => { void controller.enableAdb(); }), button('选择其他设备', choose, true));
+          break;
+        }
         const engineReady = !engine || engine.state === 'ready';
         const engineStarting = engine?.state === 'starting';
         const description = !engine ? '核对设备名称与标识。'
-          : engine.state === 'outdated' ? '更新运行程序并保持开机自启。'
+          : engine.state === 'missing' ? '安装运行程序并启用开机自启。'
+            : engine.state === 'outdated' ? '更新运行程序并保持开机自启。'
             : engine.state === 'incomplete' ? '补齐开机启动，重启后仍可自动运行。'
               : engine.state === 'unavailable' ? '当前部署包不支持这台设备。'
-                : engineStarting ? '保持模块供电。内核随机源完成后会自动继续，无需重新安装。'
+                : engineStarting ? '保持模块供电，等待启动完成后重新检查，无需重新安装。'
                   : '核对设备名称与标识。Engine 已启用开机自启。';
         copy(
           engineStarting ? 'Engine 正在启动' : engineReady ? '确认设备' : '安装 AirSIM Engine',
@@ -180,11 +196,48 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
           actions.append(button('选择其他设备', choose, true));
         } else {
           actions.append(button('连接设备', () => { void controller.connect(); }), button('选择其他设备', choose, true));
+          if (engine?.profile === 'eg25-qdc507') {
+            actions.append(button('短信收件诊断', () => { void controller.diagnoseSMS(); }, true));
+          }
         }
         break;
       }
+      case 'diagnosing':
+        copy('读取短信收件状态', '保持模块连接。发件过程中可能需要稍等。');
+        content.append(deviceCard(state.device)); loading();
+        break;
+      case 'diagnostics': {
+        copy('短信收件诊断', '结果仅含存储容量、接收配置和轮询计数，可复制用于排查。');
+        const report = state.report;
+        const note = element('div', 'install-note');
+        for (const [label, store] of [['读取存储', report.storage.read], ['接收存储', report.storage.receive]] as const) {
+          note.append(element('p', '', `${label}：${store ? `${store.name} · ${store.used} / ${store.total}${store.total > 0 && store.used === store.total ? ' · 已满' : ''}` : '未读取到'}`));
+        }
+        if (report.storage.error || report.notification.error || report.poll.error || report.poll.cleanup_error) {
+          note.append(element('p', '', '部分检查返回错误，详细状态已包含在结果中。'));
+        }
+        note.append(element('p', '', report.poll.observed_at
+          ? `最近一轮：${report.poll.stored_entries} 条存储记录，${report.poll.decoded_messages} 条成功解码，${report.poll.new_messages} 条新消息。`
+          : '尚无收件轮询记录。'));
+        content.append(note);
+        const result = element('textarea', 'diagnostic-result');
+        result.readOnly = true; result.rows = 14;
+        result.setAttribute('aria-label', '短信收件诊断结果');
+        result.value = JSON.stringify(report, null, 2);
+        content.append(result);
+        const copyResult = button('复制诊断结果', () => {
+          const copying = navigator.clipboard?.writeText(result.value) ?? Promise.reject();
+          void copying.then(() => { copyResult.textContent = '已复制'; }, () => {
+            result.focus(); result.select(); copyResult.textContent = '请复制已选中的结果';
+          });
+        });
+        actions.append(copyResult, button('重新读取', () => { void controller.diagnoseSMS(); }, true),
+          button('返回设备', () => { void controller.refreshDevice(); }, true));
+        break;
+      }
+      case 'enabling_adb':
       case 'installing':
-        copy('安装 AirSIM Engine', '不要断开设备电源或数据线。');
+        copy(state.kind === 'installing' ? '安装 AirSIM Engine' : '正在准备模块', '不要断开设备电源或数据线。');
         content.append(deviceCard(state.device));
         lead.textContent = state.progress;
         lead.setAttribute('role', 'status');
@@ -203,6 +256,9 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
           button('重置并继续', () => { void controller.replaceExisting(); }),
           button('选择其他设备', choose, true),
         );
+        if (state.device.engine?.profile === 'eg25-qdc507' && state.device.engine.state === 'ready') {
+          actions.append(button('短信收件诊断', () => { void controller.diagnoseSMS(); }, true));
+        }
         break;
       }
       case 'awaiting_phone': {
@@ -252,7 +308,11 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
         break;
       case 'failed': {
         const [title, description] = failures[state.code]; copy(title, description);
-        if (state.device) content.append(deviceCard(state.device));
+        if (state.device) {
+          // USB re-enumeration invalidates the pre-install/pre-ADB observation.
+          const awaitingInspection = state.code === 'install_reconnect' || state.code === 'adb_reconnect';
+          content.append(deviceCard(awaitingInspection ? { ...state.device, engine: undefined } : state.device));
+        }
         if (state.detail) content.append(element('p', 'failure-detail', state.detail));
         actions.append(button('选择设备', choose)); break;
       }

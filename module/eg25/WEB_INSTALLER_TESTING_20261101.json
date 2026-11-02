@@ -1,0 +1,247 @@
+{
+  "date": "2026-11-01",
+  "host": "macOS / Chrome",
+  "site": "https://airsim.eric3u.cc/",
+  "hardware": {
+    "profile": "eg25-qdc507",
+    "firmware": "QDC507GLEFM21_02.004.03",
+    "kernel": "3.18.44",
+    "arch": "armv7l",
+    "usb_id": "2ca3:4006"
+  },
+  "result": "passed",
+  "power_cycle": "User confirmed USB power removed for at least 10 seconds after each flow; no manual Agent start after either power cycle.",
+  "full_install": "Removed Engine program files; retained identity, cloud and state. Installed all 14 artifacts through production Chrome WebUSB.",
+  "adb_disabled": "Same previously authorized module: disabled the ADB interface, then production Chrome USB AT enabled it and restarted the module. This is not a never-authorized factory device.",
+  "boundaries": [
+    "No new cloud certificate enrollment performed.",
+    "No calls, SMS or media acceptance added by these tests.",
+    "No crash-recovery or power-loss-during-write test performed."
+  ],
+  "records": {
+    "after-update": {
+      "label": "after-update",
+      "at": "2026-11-01T23:19:04+0800",
+      "kernel_boot_id": "2e72bf84-9182-4a4f-991f-7fa3edb61235",
+      "uptime": "2552.64",
+      "agent_pids": "613",
+      "current": "releases/032488520694b1d4",
+      "init": "asm:12345:respawn:/usrdata/airsim-v2/run-agent.sh",
+      "storage": "Filesystem           1024-blocks    Used Available Capacity Mounted on\n/dev/ubi2_0              15712     15076       636  96% /cache",
+      "root_mount": "ro,relatime,bulk_read,chk_data_crc",
+      "agent_sha256": "032488520694b1d41f30275a04f1f219d4e021801d3041998e0b1a33f4e49fc9",
+      "launcher_sha256": "05c2d0eea116f9460a4e118160e495394d118e2b5136413ea549dd693bd290f8",
+      "audio_sha256": "fe64816ff1941d24cd34944b9e85287485b5a84cf2aae3500e140ea3d94c6b13",
+      "identity_sha256": "cd38ff3c6bc3150dffa435dbdb239fef54a9e9de23febdc27a4b9b32f926eec2",
+      "cloud_sha256": "72d0c7aa582a53523087f5494f1899d338f801f164fc6861b5f316f8da28eef3",
+      "process_613": {
+        "parent": "1",
+        "sha256": "032488520694b1d41f30275a04f1f219d4e021801d3041998e0b1a33f4e49fc9"
+      },
+      "/healthz": {
+        "status": 200,
+        "body": {
+          "status": "ok",
+          "version": "2.0.0-dev.webrtc",
+          "agent_boot_id": "356170dd-f956-4e77-b39b-a500d30259da"
+        }
+      },
+      "/readyz": {
+        "status": 200,
+        "body": {
+          "ready": true,
+          "scope": "read_only",
+          "degraded": true,
+          "voice_ready": false,
+          "reasons": [
+            "not_supported"
+          ]
+        }
+      },
+      "/v2/local/calls": {
+        "status": 200,
+        "body": {
+          "available": true,
+          "count": 0,
+          "states": []
+        }
+      },
+      "/v2/local/cloud": {
+        "status": 200,
+        "body": {
+          "configured": true,
+          "connected": true,
+          "last_error": ""
+        }
+      }
+    },
+    "update-cold-boot": {
+      "label": "update-cold-boot",
+      "at": "2026-11-01T23:20:56+0800",
+      "kernel_boot_id": "127de8bc-5d5f-448e-bb42-3b22da6a9d04",
+      "uptime": "69.61",
+      "agent_pids": "728",
+      "current": "releases/032488520694b1d4",
+      "init": "asm:12345:respawn:/usrdata/airsim-v2/run-agent.sh",
+      "storage": "Filesystem           1024-blocks    Used Available Capacity Mounted on\n/dev/ubi2_0              15712     15076       636  96% /cache",
+      "root_mount": "ro,relatime,bulk_read,chk_data_crc",
+      "agent_sha256": "032488520694b1d41f30275a04f1f219d4e021801d3041998e0b1a33f4e49fc9",
+      "launcher_sha256": "05c2d0eea116f9460a4e118160e495394d118e2b5136413ea549dd693bd290f8",
+      "audio_sha256": "fe64816ff1941d24cd34944b9e85287485b5a84cf2aae3500e140ea3d94c6b13",
+      "identity_sha256": "cd38ff3c6bc3150dffa435dbdb239fef54a9e9de23febdc27a4b9b32f926eec2",
+      "cloud_sha256": "72d0c7aa582a53523087f5494f1899d338f801f164fc6861b5f316f8da28eef3",
+      "process_728": {
+        "parent": "1",
+        "sha256": "032488520694b1d41f30275a04f1f219d4e021801d3041998e0b1a33f4e49fc9"
+      },
+      "/healthz": {
+        "status": 200,
+        "body": {
+          "status": "ok",
+          "version": "2.0.0-dev.webrtc",
+          "agent_boot_id": "f5d3f9a2-09ea-4c1d-ad6c-87de36ff7a3d"
+        }
+      },
+      "/readyz": {
+        "status": 200,
+        "body": {
+          "ready": true,
+          "scope": "read_only",
+          "degraded": true,
+          "voice_ready": false,
+          "reasons": [
+            "not_supported"
+          ]
+        }
+      },
+      "/v2/local/calls": {
+        "status": 200,
+        "body": {
+          "available": true,
+          "count": 0,
+          "states": []
+        }
+      },
+      "/v2/local/cloud": {
+        "status": 200,
+        "body": {
+          "configured": true,
+          "connected": true,
+          "last_error": ""
+        }
+      }
+    },
+    "after-fresh-install": {
+      "label": "after-fresh-install",
+      "at": "2026-11-01T23:38:09+0800",
+      "kernel_boot_id": "1cb5faab-fc33-4a82-bc1d-fdedbd9d9f8a",
+      "uptime": "584.81",
+      "agent_pids": "1564",
+      "current": "releases/032488520694b1d4",
+      "init": "asm:12345:respawn:/usrdata/airsim-v2/run-agent.sh",
+      "storage": "Filesystem           1024-blocks    Used Available Capacity Mounted on\n/dev/ubi2_0              15712      8096      7616  52% /cache",
+      "root_mount": "ro,relatime,bulk_read,chk_data_crc",
+      "agent_sha256": "032488520694b1d41f30275a04f1f219d4e021801d3041998e0b1a33f4e49fc9",
+      "launcher_sha256": "05c2d0eea116f9460a4e118160e495394d118e2b5136413ea549dd693bd290f8",
+      "audio_sha256": "fe64816ff1941d24cd34944b9e85287485b5a84cf2aae3500e140ea3d94c6b13",
+      "identity_sha256": "cd38ff3c6bc3150dffa435dbdb239fef54a9e9de23febdc27a4b9b32f926eec2",
+      "cloud_sha256": "72d0c7aa582a53523087f5494f1899d338f801f164fc6861b5f316f8da28eef3",
+      "process_1564": {
+        "parent": "1",
+        "sha256": "032488520694b1d41f30275a04f1f219d4e021801d3041998e0b1a33f4e49fc9"
+      },
+      "/healthz": {
+        "status": 200,
+        "body": {
+          "status": "ok",
+          "version": "2.0.0-dev.webrtc",
+          "agent_boot_id": "6f1f43d1-a080-4dd4-9c9d-cbf409d66720"
+        }
+      },
+      "/readyz": {
+        "status": 200,
+        "body": {
+          "ready": true,
+          "scope": "read_only",
+          "degraded": true,
+          "voice_ready": false,
+          "reasons": [
+            "not_supported"
+          ]
+        }
+      },
+      "/v2/local/calls": {
+        "status": 200,
+        "body": {
+          "available": true,
+          "count": 0,
+          "states": []
+        }
+      },
+      "/v2/local/cloud": {
+        "status": 200,
+        "body": {
+          "configured": true,
+          "connected": true,
+          "last_error": ""
+        }
+      }
+    },
+    "install-cold-boot": {
+      "label": "install-cold-boot",
+      "at": "2026-11-01T23:52:57+0800",
+      "kernel_boot_id": "6aae827c-8749-44bf-9058-dcdb60c8340b",
+      "uptime": "87.36",
+      "agent_pids": "732",
+      "current": "releases/032488520694b1d4",
+      "init": "asm:12345:respawn:/usrdata/airsim-v2/run-agent.sh",
+      "storage": "Filesystem           1024-blocks    Used Available Capacity Mounted on\n/dev/ubi2_0              15712      8096      7616  52% /cache",
+      "root_mount": "ro,relatime,bulk_read,chk_data_crc",
+      "agent_sha256": "032488520694b1d41f30275a04f1f219d4e021801d3041998e0b1a33f4e49fc9",
+      "launcher_sha256": "05c2d0eea116f9460a4e118160e495394d118e2b5136413ea549dd693bd290f8",
+      "audio_sha256": "fe64816ff1941d24cd34944b9e85287485b5a84cf2aae3500e140ea3d94c6b13",
+      "identity_sha256": "cd38ff3c6bc3150dffa435dbdb239fef54a9e9de23febdc27a4b9b32f926eec2",
+      "cloud_sha256": "72d0c7aa582a53523087f5494f1899d338f801f164fc6861b5f316f8da28eef3",
+      "process_732": {
+        "parent": "1",
+        "sha256": "032488520694b1d41f30275a04f1f219d4e021801d3041998e0b1a33f4e49fc9"
+      },
+      "/healthz": {
+        "status": 200,
+        "body": {
+          "status": "ok",
+          "version": "2.0.0-dev.webrtc",
+          "agent_boot_id": "e86ec824-6da1-4009-8995-633af50a1278"
+        }
+      },
+      "/readyz": {
+        "status": 200,
+        "body": {
+          "ready": true,
+          "scope": "read_only",
+          "degraded": true,
+          "voice_ready": false,
+          "reasons": [
+            "not_supported"
+          ]
+        }
+      },
+      "/v2/local/calls": {
+        "status": 200,
+        "body": {
+          "available": true,
+          "count": 0,
+          "states": []
+        }
+      },
+      "/v2/local/cloud": {
+        "status": 200,
+        "body": {
+          "configured": true,
+          "connected": true,
+          "last_error": ""
+        }
+      }
+    }
+  }
+}

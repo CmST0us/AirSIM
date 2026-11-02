@@ -61,12 +61,26 @@ struct V2PendingMessageRetry: Codable, Equatable {
     let commandID: String
     let originalMessageID: String
 }
+/// Presentation history, separate from the metadata-only command journal. A retry
+/// keeps this row's identity and links each confirmed backend message by receipt.
+struct V2OutgoingMessage: Codable, Identifiable, Equatable {
+    let id: String
+    let identity: V2Identity
+    let moduleID: String
+    let recipient: String
+    let text: String
+    let timestamp: Date
+    var state: String = "pending"
+    var commandID: String?
+    var storedMessageIDs: [String] = []
+}
 struct V2History: Codable {
     var messages: [V2StoredMessage] = []
     var calls: [V2StoredCall] = []
     var clearedMessageIDs: [String]? = nil
     var retriedMessageIDs: [String]? = nil
     var pendingMessageRetry: V2PendingMessageRetry? = nil
+    var outgoingMessages: [V2OutgoingMessage]? = nil
     @discardableResult
     mutating func merge(messages incoming: [V2StoredMessage]) -> Bool {
         var byID = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, newest in newest })

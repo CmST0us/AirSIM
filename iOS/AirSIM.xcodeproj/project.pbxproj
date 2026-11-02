@@ -81,6 +81,9 @@
 		A91000000000000000000006 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000006 /* OFL.txt */; };
 		A91000000000000000000009 /* A1CardsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000009 /* A1CardsView.swift */; };
 		A91000000000000000000010 /* A1CallStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91000000000000000000010 /* A1CallStateTests.swift */; };
+		A92000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B92000000000000000000001 /* PrivacyInfo.xcprivacy */; };
+		A92000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B92000000000000000000002 /* PrivacyInfo.xcprivacy */; };
+		A92000000000000000000003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B92000000000000000000003 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -216,6 +219,9 @@
 		B91000000000000000000006 /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fonts/OFL.txt"; sourceTree = "<group>"; };
 		B91000000000000000000009 /* A1CardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1CardsView.swift"; sourceTree = "<group>"; };
 		B91000000000000000000010 /* A1CallStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "A1CallStateTests.swift"; sourceTree = "<group>"; };
+		B92000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		B92000000000000000000002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		B92000000000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -274,6 +280,7 @@
 		D10000000000000000000002 /* AirSIM */ = {
 			isa = PBXGroup;
 			children = (
+				B92000000000000000000001 /* PrivacyInfo.xcprivacy */,
 				B50000000000000000000001 /* V2Client.swift */,
  B5B000000000000000000001 /* V2USB.swift */,
 				B50000000000000000000002 /* V2Commands.swift */,
@@ -360,6 +367,7 @@
 		D10000000000000000000005 /* AirSIMLiveActivityExtension */ = {
 			isa = PBXGroup;
 			children = (
+				B92000000000000000000002 /* PrivacyInfo.xcprivacy */,
 				B10000000000000000000015 /* AirSIMLiveActivityWidget.swift */,
 				B10000000000000000000016 /* Info.plist */,
 			);
@@ -388,6 +396,7 @@
 		D10000000000000000000006 /* AirSIMWatchApp */ = {
 			isa = PBXGroup;
 			children = (
+				B92000000000000000000003 /* PrivacyInfo.xcprivacy */,
 				B10000000000000000000023 /* Assets.xcassets */,
 				B1000000000000000000001F /* AirSIMWatchApp.swift */,
 				B10000000000000000000020 /* WatchCallSession.swift */,
@@ -545,6 +554,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A92000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
 				A91000000000000000000004 /* Assets.xcassets in Resources */,
 				A91000000000000000000005 /* NotoSansSC-VF.ttf in Resources */,
 				A91000000000000000000006 /* OFL.txt in Resources */,
@@ -557,6 +567,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A92000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -578,6 +589,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A92000000000000000000003 /* PrivacyInfo.xcprivacy in Resources */,
 				A10000000000000000000023 /* AppIcon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -746,7 +758,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(AIRSIM_PUSH_ENTITLEMENTS)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 79;
+				CURRENT_PROJECT_VERSION = 82;
 				DEVELOPMENT_TEAM = "";
 				AIRSIM_APNS_ENVIRONMENT = sandbox;
 				AIRSIM_PUSH_ENTITLEMENTS = "AirSIM/AirSIM.entitlements";
@@ -777,7 +789,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "$(AIRSIM_PUSH_ENTITLEMENTS)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 79;
+				CURRENT_PROJECT_VERSION = 82;
 				DEVELOPMENT_TEAM = "";
 				AIRSIM_APNS_ENVIRONMENT = production;
 				AIRSIM_PUSH_ENTITLEMENTS = "AirSIM/AirSIM.entitlements";
@@ -806,7 +818,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 79;
+				CURRENT_PROJECT_VERSION = 82;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AirSIMLiveActivityExtension/Info.plist;
@@ -832,7 +844,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 79;
+				CURRENT_PROJECT_VERSION = 82;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AirSIMLiveActivityExtension/Info.plist;
@@ -922,12 +934,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "AirSIMWatchApp/AirSIMWatchApp.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 79;
+				CURRENT_PROJECT_VERSION = 82;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "AirSIMWatchApp/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = AirSIM;
+				INFOPLIST_KEY_CFBundleDisplayName = SkySIM;
 				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.eric3u.airsim2;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
@@ -951,11 +963,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "AirSIMWatchApp/AirSIMWatchApp.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 79;
+				CURRENT_PROJECT_VERSION = 82;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "AirSIMWatchApp/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = AirSIM;
+				INFOPLIST_KEY_CFBundleDisplayName = SkySIM;
 				INFOPLIST_KEY_CFBundleIconName = AppIcon;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.eric3u.airsim2;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";

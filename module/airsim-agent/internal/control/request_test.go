@@ -23,7 +23,7 @@ func TestStrictCommand(t *testing.T) {
 	}
 }
 func TestNumbersAndSMSBudget(t *testing.T) {
-	for _, n := range []string{"*123#", "123456", "+12025550123;", " +12025550123", "1202555012345678"} {
+	for _, n := range []string{"*123#", "12345", "+12025550123;", " +12025550123", "1202555012345678"} {
 		r := testRequest()
 		r.Args.Number = n
 		if _, e := Parse(r.Canonical()); e == nil {
@@ -42,6 +42,34 @@ func TestNumbersAndSMSBudget(t *testing.T) {
 	r.Args.Text = strings.Repeat("😀", 35)
 	if _, e := Parse(r.Canonical()); e != nil {
 		t.Fatal(e)
+	}
+}
+
+func TestSixDigitNumberContract(t *testing.T) {
+	valid := []string{"123456", "012345", "+123456", "1234567", "+12025550123", "123456789012345", "+123456789012345"}
+	invalid := []string{"", "12345", "+12345", "1234567890123456", "１２３４５６", "123 456", "123-456", "123456\n", "123456\r", "123456;", "*123456#", "123456+", "++123456"}
+	for _, action := range []string{"call.dial", "sms.send"} {
+		for _, accepted := range []bool{true, false} {
+			numbers := invalid
+			if accepted {
+				numbers = valid
+			}
+			for _, n := range numbers {
+				r := testRequest()
+				r.Action = action
+				r.Args = Args{Number: n}
+				if action == "sms.send" {
+					r.Args.Text = "synthetic"
+				}
+				got, err := Parse(r.Canonical())
+				if (err == nil) != accepted {
+					t.Fatalf("%s number %q: accepted = %v, want %v", action, n, err == nil, accepted)
+				}
+				if accepted && got.Args.Number != n {
+					t.Fatal("number changed during parsing")
+				}
+			}
+		}
 	}
 }
 func TestDeadlineBudget(t *testing.T) {

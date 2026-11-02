@@ -1,0 +1,375 @@
+{
+  "release": "sms-receive-20261102",
+  "deployed_at": "2026-11-02T22:00:59.872610+08:00",
+  "instance_id": "i-wz93dhbsy21quebidepg",
+  "domain": "airsim.eric3u.cc",
+  "live_root": "/opt/airsim-v2/releases/usb-local-20261030/web/dist",
+  "stage": "/opt/airsim-v2/releases/sms-receive-20261102",
+  "backup": "/opt/airsim-v2/backups/sms-receive-20261102",
+  "files_verified_over_tls": 26,
+  "changed_files": [
+    "assets/index-BTA7mXV2.js",
+    "assets/index-Bi9Jozh_.css",
+    "engine/eg25-qdc507/airsim-agent",
+    "engine/eg25-qdc507/manifest.json",
+    "index.html"
+  ],
+  "health": {
+    "/healthz": {
+      "alive": true
+    },
+    "/readyz": {
+      "ready": true
+    }
+  },
+  "unauthorized_modules_status": "401",
+  "services_unchanged": true,
+  "services": {
+    "airsim-v2-edge-1": {
+      "id": "081c892cc3b1e6a68049acc1c372b558c04ed25b072113529229c0e9d1cf1204",
+      "started": "2026-11-01T00:15:08.926409806Z",
+      "health": "healthy"
+    },
+    "airsim-v2-control-1": {
+      "id": "ec706af1aa8a1caa3c3d66b0a40a28280d2f8f24d9e65934cfb9bc5de0def5e3",
+      "started": "2026-11-02T05:28:48.69336487Z",
+      "health": "healthy"
+    },
+    "airsim-v2-media-1": {
+      "id": "416998a3fb6cbc6a2d2aa63dd163b6eb79dabd660c96f6f1806b6eea92f07fc0",
+      "started": "2026-11-01T09:19:15.2805418Z",
+      "health": "healthy"
+    },
+    "airsim-v2-postgres-1": {
+      "id": "16bd083935e59b891924fad52743b5be27c82a42ea4a496b3dfc8629cc3e8f77",
+      "started": "2026-10-24T09:21:07.083138716Z",
+      "health": "healthy"
+    }
+  },
+  "profiles": {
+    "eg25-qdc507": {
+      "schema_version": 1,
+      "version": "2.0.0-dev.webrtc",
+      "os": "linux",
+      "arch": "arm",
+      "profile": "eg25-qdc507",
+      "agent": {
+        "path": "airsim-agent",
+        "size": 11141304,
+        "sha256": "acaaade7337fc2db2436e55f417d7fef45239c4a821a06fbd4b33226cb851505"
+      },
+      "launcher": {
+        "path": "run-agent.sh",
+        "size": 3264,
+        "sha256": "05c2d0eea116f9460a4e118160e495394d118e2b5136413ea549dd693bd290f8"
+      },
+      "audio": {
+        "path": "airsim-audiod",
+        "size": 331936,
+        "sha256": "fe64816ff1941d24cd34944b9e85287485b5a84cf2aae3500e140ea3d94c6b13"
+      },
+      "licenses": [
+        {
+          "path": "LICENSE",
+          "size": 4563,
+          "sha256": "c0ea4a896d2c8c394b29f9427589996db826cd501c512279ff0ed3ef48fabbe5"
+        },
+        {
+          "path": "NOTICE",
+          "size": 400,
+          "sha256": "82bb82e0816c778a09b7ddc8cea0f9126847d6e489bf0aeb7fb1dff2dfc54454"
+        },
+        {
+          "path": "THIRD_PARTY_NOTICES.md",
+          "size": 8573,
+          "sha256": "08085fb518298756f0a4bc27a73e51fb40f5db598591b869dce26ad19f327bde"
+        },
+        {
+          "path": "OPUS-LICENSE.txt",
+          "size": 1945,
+          "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
+        }
+      ],
+      "platform": [
+        {
+          "path": "airsim_data11.ko",
+          "size": 6144,
+          "sha256": "e92a920829236a2b02a0ba8bd259b63f2557a825ed580bb805b898ddc77dc003"
+        },
+        {
+          "path": "qdc507_aprv3.ko",
+          "size": 36664,
+          "sha256": "3d82d3dec4f1e323201bba87156df9d41438e08314097353f2607f9117211d4a"
+        },
+        {
+          "path": "qdc507_voice.ko",
+          "size": 999236,
+          "sha256": "ed3821682d5309969a01c764192c83feff9669c61ef237c69475cd1619cf296c"
+        },
+        {
+          "path": "COPYING-GPL-2.0",
+          "size": 18693,
+          "sha256": "af8067302947c01fd9eee72befa54c7e3ef8a48fecde7fd71277f2290b2bf0f7"
+        },
+        {
+          "path": "MODULE-REPORT.md",
+          "size": 7443,
+          "sha256": "fb9d58336bcfdad8938d7833c113a815c2153d9a04564eb73cddabea737f8be2"
+        },
+        {
+          "path": "airsim_data11.c",
+          "size": 3758,
+          "sha256": "bfe3303f4ebefeda3482d26da1aebfcf316ebe69a2d8a2cafb59245cbcb8a41c"
+        },
+        {
+          "path": "isrgrootx1.pem",
+          "size": 1939,
+          "sha256": "22b557a27055b33606b6559f37703928d3e4ad79f110b407d04986e1843543d1"
+        }
+      ]
+    },
+    "rm500u-embedded": {
+      "schema_version": 1,
+      "version": "2.0.0-dev.webrtc",
+      "os": "linux",
+      "arch": "arm64",
+      "profile": "rm500u-embedded",
+      "agent": {
+        "path": "airsim-agent",
+        "size": 11272376,
+        "sha256": "ec67e9e485de26717ba8bfacff7e119882561d62197d62507776fd8dcd38b261"
+      },
+      "launcher": {
+        "path": "run-agent.sh",
+        "size": 1832,
+        "sha256": "22321e7334b15924c9e7562a10c232aa60a131dfdc80e145946b6fd02af5af91"
+      },
+      "audio": {
+        "path": "airsim-audiod",
+        "size": 396392,
+        "sha256": "278541f1ba7b2d739af598276236c1f1322991e601ba2b2f1a67b814c895a97f"
+      },
+      "licenses": [
+        {
+          "path": "LICENSE",
+          "size": 4563,
+          "sha256": "c0ea4a896d2c8c394b29f9427589996db826cd501c512279ff0ed3ef48fabbe5"
+        },
+        {
+          "path": "NOTICE",
+          "size": 400,
+          "sha256": "82bb82e0816c778a09b7ddc8cea0f9126847d6e489bf0aeb7fb1dff2dfc54454"
+        },
+        {
+          "path": "THIRD_PARTY_NOTICES.md",
+          "size": 8573,
+          "sha256": "08085fb518298756f0a4bc27a73e51fb40f5db598591b869dce26ad19f327bde"
+        },
+        {
+          "path": "OPUS-LICENSE.txt",
+          "size": 1945,
+          "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
+        }
+      ]
+    }
+  },
+  "public_verification": {
+    "index.html": "47fd20e05728fa665ed574b4470256380d6f983d50a7eff39fff644617e3fb98",
+    "assets/index-BTA7mXV2.js": "bdf1a9d58d11191313f69fe5bf11babfe8752230c42c943430c790faa0accb5c",
+    "assets/index-Bi9Jozh_.css": "c4a8b61e797f78bf4677326943c22136ee48859c8d99a3e83735d19884cd8e19",
+    "engine/eg25-qdc507/manifest.json": "2348197d714640f6e74fad177e770e26cd72e3bee3028e31396f337bc9df3482",
+    "engine/eg25-qdc507/airsim-agent": "acaaade7337fc2db2436e55f417d7fef45239c4a821a06fbd4b33226cb851505",
+    "engine/rm500u-embedded/manifest.json": "f295dd8c9d6d09cd2a92f3e744b4825f7d0b3bb01caa9425f434cd3eb0c690ae"
+  },
+  "checks": {
+    "go_test_race_all": true,
+    "go_vet_all": true,
+    "typescript_no_emit": true,
+    "web_test_files": 9,
+    "web_tests_passed": 60,
+    "vite_production_build": true
+  },
+  "device": {
+    "profile": "eg25-qdc507",
+    "firmware": "QDC507GLEFM21_02.004.03",
+    "agent_sha256": "acaaade7337fc2db2436e55f417d7fef45239c4a821a06fbd4b33226cb851505",
+    "identity_files_unchanged": true,
+    "control_ready": true,
+    "cloud_connected": true,
+    "free_kib_after_install": 584,
+    "rollback_release": "releases/946def0c9a87d6ba",
+    "launcher_sha256": "05c2d0eea116f9460a4e118160e495394d118e2b5136413ea549dd693bd290f8",
+    "init_entry": "asm:12345:respawn:/usrdata/airsim-v2/run-agent.sh",
+    "initial_storage": {
+      "name": "ME",
+      "used": 23,
+      "total": 23
+    },
+    "cleanup_events_utc": [
+      {
+        "at": "2026-11-02T13:56:36Z",
+        "records": 6
+      },
+      {
+        "at": "2026-11-02T13:58:36Z",
+        "records": 5
+      }
+    ],
+    "first_cleanup_storage": {
+      "used": 17,
+      "total": 23
+    },
+    "later_diagnostics": {
+      "schema_version": 1,
+      "state": "ready",
+      "observed_at": "2026-11-02T13:59:19.898466162Z",
+      "storage": {
+        "error": "",
+        "read": {
+          "name": "ME",
+          "used": 20,
+          "total": 23
+        },
+        "write": {
+          "name": "ME",
+          "used": 20,
+          "total": 23
+        },
+        "receive": {
+          "name": "ME",
+          "used": 20,
+          "total": 23
+        }
+      },
+      "notification": {
+        "error": "",
+        "values": [
+          2,
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      "poll": {
+        "observed_at": "2026-11-02T13:59:16.13992434Z",
+        "error": "",
+        "stored_entries": 20,
+        "decoded_messages": 16,
+        "new_messages": 0,
+        "cleanup_error": ""
+      }
+    },
+    "observations": [
+      {
+        "control": {
+          "ready": true,
+          "reason": "",
+          "telephony_ready": true,
+          "messaging_ready": true
+        }
+      },
+      {
+        "messages": {
+          "count": 8,
+          "directions": {
+            "incoming": 7,
+            "outgoing": 1
+          },
+          "latest_incoming": "2026-11-02T13:59:01.179777211Z",
+          "gap": false,
+          "dropped": 0
+        }
+      },
+      {
+        "cloud": {
+          "configured": true,
+          "connected": true,
+          "last_error": ""
+        }
+      }
+    ],
+    "user_confirmed_new_test_received_in_app": true,
+    "new_engine_physical_power_cycle_test": false
+  },
+  "cloud_observations": [
+    {
+      "diagnostic_client_issue_exit": 0
+    },
+    {
+      "module_count": 2
+    },
+    {
+      "module_index": 0,
+      "online": false,
+      "last_seen": null,
+      "snapshot_observed": null,
+      "control": {
+        "ready": null,
+        "reason": null,
+        "scope": null,
+        "voice_ready": null,
+        "telephony_ready": null,
+        "messaging_ready": null,
+        "inbox_gap": null,
+        "inbox_dropped": null,
+        "command_capacity_remaining": null
+      },
+      "signal": null,
+      "message_count": 0,
+      "direction_counts": {},
+      "latest_incoming": null,
+      "latest_outgoing": null,
+      "incoming_states": {},
+      "inbox_gap": false,
+      "inbox_dropped": 0
+    },
+    {
+      "module_index": 1,
+      "online": true,
+      "last_seen": "2026-11-02T13:59:21.046301829Z",
+      "snapshot_observed": "2026-11-02T13:59:20.600170276Z",
+      "control": {
+        "ready": true,
+        "reason": "",
+        "scope": "local_control",
+        "voice_ready": false,
+        "telephony_ready": true,
+        "messaging_ready": true,
+        "inbox_gap": false,
+        "inbox_dropped": 0,
+        "command_capacity_remaining": 929
+      },
+      "signal": {
+        "available": true,
+        "observed_at": "2026-11-02T13:59:19.953654912Z",
+        "rssi": 25,
+        "dbm": -63
+      },
+      "message_count": 8,
+      "direction_counts": {
+        "incoming": 7,
+        "outgoing": 1
+      },
+      "latest_incoming": "2026-11-02T13:59:01.179777211Z",
+      "latest_outgoing": "2026-11-02T13:58:33.987087481Z",
+      "incoming_states": {
+        "received": 7
+      },
+      "inbox_gap": true,
+      "inbox_dropped": 0
+    },
+    {
+      "diagnostic_client_revoke_exit": 0
+    }
+  ],
+  "unexpected_reboot": {
+    "local_time_approx": "2026-11-02T21:30:00+08:00",
+    "user_denied_power_or_usb_action": true,
+    "occurred_before_fixed_engine_install": true,
+    "cause": "undetermined",
+    "previous_kernel_persistent_log_available": false,
+    "current_kernel_and_system_logs_have_oom_panic_reset_reason": false,
+    "stable_through_local_time": "2026-11-02T22:02:00+08:00"
+  }
+}

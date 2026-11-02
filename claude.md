@@ -1,5 +1,17 @@
 # AirSIM 全项目 Claude 部署辅助
 
+2026-11-02 22:01：EG25 收件故障确认为 ME 短信存储满（23/23）。新版 Engine 满仓时按时间回收旧的完整短信，已在真机两次触发清理并恢复模块→云端→SkySIM 收件；用户确认测试短信已显示。网页诊断与 Engine 已通过 Workbench 发布 `sms-receive-20261102`。App、ECS 业务容器和启动器不变；另一次修复前的自主重启原因未定，详见 [收件修复](docs/EG25_SMS_RECEIVE_INVESTIGATION.md)。
+
+2026-11-02：SkySIM `0.9.6 (82)` 已进入 TestFlight 内部测试。短信点击发送立即显示气泡、清空输入；失败时气泡左侧红色感叹号可点按原号卡重发，并修复 iPad 横屏键盘遮挡。此次仅更新 App，无需额外更新 ECS 或 Engine；真实设备短信交互仍待验收。见 [短信交互](docs/IOS_SMS_INTERACTION.md) 与 [发布记录](docs/IOS_TESTFLIGHT.md)。
+
+2026-11-02 14:35：EG25 短号短信补修收件号码类型和 UCS-2 编码，已通过 Workbench 发布网页包 sms-pdu-20261102；App 81、ECS 与自启动器不变，模块由用户再次更新，实发待验，见 [短信修复](docs/EG25_SMS_FIX.md)。
+
+2026-11-02：6 位短号修复已通过 Workbench 发布到 airsim.eric3u.cc 的 control 和网页 Engine 包，发布 shortnumber-20261102；媒体、edge、数据库未重启。EG25 按用户要求自行更新，本轮未实机安装或实拨；SkySIM `0.9.6 (81)` 已完成 Apple 处理并加入 TestFlight 内部测试，见 [短号部署](docs/SHORT_NUMBER_UPDATE.md)。
+
+2026-11-01：模块网页安装器源码补齐 EG25 QDC507 在 macOS 上的 WebUSB AT 开启 ADB、重启重选与 Engine 安装路径；未安装/启动中的 Agent 不再误报 USB 断开。自启动须核对文件、唯一 init 项及运行进程；已通过 Workbench 发布到 airsim.eric3u.cc，同一块 EG25 已完成 ADB 关闭后网页开启、完整安装、更新及两条路径的真实断电自启验收；身份和配对保留，未授权出厂状态与首次云登记另验，见 [网页安装器](docs/MODULE_WEB_INSTALLER.md)。
+
+2026-11-01：v2 Apple 客户端显示名称为 SkySIM，Bundle ID 保持 `com.eric3u.airsim2`，使用独立 App Store Connect 记录 `6829440499`。不得上传到不兼容的旧 AirSIM (`com.eric3u.airsim`) 记录。技术命名和持久化键不变；发布与验证见 [SkySIM TestFlight](docs/IOS_TESTFLIGHT.md)。
+
 ## v2 建设覆盖说明（2026-10-24）
 
 v2 通话媒体为 App 与模块之间的 WebRTC 音频连接：Opus 20 ms 包，模块以 16 kHz 宽带、32 kbps 编码并开启带内 FEC；App 使用 libwebrtc，模块 Agent 内嵌 Pion，原生 helper 用定点 libopus 编解码；ECS 转交 SDP 并以 TURN 中继蜂窝模块，USB 本地经 USB 地址直连。App、control／media、Agent/helper 必须配套更新和回滚。ECS、EG25 与网页安装包已部署 WebRTC 版本，EG25 经 iPad mini 的真实来电已完成双向通话；RM500 须经网页安装器更新 Engine 后才恢复通话音频。模块与 ECS 的控制连接断线时通话与运行中的音频保持，App 改绑重连后的连接并在媒体失败时自动以新会话恢复（ECS、EG25 与 iPad mini 已部署，待真实通话验证）。协议见 [WebRTC](protocol/v2/WEBRTC.md)，参数、部署、诊断与实测边界见 [WebRTC 音频](docs/WEBRTC_AUDIO.md)。

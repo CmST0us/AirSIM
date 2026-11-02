@@ -7,11 +7,18 @@ import type { DeviceTransport } from '../src/pairing';
 const scenario = new URLSearchParams(location.search).get('state') ?? 'ready';
 const expiresAt = new Date(Date.now() + (scenario === 'elapsed' ? -1000 : 300000)).toISOString();
 const device = { id: 'fixture-only', name: 'RM500', shortId: 'A7K2' };
+const engineScenario = ['factory', 'engine_missing', 'engine_update', 'engine_starting'].includes(scenario);
+let adbEnabled = false;
 const transport: DeviceTransport = {
-  listGrantedDevices: async () => scenario === 'empty' ? [] : [device],
+  diagnoseSMS: async () => { throw new Error('not configured'); },
+  listGrantedDevices: async () => scenario === 'empty' || engineScenario ? [] : [device],
   requestDevice: async () => device,
-  inspect: async () => device,
-  install: async () => ({ ...device, engine: { state: 'ready', compatible: true } }),
+  inspect: async () => engineScenario ? { ...device, name: 'EG25 QDC507', shortId: '无序列号', engine: {
+    state: scenario === 'factory' && !adbEnabled ? 'adb_disabled' : scenario === 'engine_starting' ? 'starting'
+      : scenario === 'engine_update' ? 'outdated' : 'missing', compatible: true, profile: 'eg25-qdc507',
+  } } : device,
+  enableAdb: async () => { adbEnabled = true; },
+  install: async () => ({ ...device, name: engineScenario ? 'EG25 QDC507' : device.name, engine: { state: 'ready', compatible: true } }),
   connect: async () => {
     if (scenario === 'paired') throw new TransportFailure('paired');
     if (['awaiting_phone','elapsed'].includes(scenario)) return { state: 'awaiting_phone', code: '01234567', expiresAt };

@@ -2,13 +2,16 @@ import type { OperationStore } from './operation-store';
 import type { Environment } from './environment';
 import { TransportFailure } from './pairing';
 import type { ConnectionResult, Device, DeviceTransport, FailureCode, Operation } from './pairing';
+import type { SMSDiagnostics } from './sms-diagnostics';
 
 export type State =
   | { kind: 'mobile' | 'unsupported' | 'unavailable' | 'loading' }
   | { kind: 'devices' | 'selecting'; devices: readonly Device[] }
   | { kind: 'inspecting' | 'ready'; device: Device }
-  | { kind: 'installing'; device: Device; progress: string }
+  | { kind: 'installing' | 'enabling_adb'; device: Device; progress: string }
   | { kind: 'paired'; device: Device }
+  | { kind: 'diagnosing'; device: Device }
+  | { kind: 'diagnostics'; device: Device; report: SMSDiagnostics }
   | { kind: 'connecting' | 'pending' | 'checking' | 'unknown' | 'cancelling' | 'expired' | 'cancelled'; operation: Operation }
   | { kind: 'awaiting_phone'; operation: Operation; code: string; expiresAt: string }
   | { kind: 'connected'; operation: Operation; online: boolean }
@@ -113,12 +116,32 @@ export class PairingController {
         this.set({ kind: 'ready', device: inspected });
       }
     } catch (error) {
-      if (this.current(generation)) this.set({ kind: 'failed', code: this.code(error), device });
+      if (this.current(generation)) this.set({ kind: 'failed', code: this.code(error), device,
+        ...(error instanceof TransportFailure && error.detail ? { detail: error.detail } : {}) });
+    }
+  }
+
+  async enableAdb() {
+    if (this.disposed || this.state.kind !== 'ready' || this.state.device.engine?.state !== 'adb_disabled') return;
+    const transport = this.options.transport;
+    if (!transport) return;
+    const generation = ++this.generation;
+    const device = this.state.device;
+    this.set({ kind: 'enabling_adb', device, progress: '正在准备模块…' });
+    try {
+      await transport.enableAdb(device, this.lifetime.signal, progress => {
+        if (this.current(generation)) this.set({ kind: 'enabling_adb', device, progress });
+      });
+      if (this.current(generation)) this.set({ kind: 'failed', code: 'adb_reconnect', device });
+    } catch (error) {
+      if (this.current(generation)) this.set({ kind: 'failed', code: this.code(error), device,
+        ...(error instanceof TransportFailure && error.detail ? { detail: error.detail } : {}) });
     }
   }
 
   async installEngine() {
-    if (this.disposed || this.state.kind !== 'ready' || this.state.device.engine?.state === 'ready') return;
+    if (this.disposed || this.state.kind !== 'ready'
+      || !['missing', 'incomplete', 'outdated'].includes(this.state.device.engine?.state || '')) return;
     const transport = this.options.transport;
     if (!transport) return;
     const generation = ++this.generation;
@@ -143,12 +166,28 @@ export class PairingController {
   }
 
   async refreshDevice() {
-    if (this.disposed || this.state.kind !== 'ready') return;
+    if (this.disposed || (this.state.kind !== 'ready' && this.state.kind !== 'diagnostics')) return;
     await this.inspect(this.state.device, ++this.generation);
+  }
+
+  async diagnoseSMS() {
+    if (this.disposed || (this.state.kind !== 'ready' && this.state.kind !== 'paired' && this.state.kind !== 'diagnostics')) return;
+    const device = this.state.device;
+    if (device.engine?.profile !== 'eg25-qdc507' || device.engine.state !== 'ready') return;
+    const generation = ++this.generation;
+    this.set({ kind: 'diagnosing', device });
+    try {
+      const report = await this.options.transport!.diagnoseSMS(device, this.lifetime.signal);
+      if (this.current(generation)) this.set({ kind: 'diagnostics', device, report });
+    } catch (error) {
+      if (this.current(generation)) this.set({ kind: 'failed', device, code: this.code(error),
+        ...(error instanceof TransportFailure && error.detail ? { detail: error.detail } : {}) });
+    }
   }
 
   async connect() {
     if (this.disposed || this.state.kind !== 'ready') return;
+    if (this.state.device.engine && this.state.device.engine.state !== 'ready') return;
     const operation = { id: this.operationId(), device: this.state.device };
     try { this.options.store?.save(operation); }
     catch { this.set({ kind: 'unavailable' }); return; }

@@ -112,15 +112,66 @@ final class ModuleIsolationTests: ConversationTestCase {
 final class SendFailureTests: ConversationTestCase {
     override var scenario: String { "v2-send-failure" }
 
-    func testRejectedReplyPreservesText() {
+    override func setUpWithError() throws {
+        if UIDevice.current.userInterfaceIdiom == .pad { XCUIDevice.shared.orientation = .landscapeLeft }
+        try super.setUpWithError()
+    }
+
+    override func openTab(_ title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let tab = mainTab(title)
+        XCTAssertTrue(tab.waitForExistence(timeout: 10), file: file, line: line)
+        tab.tap()
+        // iPad's top TabView buttons don't expose the iPhone selected trait.
+        XCTAssertTrue(app.buttons["a1-message-compose"].waitForExistence(timeout: 5), file: file, line: line)
+    }
+
+    func testImmediateBubbleThenFailureIconRetriesInPlace() {
         openConversation("QA甲消息")
         let draft = "QA发送失败应保留正文"
         enterReply(draft)
         app.buttons["message-send"].tap()
-        XCTAssertTrue(app.staticTexts["未发送，草稿已保留"].waitForExistence(timeout: 10))
-        capture("reply-rejected")
-        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "message-reply").firstMatch.value as? String, draft)
-        capture("reply-preserved")
+        let bubble = app.staticTexts.matching(identifier: "a1-message-bubble").matching(NSPredicate(format: "label == %@", draft)).firstMatch
+        XCTAssertTrue(bubble.waitForExistence(timeout: 2))
+        XCTAssertNotEqual(app.descendants(matching: .any).matching(identifier: "message-reply").firstMatch.value as? String, draft)
+        XCTAssertFalse(app.staticTexts["未发送，草稿已保留"].exists)
+        XCTAssertFalse(app.staticTexts["发送结果待核对，请勿重复发送"].exists)
+        XCTAssertFalse(app.buttons["正在发送"].exists)
+        let retry = app.buttons["a1-message-retry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        XCTAssertLessThanOrEqual(retry.frame.maxX, bubble.frame.minX)
+        XCTAssertGreaterThanOrEqual(retry.frame.width, 44)
+        let reply = app.descendants(matching: .any).matching(identifier: "message-reply").firstMatch
+        XCTAssertLessThan(bubble.frame.maxY, reply.frame.minY)
+        XCTAssertLessThan(retry.frame.maxY, reply.frame.minY)
+        XCTAssertTrue(retry.isHittable)
+        XCTAssertEqual(retry.label, "发送失败，点击重发")
+        XCTAssertFalse(app.alerts["错误"].exists)
+        capture("sms-failure-left-icon")
+        retry.tap()
+        XCTAssertTrue(retry.waitForNonExistence(timeout: 2))
+        XCTAssertEqual(app.staticTexts.matching(identifier: "a1-message-bubble").matching(NSPredicate(format: "label == %@", draft)).count, 1)
+        enterReply("下一条草稿")
+        XCTAssertTrue(app.buttons["message-send"].waitForExistence(timeout: 5))
+        let enabled = NSPredicate(format: "enabled == true")
+        expectation(for: enabled, evaluatedWith: app.buttons["message-send"])
+        waitForExpectations(timeout: 10)
+        XCTAssertFalse(retry.exists)
+        capture("sms-retry-same-bubble")
+    }
+
+    func testNewMessageImmediatelyOpensConversationAndClearsComposer() {
+        openTab("短信")
+        app.buttons["a1-message-compose"].tap()
+        let recipient = app.textFields["a1-message-recipient"]
+        recipient.tap()
+        recipient.typeText("000000")
+        enterReply("QA新会话即时显示")
+        app.buttons.matching(identifier: "message-send").matching(NSPredicate(format: "enabled == true")).firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["新信息"].waitForNonExistence(timeout: 2))
+        XCTAssertTrue(app.staticTexts.matching(identifier: "a1-message-bubble").matching(NSPredicate(format: "label == %@", "QA新会话即时显示")).firstMatch.waitForExistence(timeout: 2))
+        XCTAssertNotEqual(app.descendants(matching: .any).matching(identifier: "message-reply").firstMatch.value as? String, "QA新会话即时显示")
+        XCTAssertTrue(app.buttons["a1-message-retry"].waitForExistence(timeout: 10))
+        capture("sms-new-conversation-failed")
     }
 }
 
@@ -221,9 +272,9 @@ final class A1SMSFailureDesignTests: ConversationTestCase {
         app.buttons["sms-thread-00112233-4455-4677-8899-aabbccddeeff-00000000001"].tap()
         let retry = app.buttons["a1-message-retry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 5))
-        XCTAssertEqual(retry.label, "使用工作 · 4821重试")
+        XCTAssertEqual(retry.label, "发送失败，点击重发")
         XCTAssertTrue(retry.isEnabled)
-        XCTAssertTrue(app.staticTexts["未发送"].exists)
+        XCTAssertFalse(app.staticTexts["未发送"].exists)
         capture("a1-sms-failure")
     }
 }

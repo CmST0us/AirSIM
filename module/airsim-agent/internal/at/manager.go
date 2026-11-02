@@ -16,7 +16,7 @@ import (
 var ErrDesynchronized = errors.New("at_desynchronized")
 var ErrQuery = errors.New("query_failed")
 var ErrInvalid = errors.New("invalid_response")
-var allowed = map[string]string{"ATI": "", "AT+CGMR": "", "AT+CPIN?": "+CPIN:", "AT+CSQ": "+CSQ:", "AT+CREG?": "+CREG:", "AT+CGREG?": "+CGREG:", "AT+CEREG?": "+CEREG:", "AT+CIREG?": "+CIREG:", "AT+COPS?": "+COPS:", "AT+CLCC": "+CLCC:"}
+var allowed = map[string]string{"ATI": "", "AT+CGMR": "", "AT+CPIN?": "+CPIN:", "AT+CSQ": "+CSQ:", "AT+CREG?": "+CREG:", "AT+CGREG?": "+CGREG:", "AT+CEREG?": "+CEREG:", "AT+CIREG?": "+CIREG:", "AT+COPS?": "+COPS:", "AT+CLCC": "+CLCC:", "AT+CPMS?": "+CPMS:", "AT+CNMI?": "+CNMI:"}
 
 type result struct {
 	lines []string

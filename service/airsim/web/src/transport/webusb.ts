@@ -1,12 +1,11 @@
 import { platforms, isPlatform, detectPlatform, hardwareScript, parseProperties, type PlatformID } from './platform';
 import { Adb, AdbDaemonTransport } from '@yume-chan/adb';
 import AdbWebCredentialStore from '@yume-chan/adb-credential-web';
-import {
-  type AdbDaemonWebUsbDevice,
-  AdbDaemonWebUsbDeviceManager,
-} from '@yume-chan/adb-daemon-webusb';
+import { hasADB, moduleUSBManager, type ModuleUSBDevice, type ModuleUSBManager } from './usb-discovery';
+import { enableEG25ADB, inspectEG25Bootstrap } from './eg25-bootstrap';
 import type { ConnectionResult, Device, DeviceTransport, EngineStatus, FailureCode, Operation } from '../pairing';
 import { TransportFailure } from '../pairing';
+import { parseSMSDiagnostics } from '../sms-diagnostics';
 
 const socketPath = '/run/airsim-v2/control.sock';
 const sessionKey = 'airsim.pairing-session';
@@ -91,14 +90,14 @@ interface PairingStatus {
 }
 
 interface WebUsbOptions {
-  manager?: AdbDaemonWebUsbDeviceManager;
+  manager?: ModuleUSBManager;
   storage?: Storage;
   fetch?: typeof fetch;
   serviceOrigin?: string;
 }
 
 interface Attachment {
-  usb: AdbDaemonWebUsbDevice;
+  usb: ModuleUSBDevice;
   adb: Adb;
 }
 
@@ -109,7 +108,10 @@ function abortError() {
 async function withTimeout<T>(work: Promise<T>, signal: AbortSignal, milliseconds: number): Promise<T> {
   if (signal.aborted) throw abortError();
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new TransportFailure('disconnected')), milliseconds);
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', cancelled);
+      reject(new TransportFailure('timeout'));
+    }, milliseconds);
     const cancelled = () => {
       clearTimeout(timer);
       reject(abortError());
@@ -127,8 +129,8 @@ async function withTimeout<T>(work: Promise<T>, signal: AbortSignal, millisecond
   });
 }
 
-function deviceView(usb: AdbDaemonWebUsbDevice, status?: AgentStatus, engine?: EngineStatus): Device {
-  const suffix = usb.serial.replace(/[^0-9A-Za-z]/g, '').slice(-8) || 'unknown';
+function deviceView(usb: ModuleUSBDevice, status?: AgentStatus, engine?: EngineStatus): Device {
+  const suffix = usb.raw.serialNumber?.replace(/[^0-9A-Za-z]/g, '').slice(-8) || '无序列号';
   return {
     id: usb.serial,
     name: status && isPlatform(status.profile) ? platforms[status.profile].name : (engine?.profile && isPlatform(engine.profile) ? platforms[engine.profile].name : (usb.name || 'AirSIM 设备')),
@@ -184,7 +186,15 @@ async function localHTTP(adb: Adb, method: string, path: string, body?: unknown,
     '',
     payload,
   ].join('\r\n');
-  const socket = await adb.createSocket(`localfilesystem:${socketPath}`);
+  let socket: Awaited<ReturnType<Adb['createSocket']>>;
+  try {
+    const pending = adb.createSocket(`localfilesystem:${socketPath}`);
+    socket = signal ? await withTimeout(pending, signal, localTimeout) : await pending;
+  } catch (error) {
+    // ADB CLSE(0, local-id) rejects just this service, not the USB transport.
+    if (error instanceof Error && error.message === 'Socket open failed') throw new TransportFailure('not_ready');
+    throw error;
+  }
   const collect = async () => {
     const writer = socket.writable.getWriter();
     try {
@@ -280,8 +290,8 @@ export function validEngineManifest(value: unknown): value is EngineManifest {
 
 export function prepareEngineStorageScript(profile: PlatformID, release: string, requiredBytes: number): string {
   const requiredKiB = Math.ceil(requiredBytes / 1024) + 512;
-  // UBIFS compresses file data; measured Engine binaries take about 62% of their size.
-  const compressedKiB = Math.ceil(requiredBytes * 0.7 / 1024) + 512;
+  // UBIFS free space is compressed physical space. A fixed compression ratio
+  // falsely rejects valid updates; bounded writes below enforce the reserve.
   return `
 set -eu
 base=${platforms[profile].base}
@@ -306,7 +316,7 @@ done
 required_kib=${requiredKiB}
 device="$(df -Pk "$base" | awk 'NR == 2 { print $1 }')"
 if awk -v device="$device" '$1 == device && $3 == "ubifs" { found = 1 } END { exit !found }' /proc/mounts 2>/dev/null; then
-  required_kib=${compressedKiB}
+  required_kib=1024
 fi
 available_kib="$(df -Pk "$base" | awk 'NR == 2 { print $4 }')"
 if [ -z "$available_kib" ] || [ "$available_kib" -lt "$required_kib" ]; then
@@ -336,6 +346,9 @@ restore_root() {
   fi
 }
 trap restore_root EXIT HUP INT TERM
+promote() {
+  if [ "$1" -ef "$2" ]; then rm -f "$1"; else mv -f "$1" "$2"; fi
+}
 
 chmod 700 "$agent"
 chmod 700 "$launcher"
@@ -349,8 +362,8 @@ audio_hash="$(sha256sum "$audio" | awk '{print $1}')"
 [ "$audio_hash" = "${manifest.audio.sha256}" ]
 ${[...(manifest.platform || []), ...manifest.licenses].map(file => `test "$(sha256sum "$base/.${file.path}.new" | awk '{print $1}')" = "${file.sha256}"`).join('\n')}
 mkdir -p "$base/config" "$base/state" "$base/platform" "$base/licenses"
-${manifest.licenses.map(file => `mv -f "$base/.${file.path}.new" "$base/licenses/${file.path}"`).join('\n')}
-${(manifest.platform || []).map(file => `mv -f "$base/.${file.path}.new" "$base/platform/${file.path}"`).join('\n')}
+${manifest.licenses.map(file => `promote "$base/.${file.path}.new" "$base/licenses/${file.path}"`).join('\n')}
+${(manifest.platform || []).map(file => `promote "$base/.${file.path}.new" "$base/platform/${file.path}"`).join('\n')}
 chmod 700 "$base/config" "$base/state"
 random_seed="$base/config/random.seed"
 if [ ! -f "$random_seed" ] || [ "$(wc -c <"$random_seed")" -ne 64 ]; then
@@ -360,7 +373,7 @@ if [ ! -f "$random_seed" ] || [ "$(wc -c <"$random_seed")" -ne 64 ]; then
 fi
 chmod 600 "$random_seed"
 test "$(wc -c <"$random_seed")" -eq 64
-mv -f "$agent" "$installed_agent"
+promote "$agent" "$installed_agent"
 current_audio_hash="$(sha256sum "$base/audio-current/airsim-audiod" 2>/dev/null | awk '{print $1}' || true)"
 if [ "$current_audio_hash" != "${manifest.audio.sha256}" ]; then
   mkdir -p "$audio_release"
@@ -391,7 +404,7 @@ for d in "$base"/releases/*; do
   rm -f "$d/airsim-agent" 2>/dev/null || true
   rmdir "$d" 2>/dev/null || true
 done
-mv -f "$launcher" "$base/run-agent.sh"
+promote "$launcher" "$base/run-agent.sh"
 chmod 700 "$base/run-agent.sh"
 
 mount -o remount,rw /
@@ -494,7 +507,7 @@ export function failureForStatus(status: number, code?: string): FailureCode {
 }
 
 export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransport | undefined {
-  const manager = options.manager || AdbDaemonWebUsbDeviceManager.BROWSER;
+  const manager = options.manager || (globalThis.navigator?.usb ? moduleUSBManager(navigator.usb) : undefined);
   if (!manager) return undefined;
   const activeManager = manager;
   const storage = options.storage || window.sessionStorage;
@@ -503,7 +516,7 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
     .replace(/\/$/, '');
   const credentials = new AdbWebCredentialStore('AirSIM');
   const attachments = new Map<string, Attachment>();
-  const usbDevices = new Map<string, AdbDaemonWebUsbDevice>();
+  const usbDevices = new Map<string, ModuleUSBDevice>();
   const inspectedDevices = new Map<string, Device>();
   const service = (path: string) => serviceOrigin + path;
 
@@ -561,7 +574,7 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
   async function shellText(adb: Adb, script: string, signal: AbortSignal, timeout = localTimeout): Promise<string> {
     let socket: Awaited<ReturnType<Adb['createSocket']>> | undefined;
     try {
-      const activeSocket = await adb.createSocket(`shell:${script}`);
+      const activeSocket = await withTimeout(adb.createSocket(`shell:${script}`), signal, timeout);
       socket = activeSocket;
       const collect = async () => {
         const reader = activeSocket.readable.getReader();
@@ -668,9 +681,9 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
     const base = platforms[profile].base;
     const manifest = await loadEngineManifest(profile, signal).catch(error => {
       if (signal.aborted) throw error;
-      return undefined;
+      throw new TransportFailure('release_unavailable');
     });
-    const supportFiles = manifest ? [...(manifest.platform || []).map(file => ({...file, directory: 'platform'})), ...manifest.licenses.map(file => ({...file, directory: 'licenses'}))] : [];
+    const supportFiles = [...(manifest.platform || []).map(file => ({...file, directory: 'platform'})), ...manifest.licenses.map(file => ({...file, directory: 'licenses'}))];
     const output = await shellText(adb, `
 agent=${base}/current/airsim-agent
 printf 'agent=%s\\n' "$(test -x "$agent" && echo 1 || echo 0)"
@@ -679,11 +692,17 @@ printf 'audio_hash=%s\\n' "$(sha256sum ${base}/audio-current/airsim-audiod 2>/de
 printf 'hash=%s\\n' "$(test -r "$agent" && sha256sum "$agent" | awk '{print $1}' || true)"
 ${supportFiles.map(file => `printf '${file.path}=%s\\n' "$(sha256sum ${base}/${file.directory}/${file.path} 2>/dev/null | awk '{print $1}')"`).join('\n')}
 printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /etc/inittab 2>/dev/null || true)"
+printf 'asm_entries=%s\\n' "$(grep -c '^asm:' /etc/inittab 2>/dev/null || true)"
+printf 'launcher=%s\\n' "$(test -x ${base}/run-agent.sh && echo 1 || echo 0)"
+pids="$(pidof airsim-agent 2>/dev/null || true)"
+printf 'running_count=%s\\n' "$(echo "$pids" | wc -w | tr -d ' ')"
+for pid in $pids; do
+  printf 'running_hash=%s\\n' "$(sha256sum /proc/$pid/exe 2>/dev/null | awk '{print $1}')"
+done
 `, signal);
     const values = parseProperties(output);
-    const compatible = true;
     const installed = values.get('agent') === '1';
-    const autostart = values.get('autostart') === '1';
+    const autostart = values.get('autostart') === '1' && values.get('asm_entries') === '1' && values.get('launcher') === '1';
     const currentHash = values.get('hash') || undefined;
     let installedVersion: string | undefined;
     let healthReady = false;
@@ -694,25 +713,26 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
         installedVersion = health.body.version;
         healthReady = true;
       }
-    } catch {
+    } catch (error) {
+      if (signal.aborted) throw error;
       // A missing socket is expected before the first deployment.
     }
     let state: EngineStatus['state'];
-    if (!compatible) state = 'unavailable';
-    else if (!installed) state = 'missing';
+    if (!installed) state = 'missing';
     else if (!autostart) state = 'incomplete';
-    else if (manifest && (currentHash !== manifest.agent.sha256 || values.get('launcher_hash') !== manifest.launcher.sha256 || values.get('audio_hash') !== manifest.audio.sha256 || supportFiles.some(file => values.get(file.path) !== file.sha256))) state = 'outdated';
-    else state = healthReady ? 'ready' : 'starting';
+    else if (currentHash !== manifest.agent.sha256 || values.get('launcher_hash') !== manifest.launcher.sha256 || values.get('audio_hash') !== manifest.audio.sha256 || supportFiles.some(file => values.get(file.path) !== file.sha256)) state = 'outdated';
+    else state = healthReady && installedVersion === manifest.version
+      && values.get('running_count') === '1' && values.get('running_hash') === manifest.agent.sha256 ? 'ready' : 'starting';
     return {
       state,
-      compatible,
+      compatible: true,
       profile,
       installedVersion,
-      targetVersion: manifest?.version,
+      targetVersion: manifest.version,
     };
   }
 
-  async function attach(usb: AdbDaemonWebUsbDevice, signal: AbortSignal): Promise<Attachment> {
+  async function attach(usb: ModuleUSBDevice, signal: AbortSignal): Promise<Attachment> {
     const current = attachments.get(usb.serial);
     if (current) return current;
     try {
@@ -725,17 +745,23 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
       const adb = new Adb(transport);
       const attachment = { usb, adb };
       attachments.set(usb.serial, attachment);
+      const forget = () => {
+        if (attachments.get(usb.serial) === attachment) attachments.delete(usb.serial);
+      };
+      void adb.disconnected.then(forget, forget);
       return attachment;
     } catch (error) {
+      await usb.raw.close().catch(() => {});
       if (error instanceof TransportFailure) throw error;
       if (error instanceof DOMException && error.name === 'AbortError') throw new TransportFailure('cancelled');
       if (error instanceof Error && /busy|claim/i.test(error.name + ' ' + error.message)) throw new TransportFailure('busy');
-      throw new TransportFailure('disconnected');
+      if (error instanceof Error && /NetworkError|NotFoundError|disconnect/i.test(error.name + ' ' + error.message)) throw new TransportFailure('disconnected');
+      throw new TransportFailure('failed');
     }
   }
 
   async function releaseAttachment(attachment: Attachment) {
-    attachments.delete(attachment.usb.serial);
+    if (attachments.get(attachment.usb.serial) === attachment) attachments.delete(attachment.usb.serial);
     await attachment.adb.close().catch(() => {});
   }
 
@@ -756,7 +782,7 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
     return response.body;
   }
 
-  async function getUsb(id: string, signal?: AbortSignal): Promise<AdbDaemonWebUsbDevice> {
+  async function getUsb(id: string, signal?: AbortSignal): Promise<ModuleUSBDevice> {
     const known = usbDevices.get(id);
     if (known) return known;
     const devices = await activeManager.getDevices();
@@ -789,7 +815,7 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
     return bytes;
   }
 
-  async function pushFile(adb: Adb, filename: string, bytes: Uint8Array, signal: AbortSignal): Promise<boolean> {
+  async function pushFile(adb: Adb, filename: string, bytes: Uint8Array, signal: AbortSignal, guard?: (nextBytes: number) => Promise<void>): Promise<boolean> {
     let socket: Awaited<ReturnType<Adb['createSocket']>> | undefined;
     try {
       socket = await withTimeout(adb.createSocket('sync:'), signal, authTimeout);
@@ -826,6 +852,9 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
           const path = `${filename},${(0o100000 | 0o700).toString()}`;
           await writeRequest('SEND', new TextEncoder().encode(path));
           for (let offset = 0; offset < bytes.byteLength; offset += 64 * 1024) {
+            // Check one actual DATA frame at a time. A 256 KiB reservation
+            // rejects the tail of an otherwise fitting compressed EG25 image.
+            if (guard) await guard(Math.min(64 * 1024, bytes.byteLength - offset));
             await writeRequest('DATA', bytes.subarray(offset, Math.min(bytes.byteLength, offset + 64 * 1024)));
           }
           const done = new Uint8Array(8);
@@ -866,16 +895,17 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
   }
 
   async function waitForAgent(initial: Attachment, signal: AbortSignal): Promise<{ attachment: Attachment; status?: AgentStatus }> {
-    const deadline = Date.now() + 90_000;
+    const deadline = Date.now() + installTimeout;
     let attachment: Attachment | undefined = initial;
     while (Date.now() < deadline) {
       if (signal.aborted) throw new TransportFailure('cancelled');
       try {
         if (!attachment) {
           // USB composition changes re-enumerate the same selected module.
-          const matches = (await activeManager.getDevices()).filter(usb => usb.serial === initial.usb.serial);
+          const matches = (await activeManager.getDevices()).filter(usb => usb.raw.serialNumber === initial.usb.raw.serialNumber
+            && usb.raw.vendorId === initial.usb.raw.vendorId && usb.raw.productId === initial.usb.raw.productId);
           // Chrome grants serial-less devices access only until USB disconnects.
-          if (matches.length === 0 && !initial.usb.raw.serialNumber) {
+          if (!initial.usb.raw.serialNumber) {
             throw new TransportFailure('install_reconnect');
           }
           if (matches.length !== 1) { await pause(1_000, signal); continue; }
@@ -894,8 +924,13 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
       } catch (error) {
         if (signal.aborted) throw error;
         if (error instanceof TransportFailure && error.code === 'install_reconnect') throw error;
-        if (attachment) await releaseAttachment(attachment);
-        attachment = undefined;
+        // Socket readiness is independent of USB readiness. In particular, an
+        // EG25 without a serial must not be sent back to the picker just because
+        // init has not created the Agent socket yet.
+        if (attachment && !attachments.has(attachment.usb.serial)) {
+          await releaseAttachment(attachment);
+          attachment = undefined;
+        }
       }
       await pause(1_000, signal);
     }
@@ -983,14 +1018,19 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
 
     async inspect(device, signal) {
       const usb = await getUsb(device.id, signal);
+      if (!hasADB(usb.raw)) {
+        await inspectEG25Bootstrap(usb.raw, signal);
+        return deviceView(usb, undefined, { state: 'adb_disabled', compatible: true, profile: 'eg25-qdc507' });
+      }
       const attachment = await attach(usb, signal);
       try {
         const engine = await inspectEngine(attachment.adb, signal);
         let status: AgentStatus | undefined;
-        try { status = await readStatus(attachment.adb, signal); }
+        try { if (engine.state === 'ready') status = await readStatus(attachment.adb, signal); }
         catch (error) {
           if (error instanceof TransportFailure && ['cancelled', 'disconnected'].includes(error.code)) throw error;
         }
+        if (!attachments.has(usb.serial)) throw new TransportFailure('disconnected');
         const inspected = deviceView(usb, status, engine);
         inspectedDevices.set(usb.serial, inspected);
         return inspected;
@@ -1000,10 +1040,36 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
       }
     },
 
+    async diagnoseSMS(device, signal) {
+      if (device.engine?.profile !== 'eg25-qdc507') throw new TransportFailure('unsupported');
+      const attachment = await attach(await getUsb(device.id, signal), signal);
+      const deadline = Date.now() + 90_000;
+      do {
+        const response = await localHTTP(attachment.adb, 'GET', '/v2/local/diagnostics/sms', undefined, signal);
+        if (response.status === 404) throw new TransportFailure('not_ready', '请先更新 Engine，再读取短信收件诊断。');
+        if (response.status !== 200) throw new TransportFailure('failed');
+        let value: unknown;
+        try { value = JSON.parse(response.body); } catch { throw new TransportFailure('failed'); }
+        const report = parseSMSDiagnostics(value);
+        if (report.state === 'ready') return report;
+        await withTimeout(new Promise<void>(resolve => setTimeout(resolve, 1000)), signal, 2000);
+      } while (Date.now() < deadline);
+      throw new TransportFailure('timeout');
+    },
+
+    async enableAdb(device, signal, progress) {
+      const usb = await getUsb(device.id, signal);
+      await enableEG25ADB(usb.raw, signal, progress);
+      usbDevices.delete(device.id);
+      inspectedDevices.delete(device.id);
+    },
+
     async install(device, signal, progress) {
       const usb = await getUsb(device.id, signal);
       let attachment = await attach(usb, signal);
       let stage = '准备安装';
+      let cleanup: string | undefined;
+      let activating = false;
       try {
         const profile = await identify(attachment.adb, signal);
         if (!profile) throw new TransportFailure('unsupported');
@@ -1019,25 +1085,48 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
         const release = manifest.agent.sha256.slice(0, 16);
         const releaseDirectory = `${base}/releases/${release}`;
         const installScript = installEngineScript(manifest, release);
+        const staged = [ `${releaseDirectory}/.airsim-agent.new`, `${base}/.run-agent.sh.new`, `${base}/.airsim-audiod.new`,
+          ...[...(manifest.platform || []), ...manifest.licenses].map(file => `${base}/.${file.path}.new`) ];
+        const installedPaths = [ `${base}/current/airsim-agent`, `${base}/run-agent.sh`, `${base}/audio-current/airsim-audiod`,
+          ...(manifest.platform || []).map(file => `${base}/platform/${file.path}`),
+          ...manifest.licenses.map(file => `${base}/licenses/${file.path}`) ];
+        // Reuse unchanged files on the same filesystem without duplicating their
+        // blocks. Validate again during staging and before activation.
+        const hashes = parseProperties(await shellText(attachment.adb, installedPaths.map((path, i) =>
+          `printf '${i}=%s\\n' "$(sha256sum ${path} 2>/dev/null | awk '{print $1}')"`).join('\n'), signal));
+        const reusable = artifacts.map((file, i) => hashes.get(String(i)) === file.sha256);
         stage = '整理模块存储';
         progress('正在整理模块存储…');
         const storage = await shellText(attachment.adb,
-          prepareEngineStorageScript(profile, release, contents.reduce((n, file) => n + file.byteLength, 0)), signal);
+          prepareEngineStorageScript(profile, release, contents.reduce((n, file, i) => n + (reusable[i] ? 0 : file.byteLength), 0)), signal);
         if (storage.includes('AIRSIM_ENGINE_STORAGE_SHORT')) throw new TransportFailure('install_failed', '模块空间不足；当前运行版本已保留。');
         stage = '写入模块持久存储';
         progress('正在写入模块持久存储…');
         await shellText(attachment.adb, `mkdir -p ${releaseDirectory} && chmod 700 ${releaseDirectory}`, signal);
-        const staged = [ `${releaseDirectory}/.airsim-agent.new`, `${base}/.run-agent.sh.new`, `${base}/.airsim-audiod.new`,
-          ...[...(manifest.platform || []), ...manifest.licenses].map(file => `${base}/.${file.path}.new`) ];
         const scriptBytes = new TextEncoder().encode(installScript);
         contents.push(scriptBytes); staged.push(`${base}/.airsim-install.sh.new`);
+        cleanup = `rm -f ${staged.join(' ')}; rmdir ${releaseDirectory} 2>/dev/null || true; sync`;
+        await shellText(attachment.adb, `rm -f ${staged.join(' ')}`, signal);
+        const guard = async (nextBytes: number) => {
+          const free = Number((await shellText(attachment.adb,
+            `sync; df -Pk ${base} | awk 'NR == 2 { print $4 }'`, signal)).trim());
+          if (!Number.isFinite(free) || free < 512 + Math.ceil(nextBytes / 1024)) {
+            throw new TransportFailure('install_failed', '模块空间不足；当前运行版本已保留。');
+          }
+        };
         for (let i = 0; i < contents.length; i++) {
-          await pushFile(attachment.adb, staged[i], contents[i], signal);
+          if (reusable[i]) {
+            await shellText(attachment.adb, `ln ${installedPaths[i]} ${staged[i]}`, signal);
+          } else {
+            await pushFile(attachment.adb, staged[i], contents[i], signal, guard);
+          }
           const actual = (await shellText(attachment.adb, `sha256sum ${staged[i]} | awk '{print $1}'`, signal)).trim();
           if (actual !== await sha256Bytes(contents[i])) throw new TransportFailure('install_failed', '模块文件校验失败。');
         }
+        await guard(0);
         stage = '执行持久化安装脚本';
         progress('正在执行持久化安装脚本…');
+        activating = true;
         await bootstrapEngine(attachment.adb, profile, release, signal);
         stage = '等待 Engine 启动';
         progress('等待 AirSIM Engine 启动…');
@@ -1047,10 +1136,14 @@ printf 'autostart=%s\\n' "$(grep -c '^asm:12345:respawn:${base}/run-agent.sh$' /
         stage = '读取安装结果';
         const engine = await inspectEngine(attachment.adb, signal);
         if (engine.state !== 'ready') throw new TransportFailure('install_failed', 'Engine 文件或自启动状态未通过安装验证。');
-        const installed = deviceView(usb, status, engine);
-        inspectedDevices.set(usb.serial, installed);
+        // A serial-bearing module may have re-enumerated with a fresh USB handle.
+        const installed = deviceView(attachment.usb, status, engine);
+        inspectedDevices.set(attachment.usb.serial, installed);
         return installed;
       } catch (error) {
+        if (cleanup && !activating) {
+          await shellText(attachment.adb, cleanup, new AbortController().signal).catch(() => {});
+        }
         await releaseAttachment(attachment);
         const detail = error instanceof TransportFailure
           ? error.detail

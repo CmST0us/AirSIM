@@ -72,7 +72,7 @@ final class WatchCallSession: NSObject, ObservableObject {
     var displayName: String {
         if let name = call.callerName, !name.isEmpty { return name }
         if let number = call.number, !number.isEmpty { return number }
-        return "AirSIM"
+        return "SkySIM"
     }
 
     var secondaryText: String {
@@ -108,7 +108,7 @@ final class WatchCallSession: NSObject, ObservableObject {
             return
         }
         guard let connectivity, connectivity.isReachable else {
-            errorMessage = "请先在附近打开已配对 iPhone 上的 AirSIM"
+            errorMessage = "请先在附近打开已配对 iPhone 上的 SkySIM"
             return
         }
         let requestID = UUID()
@@ -159,7 +159,7 @@ final class WatchCallSession: NSObject, ObservableObject {
             activeDialRequestID = requestID
             answered = false
             publishLocalPhase(.connecting)
-            let handle = CXHandle(type: .phoneNumber, value: outgoing.number ?? "AirSIM")
+            let handle = CXHandle(type: .phoneNumber, value: outgoing.number ?? "SkySIM")
             let action = CXStartCallAction(call: outgoing.uuid, handle: handle)
             isSendingAction = true
             callController.request(CXTransaction(action: action)) { [weak self] error in
@@ -276,7 +276,7 @@ final class WatchCallSession: NSObject, ObservableObject {
                 self.voIPCall = incoming
                 self.call = payload
                 let update = CXCallUpdate()
-                update.remoteHandle = CXHandle(type: .phoneNumber, value: incoming.number ?? "AirSIM")
+                update.remoteHandle = CXHandle(type: .phoneNumber, value: incoming.number ?? "SkySIM")
                 update.localizedCallerName = incoming.callerName
                 update.supportsHolding = false
                 update.supportsGrouping = false
@@ -887,7 +887,7 @@ private enum WatchMediaError: LocalizedError {
         switch self {
         case .invalidAudioFormat: return "手表不支持 8 kHz 语音格式"
         case .microphoneUnavailable: return "手表麦克风当前不可用"
-		case .microphonePermissionDenied: return "请先允许 AirSIM 使用手表麦克风"
+		case .microphonePermissionDenied: return "请先允许 SkySIM 使用手表麦克风"
         case .localRouteUnavailable: return "VoWLAN 本地语音路由不可用"
         }
     }
