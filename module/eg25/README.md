@@ -1,5 +1,7 @@
 # EG25 QDC507
 
+2026-11-02 22:28：完整修复链已提交到 main（`f49b425`），并从独立工作区构建 `main-f49b425-20261102`。Workbench 已更新云端 control 和两平台网页 Engine，当前 EG25 已安装；最终包通过断电自启、新短信到达模块/云端及再次满仓自动清理验收。SkySIM 82 与 main 的 App 源码一致。详见 [main 部署](../../docs/MAIN_DEPLOYMENT_20261102.md)。
+
 平台标识 `eg25-qdc507`，适用于本机固件 `EG25G_QDC507 / QDC507GLEFM21_02.004.03`、ARMv7、Linux 3.18.44。AT 自报 `Baiwang QDC507 / QDC507GLEFM21`。新 Agent 位于 [airsim-agent](../airsim-agent/README.md)，持久目录为 `/usrdata/airsim-v2`，运行目录为 `/run/airsim-v2`。
 
 DATA11 是 USB AT 使用的 SMD 通道。启动器移除 USB serial 功能、释放 DATA11，并通过 `airsim_data11` 内核模块提供应用专用字符设备。ADB 和 ECM 保留。`smd7/8/9` 继续由厂商服务持有。

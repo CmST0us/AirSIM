@@ -98,3 +98,15 @@ SwiftPM 的 WebRTC 二进制包不附带 dSYM。正式上传前，从与 `Packag
 - 本次仅发布 App，不重新部署 ECS 或 Engine，不执行真实短信发送或设备安装。
 
 本次发布会话仅递增 `iOS/AirSIM.xcodeproj/project.pbxproj` 构建号并同步 `docs/IOS_SMS_INTERACTION_VERIFICATION.json`、`docs/IOS_SMS_INTERACTION.md`、本文、`iOS/README.md`、根 `README.md`、`AGENTS.md`、`LLM.txt`、`codex.md`、`claude.md` 与 `docs/AVF_INSTALL_GUIDE.md` 的发布状态；短信源码和测试沿用已核对的交接版本。最终 `git diff --check` 通过。
+
+## 2026-11-02：main 提交与 Build 82 对应核验
+
+本轮核对提交 `f49b425f6d7bed4b48e591a8f2857308daade45a`，开始时本地 HEAD 与 `origin/main` 均指向该提交，工作区干净。将该提交的 244 个 iOS 文件逐个计算 SHA-256，与 Build 82 的 `source-manifest.json` 比较：243 个一致，仅 `iOS/README.md` 发布说明不同，无新增或缺失文件；实际 App 源码、测试、工程配置、资源和 `Package.resolved` 均一致。当前 iOS 工作区也与该提交一致。
+
+保留的 Build 82 分发 IPA SHA-256 再次核对为 `0cf86dc5bad49cf7dfc456af6b05b52aabec2683ee6308ce84e47fee7a20398e`。因此源码无需重新构建或递增 build；本轮未重新上传、安装真机或修改 ECS/Engine，也未执行 Git commit/push。
+
+用户重新登录后，北京时间 22:29 在线复核完成：Build 82 仍为“正在测试”，原“内部测试”群组保留两位测试员和 Build 82、81、80，测试说明保留；构建 ID 仍为 `396ff354-0d13-46d8-91bb-8da8b9028728`。首次群组页面短暂显示 0 个构建，打开 Build 82 详情确认群组关联后返回，列表恢复为 3 个；未执行重新分配或其他发布变更。
+
+Apple 测试员页面已报告用户的 iPhone Duo / iOS 27.2 安装 `0.9.6 (82)`；这是 Apple 的安装状态证据，本轮未代用户安装，也未重新执行真实通话、短信、推送或 USB 验收。main 的 App 发布端继续使用 Build 82，不需要新增构建。
+
+文件对比与在线状态见 [main 核验记录](IOS_TESTFLIGHT_MAIN_VERIFICATION_20261102.json)。最新截图 `main-verification-internal-testing.jpg`、`main-verification-build-detail.jpg`、`main-verification-installed.jpg` 保存在 Build 82 产物目录。此次仅更新本文及该 JSON，`git diff --check` 和 JSON 解析检查通过；改动留在工作区，交由主控会话统一提交。

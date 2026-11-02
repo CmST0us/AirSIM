@@ -123,3 +123,7 @@ Agent 接受 `airsim-v2-callkit` 的 `apns:true`，并保留 R4.1 与未知 prof
 21:30 维护准备期间发生过一次整机自重启，用户确认未拔插。此前没有执行短信删除；恢复后仍为 23/23。固件未提供前次内核持久日志，现存日志无明确 OOM、panic 或复位原因，不能归因于电源或软件；到 22:02 未再次整机重启。该项仍待独立定位。
 
 网页诊断与匹配 Engine 已经 Workbench 发布，源站 26 文件及公网关键文件校验通过，ECS 业务容器未重启。完整记录见 [收件修复](../../docs/EG25_SMS_RECEIVE_INVESTIGATION.md) 与 [部署证据](../../docs/EG25_SMS_RECEIVE_DEPLOYMENT_20261102.json)。
+
+## 2026-11-02 main 最终包断电验收
+
+`f49b425` 的 EG25 包 `e7fe5f6f…` 已通过 USB 安装，身份、配置及原启动器保留。用户再次断电至少 10 秒，boot ID 改变后，唯一 init 项自动拉起匹配哈希的 Agent；未执行手动启动。22:27 模块和云端均收到 2 条新短信，最新时间一致；自动清理再次释放 6 个槽位，最后 ME 17/23。ECS control 与网页已通过 Workbench 更新为同一 main 发布，RM500 仅更新网页包。详见 [main 部署](../../docs/MAIN_DEPLOYMENT_20261102.md)。

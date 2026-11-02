@@ -1,0 +1,57 @@
+{
+  "commit": "f49b425f6d7bed4b48e591a8f2857308daade45a",
+  "manifest_sha256": "85fd8971a267088afe44214c603fe190c07fcb684eba979012f99965ca4e4135",
+  "manifest_files": 244,
+  "main_ios_files": 244,
+  "matching_files": 243,
+  "changed_files": [
+    {
+      "path": "iOS/README.md",
+      "build82_sha256": "2a22064abb9e091aa1a7f2510e45e266e4e0fd229b1a2f382c5be4624979f62f",
+      "main_sha256": "bf84b5bdda7afe4a0f201fd668ce3c7a0b41ce47a57bde2f8b8fccb2d4d5a855"
+    }
+  ],
+  "added_files": [],
+  "missing_files": [],
+  "worktree_differs_from_main": [],
+  "verified_at": "2026-11-02T22:18:26.904189+08:00",
+  "app_id": "6829440499",
+  "bundle_id": "com.eric3u.airsim2",
+  "version": "0.9.6",
+  "build": "82",
+  "build_id": "396ff354-0d13-46d8-91bb-8da8b9028728",
+  "app_source_matches": true,
+  "retained_ipa_sha256": "0cf86dc5bad49cf7dfc456af6b05b52aabec2683ee6308ce84e47fee7a20398e",
+  "rebuild_required_for_source": false,
+  "live_asc_status": "testing",
+  "last_verified_testing_at": "2026-11-02T22:29:40+08:00",
+  "new_upload_performed": false,
+  "physical_install_performed": false,
+  "login_restored": true,
+  "tester_installation_observed": {
+    "version": "0.9.6",
+    "build": "82",
+    "device": "iPhone Duo",
+    "os": "iOS 27.2",
+    "source": "App Store Connect tester status",
+    "observed_at": "2026-11-02T22:27+08:00"
+  },
+  "status": "verified",
+  "internal_group_id": "dfc78074-31d3-4700-acd8-3745d1046910",
+  "internal_group_name": "内部测试",
+  "internal_testers": 2,
+  "internal_group_builds": [
+    "82",
+    "81",
+    "80"
+  ],
+  "test_notes_retained": true,
+  "group_assignment_changed": false,
+  "decision": "retain_build_82",
+  "screenshots": {
+    "internal_testing": "iOS/build/testflight-20261102-build82/main-verification-internal-testing.jpg",
+    "build_detail": "iOS/build/testflight-20261102-build82/main-verification-build-detail.jpg",
+    "tester_installation": "iOS/build/testflight-20261102-build82/main-verification-installed.jpg"
+  },
+  "transient_group_empty_state": "Resolved after opening Build 82 details and returning to the group; no distribution mutation performed."
+}

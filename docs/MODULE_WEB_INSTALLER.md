@@ -1,5 +1,7 @@
 # 模块网页安装器：EG25 / macOS
 
+2026-11-02 22:28：完整修复链已提交到 main（`f49b425`），并从独立工作区构建 `main-f49b425-20261102`。Workbench 已更新云端 control 和两平台网页 Engine，当前 EG25 已安装；最终包通过断电自启、新短信到达模块/云端及再次满仓自动清理验收。SkySIM 82 与 main 的 App 源码一致。详见 [main 部署](MAIN_DEPLOYMENT_20261102.md)。
+
 2026-11-02 收件修复新增 EG25 的“短信收件诊断”，可在选择并更新模块后直接读取容量、接收配置和轮询计数，无需重置配对。新版 Engine 满箱时按时间回收旧的完整短信；发布状态和真机证据见 [收件调查](EG25_SMS_RECEIVE_INVESTIGATION.md)。
 
 2026-11-01：修复位于 `service/airsim/web`，已通过 Workbench 发布到深圳 ECS `i-wz93dhbsy21quebidepg` 的 `airsim.eric3u.cc`。网页与两个平台安装包共 26 个文件已从源站通过 HTTPS 核对哈希。采用静态文件原子替换，保留备份，四个业务容器未重启且健康。本轮已完成同一块 EG25 的 ADB 关闭后网页开启、完整安装、更新及两条路径的真实断电自启；[实机记录](../module/eg25/TESTING.md)保留详细证据。部署证据见 [部署记录](MODULE_WEB_INSTALLER_DEPLOYMENT.json)。
