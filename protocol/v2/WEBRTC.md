@@ -2,14 +2,16 @@
 
 通话媒体使用 WebRTC：iPad／iPhone 与模块之间建立一条 DTLS-SRTP 音频连接，ECS 转交 SDP 并提供 TURN 中继，USB 本地经模块 USB 地址直连。App、ECS control／media、Agent 与 helper 必须配套更新。
 
+2026-11-03 源码将双向 Opus 目标码率提高到 96 kbps；这是兼容现有 WebRTC 的参数调整。模块须同时更新 Agent（SDP 应答）和 helper（采集编码器）。现有 App 的 libwebrtc 按应答设置上行目标，ECS 仍透明转发。线上尚未发布本次调整，仍为 32 kbps。
+
 ## 媒体
 
 | 项目 | 配置 |
 | --- | --- |
 | 编解码 | Opus，RTP 时钟 48 kHz，单声道编码 |
 | 帧长 | 20 ms，每个 RTP 包一帧 |
-| 模块编码 | 16 kHz 输入，32 kbps VBR，宽带上限，VOIP 应用，复杂度 3，带内 FEC 开启（按 10% 丢包率），DTX 关闭 |
-| 模块应答偏好 | `a=fmtp:<pt> minptime=10;useinbandfec=1;maxplaybackrate=16000;sprop-maxcapturerate=16000;maxaveragebitrate=32000` 与 `a=ptime:20` |
+| 模块编码 | 16 kHz 输入，96 kbps VBR 目标码率，宽带上限，VOIP 应用，复杂度 3，带内 FEC 开启（按 10% 丢包率），DTX 关闭 |
+| 模块应答偏好 | `a=fmtp:<pt> minptime=10;useinbandfec=1;maxplaybackrate=16000;sprop-maxcapturerate=16000;maxaveragebitrate=96000` 与 `a=ptime:20` |
 | 安全 | DTLS-SRTP；证书指纹随已认证信令交换 |
 | 传输 | 一条 `sendrecv` 音频轨道，BUNDLE 与 RTCP-mux；不使用数据通道或视频 |
 

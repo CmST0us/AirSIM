@@ -60,9 +60,10 @@ static void *run(void *unused) {
     total += sizes[f];
   }
   airsim_opus_encoder_destroy(enc);
-  /* 32 kbps VBR averages 80 bytes per 20 ms. */
+  /* A 96 kbps target budgets 240 bytes per 20 ms; VBR spends less on this
+   * synthetic voice. Catch a regression to the former 32/64 kbps targets. */
   double average = (double)total / FRAMES;
-  assert(average > 50 && average < 110);
+  assert(average > 150 && average < 260);
 
   airsim_opus_decoder *dec = airsim_opus_decoder_create();
   assert(dec);

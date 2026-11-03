@@ -2,14 +2,14 @@
 #include "opus.h"
 #include <stddef.h>
 
-/* Wideband voice at 32 kbps VBR with in-band FEC. Complexity 3 keeps the
- * fixed-point encoder and decoder near 1.5 ms per frame on a Cortex-A7. */
+/* Wideband voice at a 96 kbps VBR target with in-band FEC. Keep the existing
+ * fixed-point complexity 3 setting for the module's CPU budget. */
 airsim_opus_encoder *airsim_opus_encoder_create(void) {
   int error = 0;
   OpusEncoder *e = opus_encoder_create(AIRSIM_OPUS_SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP, &error);
   if (!e || error != OPUS_OK)
     return NULL;
-  if (opus_encoder_ctl(e, OPUS_SET_BITRATE(32000)) != OPUS_OK ||
+  if (opus_encoder_ctl(e, OPUS_SET_BITRATE(96000)) != OPUS_OK ||
       opus_encoder_ctl(e, OPUS_SET_VBR(1)) != OPUS_OK ||
       opus_encoder_ctl(e, OPUS_SET_COMPLEXITY(3)) != OPUS_OK ||
       opus_encoder_ctl(e, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE)) != OPUS_OK ||

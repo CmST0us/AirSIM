@@ -2,11 +2,13 @@
 
 v2 云端与 USB 本地通话媒体为 App 与模块之间的 WebRTC 音频连接。App 的 libwebrtc 负责采集、回声消除、Opus 编解码与 NetEQ 抖动缓冲；模块 Agent 内嵌 Pion 终结 ICE、DTLS-SRTP 与 RTP，原生 `airsim-audiod` 用定点 libopus 编解码并读写 PCM 硬件；ECS 只转交 SDP，并以 TURN 中继蜂窝 NAT 后的模块。字段、期限与帧格式见 [WebRTC 协议](../protocol/v2/WEBRTC.md)。
 
+2026-11-03：源码双向目标由 32 kbps 提高为 96 kbps，保持 16 kHz 单声道、20 ms、复杂度 3、FEC、PLC 与 DTX 设置；线上仍为 32 kbps，本次尚未部署或进行真实通话验收。只需成对发布模块 Agent 与 helper；当前 SkySIM 82 可按 SDP 应答协商，ECS control／media 不需要为本次参数调整更新。
+
 ## 链路与参数
 
 | 环节 | 配置 |
 | --- | --- |
-| 编码 | Opus，20 ms 包；模块 16 kHz 输入、32 kbps VBR、宽带上限、复杂度 3、带内 FEC 开启、DTX 关闭；模块应答要求 App 以同样的宽带参数发送 |
+| 编码 | Opus，20 ms 包；模块 16 kHz 输入、96 kbps VBR 目标码率、宽带上限、复杂度 3、带内 FEC 开启、DTX 关闭；模块应答以 `maxaveragebitrate=96000` 设置 App 的上行目标 |
 | App | stasel/WebRTC 155.0.0；`RTCAudioSession` 手动音频，随 CallKit 激活启停；连接失败后为同一通话自动建立新会话，保留静音与音频输出 |
 | 模块 Agent | Pion WebRTC v4；云端只收集 relay 候选，USB 只收集 USB 地址的 host 候选；RTP 抖动缓冲 80 ms 起播，超过 12 帧裁剪至 4 帧，持续超过 6 帧时逐帧回落；媒体不随控制连接结束，同一通话的新会话替换旧会话 |
 | 模块 helper | libopus 1.5.2 定点构建；工作线程栈 256 KB，采集、播放与收包线程为 SCHED_FIFO 优先级 10；播放队列四帧，空队列最多等 15 ms；丢包先用后一包的 FEC 恢复，再退回 PLC |
@@ -14,11 +16,11 @@ v2 云端与 USB 本地通话媒体为 App 与模块之间的 WebRTC 音频连�
 
 EG25 的 VoLTE 前端与 AFE 代理端口直接以 16 kHz 采集和播放；RM500 采集为 8 kHz，由 helper 插值到 16 kHz，播放按声卡实际速率直出或经 [1 2 1]/4 低通后降至 8 kHz。
 
-每方向音频载荷为 32 kbps。计入 RTP、SRTP 认证标签、TURN ChannelData、UDP 与 IPv4 头，每方向约 6.7 KB/s；该数字用于容量估计，不是计费报价或吞吐实测。
+每方向 Opus 目标为 96 kbps，20 ms 对应平均 240 字节的载荷预算。VBR 的实际码率随内容变化，不保证每包 240 字节或每秒恒定 96 kbps。按目标码率计入 RTP、SRTP 认证标签、TURN ChannelData、UDP 与 IPv4 头，每方向约 14.7 KB/s，双向约 0.24 Mbps；该数字用于容量估计，不是计费报价或吞吐实测。
 
 ## 资源
 
-在 EG25 单核 Cortex-A7 上，实际通话中 Agent 进程约占 32% CPU（含系统调用），helper 约占 16%，其中 libopus 定点构建在复杂度 3 下编码加解码约占 8.6%。浮点软浮点构建同等编码约每帧 11 ms，不能用于模块。
+此前 32 kbps 版本在 EG25 单核 Cortex-A7 上，实际通话中 Agent 进程约占 32% CPU（含系统调用），helper 约占 16%，其中 libopus 定点构建在复杂度 3 下编码加解码约占 8.6%。浮点软浮点构建同等编码约每帧 11 ms，不能用于模块。
 
 WebRTC 版 Agent 为 11.3 MB（ARMv7，Go 1.24.13），在 EG25 的 UBIFS 用户分区上压缩后约占 7 MB；helper 为 331 KB。空闲 Agent 常驻内存约 9.2 MB，系统可用内存约 6.3–7.3 MB；EG25 上 Go 运行时内存上限为 6 MB、GOGC 为 25。
 
@@ -41,6 +43,16 @@ ECS 需要：安全组放行 UDP／TCP 3478 与 UDP 49160–49359；部署配置
 模块 `control.sock` 的 `/v2/local/cloud/media-stats` 提供当前或上一次会话的候选类型、收发包、丢包、晚到、FEC、PLC、裁剪、本地输入缺口，以及四类停顿的次数与最长毫秒数：等待 helper 采集帧、RTP 发送、App RTP 到达间隔与送往 helper 的播放节拍，并给出会话期间 Agent 的垃圾回收次数与存活堆；`/v2/local/audio` 提供 helper 的采集、播放、xrun 与静音计数。两者在 Agent 重启后清空。iPad Debug 构建的 `airsim.v2.last-media-stats` 记录收发包、丢包、隐藏样本、抖动缓冲时延、往返时间、候选类型与失败阶段。ECS media 日志只记录中继分配与释放的会话 ID、角色和协议。统计只含计数，不含音频、SDP、凭据或号码。
 
 ## 验证
+
+2026-11-03，96 kbps 参数调整的本地验证：
+
+- helper 的 ASan／UBSan 宿主测试通过：合成语音平均 183.1 字节／帧（约 73.3 kbps，VBR 实际输出可低于目标），FEC 恢复误差低于 PLC，既有 PCM、队列与时钟测试通过。该合成信号不能代替真实听感评价。
+- Agent `go test -race ./internal/rtc ./internal/cloud ./internal/media` 通过，包含 96 kbps 应答、双向 240 字节载荷保持、TURN 与 USB 直连及媒体恢复。
+- 使用未修改的 `V2WebRTC.swift`、`V2JSON.swift` 和现有 WebRTC 155.0.0，在 iOS 18.5 模拟器中与当前 Agent `rtc.Answer` 完成真实 ICE／DTLS 协商；App sender 的 Opus 参数确认为 `maxaveragebitrate=96000`、`maxplaybackrate=16000`、`useinbandfec=1`。测试保持音频设备关闭，只验证协商，不代表麦克风实发码率或真实通话验收。
+- EG25 ARMv7 与 RM500 ARM64 的静态 helper 交叉编译通过。96 kbps 的真机 CPU、双向听感、蜂窝丢包与长时间通话仍待验收。
+- 两平台网页 Engine 已在本机构建至 `/tmp/airsim-opus96-20261103/engine`，清单中全部文件的长度和 SHA-256 校验通过；EG25 Agent 为 11,141,304 字节，RM500 Agent 为 11,272,376 字节。本地构建产物未上传或安装。
+
+以下为此前 32 kbps WebRTC 版本的验证与部署记录：
 
 - Agent 全部 Go 测试通过，包括：回环上的 Pion 对端完成 offer／应答并双向收发 Opus；经 Pion TURN 的 UDP 与 TCP 中继建立 relay 连接；USB 本地会话的 host 直连、重复 offer 拒绝与删除回收；抖动缓冲的乱序、FEC、欠载、晚到、裁剪、回落与序号回绕；ICE 连接期间持续向 helper 送帧并丢弃采集包；流式转发的首个失败原因；控制连接断开后经 TURN 的媒体继续双向收发，重连后同一通话的新会话替换旧会话且旧 helper 先释放。
 - helper 宿主测试在 AddressSanitizer 与 UndefinedBehaviorSanitizer 下通过：ASMP v3 帧校验、队列取帧、Opus 编解码（合成语音平均 67 字节／帧），以及丢帧时 FEC 恢复误差为 PLC 的四分之一。ARMv7 与 ARM64 静态构建通过，EG25 上 `--version` 正常。

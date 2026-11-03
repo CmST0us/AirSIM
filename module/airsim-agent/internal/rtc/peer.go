@@ -38,8 +38,9 @@ type Config struct {
 const FrameDuration = 20 * time.Millisecond
 
 // opusFmtp is what the module asks the App's encoder for: wideband voice with
-// in-band FEC at 32 kbps.
-const opusFmtp = "minptime=10;useinbandfec=1;maxplaybackrate=16000;sprop-maxcapturerate=16000;maxaveragebitrate=32000"
+// in-band FEC and a 96 kbps target. libwebrtc uses maxaveragebitrate to configure
+// its Opus encoder; the helper's capture encoder uses the same target.
+const opusFmtp = "minptime=10;useinbandfec=1;maxplaybackrate=16000;sprop-maxcapturerate=16000;maxaveragebitrate=96000"
 
 var (
 	ErrRejected = errors.New("rtc_offer_rejected")

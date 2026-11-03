@@ -1,5 +1,7 @@
 # airsim-agent v2
 
+2026-11-03：源码将模块与 App 的 Opus 双向目标码率提高到 96 kbps VBR，保持 16 kHz、20 ms 与丢包保护。Agent 的 SDP 应答和原生 helper 须成对更新；现有 SkySIM 可协商，无需为此更新 ECS。当前线上仍为 32 kbps，本次未部署。验证与边界见 [WebRTC 音频](../../docs/WEBRTC_AUDIO.md)。
+
 EG25 已增加满箱按时间回收旧短信和受保护的只读短信诊断。回收按完整消息分组，避免拆散长短信，不删除 App 历史；诊断只提供容量、配置、计数和固定错误码。发布与真机验收状态见 [收件调查](../../docs/EG25_SMS_RECEIVE_INVESTIGATION.md)。`cmd/sms-maintenance` 是独立的离线维护工具，不随 Engine 分发；只允许在明确确认删除范围且 Agent 已停止时，核对固件与存储计数后执行一次 ME 全清。
 
 本目录为独立 Go 工程 `airsim.local/airsim-agent`，当前源码版本 `2.0.0-dev.webrtc`，依赖 godbus/dbus v5.2.2、Pion WebRTC v4 与 warthog618/sms，不依赖旧 Agent 或 RM500 CLI；未配置云端时可独立运行。依据主控维护的 [R2 契约](../../docs/RM500_AGENT_R2.md)。R1 已完成主控验收，其 [证据](R1_TESTING.md) 保持为历史记录；R2 功能实机链路与重启后命令去重验证通过，短信重复到达/延迟仍未解释，voice_ready=false；详细边界见 [R2 记录](R2_TESTING.md)。RM500U 的 headless 启动与恢复见[开机启动说明](RM500U_AUTOSTART.md)。

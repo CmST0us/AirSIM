@@ -72,6 +72,9 @@ func TestAnswerCarriesVoicePreferencesAndMovesOpus(t *testing.T) {
 	if !strings.Contains(answer, "a=fmtp:111 "+opusFmtp+"\r\na=ptime:20\r\n") || strings.Count(answer, "a=fmtp:111") != 1 || !strings.Contains(answer, "a=candidate:") || !strings.Contains(answer, "a=sendrecv") {
 		t.Fatalf("answer:\n%s", answer)
 	}
+	if !strings.Contains(answer, "maxaveragebitrate=96000") {
+		t.Fatal("App encoder did not receive the 96 kbps preference")
+	}
 	if e = pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: answer}); e != nil {
 		t.Fatal(e)
 	}
@@ -83,7 +86,8 @@ func TestAnswerCarriesVoicePreferencesAndMovesOpus(t *testing.T) {
 	if peer.Candidate() != "host" {
 		t.Fatalf("candidate %q", peer.Candidate())
 	}
-	sent := []byte{0x78, 1, 2, 3}
+	// 96 kbps at 20 ms is 240 payload bytes, unchanged by either relay direction.
+	sent := bytes.Repeat([]byte{0x78, 1, 2, 3}, 60)
 	go func() {
 		for ctx.Err() == nil {
 			_ = out.WriteSample(media.Sample{Data: sent, Duration: FrameDuration})
@@ -103,7 +107,7 @@ func TestAnswerCarriesVoicePreferencesAndMovesOpus(t *testing.T) {
 	if e != nil || next != first+1 {
 		t.Fatal("sequence", first, next, e)
 	}
-	back := []byte{0x78, 9, 8}
+	back := bytes.Repeat([]byte{0x78, 9, 8}, 80)
 	for i := 0; i < 3; i++ {
 		if e = peer.WriteOpus(back); e != nil {
 			t.Fatal(e)
