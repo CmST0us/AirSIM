@@ -1,5 +1,7 @@
 # AirSIM — Android 与 iPhone / Apple Watch 跨设备通话、短信和 VoWLAN
 
+2026-11-04：96 kbps Opus 已提交 main（`7f5e8d9`），通过 Workbench 发布 EG25／RM500 网页 Engine 包；模块须自行更新 Engine 后生效，App 与云端业务容器不变，本轮未安装真机。详见 [96 kbps 发布](docs/OPUS96_WEB_ENGINE_DEPLOYMENT_20261104.md)。
+
 2026-11-02 22:28：完整修复链已提交到 main（`f49b425`），并从独立工作区构建 `main-f49b425-20261102`。Workbench 已更新云端 control 和两平台网页 Engine，当前 EG25 已安装；最终包通过断电自启、新短信到达模块/云端及再次满仓自动清理验收。SkySIM 82 与 main 的 App 源码一致。详见 [main 部署](docs/MAIN_DEPLOYMENT_20261102.md)。
 
 2026-11-02 22:01：EG25 收件故障确认为 ME 短信存储满（23/23）。新版 Engine 满仓时按时间回收旧的完整短信，已在真机两次触发清理并恢复模块→云端→SkySIM 收件；用户确认测试短信已显示。网页诊断与 Engine 已通过 Workbench 发布 `sms-receive-20261102`。App、ECS 业务容器和启动器不变；另一次修复前的自主重启原因未定，详见 [收件修复](docs/EG25_SMS_RECEIVE_INVESTIGATION.md)。
@@ -18,7 +20,7 @@
 
 模块信号由 Agent 采样，经 ECS 目录和快照或 USB 本地接口传入 App；所有模块名称和选择入口使用同一信号图标。离线、采样过期或未知信号显示不可用，蜂窝强度与云端连接状态分别处理。
 
-v2 通话媒体为 App 与模块之间的 WebRTC 音频连接：Opus 20 ms 包，模块以 16 kHz 宽带、96 kbps VBR 目标码率编码并开启带内 FEC（2026-11-03 源码已调整，线上仍为 32 kbps，待发布）。App 使用 libwebrtc，模块 Agent 内嵌 Pion，原生 helper 用定点 libopus 编解码；ECS 转交 SDP 并以 TURN 中继蜂窝模块，USB 本地直连。App、ECS control／media、Agent 与 helper 需配套更新。ECS、EG25 与网页安装包已部署 WebRTC 版本，EG25 经 iPad mini 的真实来电已完成双向通话；RM500 需通过网页安装器更新 Engine 后使用新媒体。模块与 ECS 的控制连接断线时通话与运行中的音频保持，App 改绑重连后的连接并在媒体失败时自动以新会话恢复（ECS、EG25 与 iPad mini 已部署，待真实通话验证）。协议见 [WebRTC](protocol/v2/WEBRTC.md)，参数、构建、部署和实测边界见 [WebRTC 音频](docs/WEBRTC_AUDIO.md)。
+v2 通话媒体为 App 与模块之间的 WebRTC 音频连接：Opus 20 ms 包，模块以 16 kHz 宽带、96 kbps VBR 目标码率编码并开启带内 FEC（2026-11-04 网页包已发布，模块须更新 Engine 后生效）。App 使用 libwebrtc，模块 Agent 内嵌 Pion，原生 helper 用定点 libopus 编解码；ECS 转交 SDP 并以 TURN 中继蜂窝模块，USB 本地直连。App、ECS control／media、Agent 与 helper 需配套更新。ECS、EG25 与网页安装包已部署 WebRTC 版本，EG25 经 iPad mini 的真实来电已完成双向通话；RM500 需通过网页安装器更新 Engine 后使用新媒体。模块与 ECS 的控制连接断线时通话与运行中的音频保持，App 改绑重连后的连接并在媒体失败时自动以新会话恢复（ECS、EG25 与 iPad mini 已部署，待真实通话验证）。协议见 [WebRTC](protocol/v2/WEBRTC.md)，参数、构建、部署和实测边界见 [WebRTC 音频](docs/WEBRTC_AUDIO.md)。
 
 2026-10-31 已更新 EG25 Agent、ECS control 与 iPad App，并通过真实云端信号显示测试：App 显示 3 格，随后模块采样为 CSQ 18／−77 dBm。USB 直连的实体信号显示尚待验证。
 

@@ -1,6 +1,6 @@
 # airsim-agent v2
 
-2026-11-03：源码将模块与 App 的 Opus 双向目标码率提高到 96 kbps VBR，保持 16 kHz、20 ms 与丢包保护。Agent 的 SDP 应答和原生 helper 须成对更新；现有 SkySIM 可协商，无需为此更新 ECS。当前线上仍为 32 kbps，本次未部署。验证与边界见 [WebRTC 音频](../../docs/WEBRTC_AUDIO.md)。
+2026-11-03：源码将模块与 App 的 Opus 双向目标码率提高到 96 kbps VBR，保持 16 kHz、20 ms 与丢包保护。Agent 的 SDP 应答和原生 helper 须成对更新；现有 SkySIM 可协商，无需为此更新 ECS。2026-11-04 已通过 Workbench 发布两平台网页 Engine 包（main `7f5e8d9`）；模块须更新 Engine 后生效，本轮未安装真机。验证与边界见 [WebRTC 音频](../../docs/WEBRTC_AUDIO.md)。
 
 EG25 已增加满箱按时间回收旧短信和受保护的只读短信诊断。回收按完整消息分组，避免拆散长短信，不删除 App 历史；诊断只提供容量、配置、计数和固定错误码。发布与真机验收状态见 [收件调查](../../docs/EG25_SMS_RECEIVE_INVESTIGATION.md)。`cmd/sms-maintenance` 是独立的离线维护工具，不随 Engine 分发；只允许在明确确认删除范围且 Agent 已停止时，核对固件与存储计数后执行一次 ME 全清。
 

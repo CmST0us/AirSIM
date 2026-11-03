@@ -2,7 +2,7 @@
 
 通话媒体使用 WebRTC：iPad／iPhone 与模块之间建立一条 DTLS-SRTP 音频连接，ECS 转交 SDP 并提供 TURN 中继，USB 本地经模块 USB 地址直连。App、ECS control／media、Agent 与 helper 必须配套更新。
 
-2026-11-03 源码将双向 Opus 目标码率提高到 96 kbps；这是兼容现有 WebRTC 的参数调整。模块须同时更新 Agent（SDP 应答）和 helper（采集编码器）。现有 App 的 libwebrtc 按应答设置上行目标，ECS 仍透明转发。线上尚未发布本次调整，仍为 32 kbps。
+2026-11-03 源码将双向 Opus 目标码率提高到 96 kbps；这是兼容现有 WebRTC 的参数调整。模块须同时更新 Agent（SDP 应答）和 helper（采集编码器）。现有 App 的 libwebrtc 按应答设置上行目标，ECS 仍透明转发。2026-11-04 已通过 Workbench 发布两平台网页 Engine 包，模块须更新 Engine 后生效；本轮未安装真机。
 
 ## 媒体
 

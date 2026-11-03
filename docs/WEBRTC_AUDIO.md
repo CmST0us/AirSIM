@@ -2,7 +2,7 @@
 
 v2 云端与 USB 本地通话媒体为 App 与模块之间的 WebRTC 音频连接。App 的 libwebrtc 负责采集、回声消除、Opus 编解码与 NetEQ 抖动缓冲；模块 Agent 内嵌 Pion 终结 ICE、DTLS-SRTP 与 RTP，原生 `airsim-audiod` 用定点 libopus 编解码并读写 PCM 硬件；ECS 只转交 SDP，并以 TURN 中继蜂窝 NAT 后的模块。字段、期限与帧格式见 [WebRTC 协议](../protocol/v2/WEBRTC.md)。
 
-2026-11-03：源码双向目标由 32 kbps 提高为 96 kbps，保持 16 kHz 单声道、20 ms、复杂度 3、FEC、PLC 与 DTX 设置；线上仍为 32 kbps，本次尚未部署或进行真实通话验收。只需成对发布模块 Agent 与 helper；当前 SkySIM 82 可按 SDP 应答协商，ECS control／media 不需要为本次参数调整更新。
+2026-11-03：源码双向目标由 32 kbps 提高为 96 kbps，保持 16 kHz 单声道、20 ms、复杂度 3、FEC、PLC 与 DTX 设置；2026-11-04 已通过 Workbench 发布两平台网页 Engine 包（main `7f5e8d9`），模块须更新 Engine 后生效；本轮未安装真机或进行真实通话验收。发布记录见 [96 kbps 网页 Engine](OPUS96_WEB_ENGINE_DEPLOYMENT_20261104.md)。只需成对发布模块 Agent 与 helper；当前 SkySIM 82 可按 SDP 应答协商，ECS control／media 不需要为本次参数调整更新。
 
 ## 链路与参数
 
@@ -50,7 +50,7 @@ ECS 需要：安全组放行 UDP／TCP 3478 与 UDP 49160–49359；部署配置
 - Agent `go test -race ./internal/rtc ./internal/cloud ./internal/media` 通过，包含 96 kbps 应答、双向 240 字节载荷保持、TURN 与 USB 直连及媒体恢复。
 - 使用未修改的 `V2WebRTC.swift`、`V2JSON.swift` 和现有 WebRTC 155.0.0，在 iOS 18.5 模拟器中与当前 Agent `rtc.Answer` 完成真实 ICE／DTLS 协商；App sender 的 Opus 参数确认为 `maxaveragebitrate=96000`、`maxplaybackrate=16000`、`useinbandfec=1`。测试保持音频设备关闭，只验证协商，不代表麦克风实发码率或真实通话验收。
 - EG25 ARMv7 与 RM500 ARM64 的静态 helper 交叉编译通过。96 kbps 的真机 CPU、双向听感、蜂窝丢包与长时间通话仍待验收。
-- 两平台网页 Engine 已在本机构建至 `/tmp/airsim-opus96-20261103/engine`，清单中全部文件的长度和 SHA-256 校验通过；EG25 Agent 为 11,141,304 字节，RM500 Agent 为 11,272,376 字节。本地构建产物未上传或安装。
+- 两平台网页 Engine 已在本机构建至 `/tmp/airsim-opus96-20261103/engine`，清单中全部文件的长度和 SHA-256 校验通过；EG25 Agent 为 11,141,304 字节，RM500 Agent 为 11,272,376 字节。该次本地预构建未用于发布；11 月 4 日正式包从 main 的独立工作区重新构建并发布，模块安装仍由用户执行。
 
 以下为此前 32 kbps WebRTC 版本的验证与部署记录：
 
