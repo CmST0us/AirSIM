@@ -6,6 +6,8 @@ import { enableEG25ADB, inspectEG25Bootstrap } from './eg25-bootstrap';
 import type { ConnectionResult, Device, DeviceTransport, EngineStatus, FailureCode, Operation } from '../pairing';
 import { TransportFailure } from '../pairing';
 import { parseSMSDiagnostics } from '../sms-diagnostics';
+import { checkEngineStorage, engineWriteSize, prepareEngineStorageScript } from './engine-storage';
+export { prepareEngineStorageScript } from './engine-storage';
 
 const socketPath = '/run/airsim-v2/control.sock';
 const sessionKey = 'airsim.pairing-session';
@@ -286,44 +288,6 @@ export function validEngineManifest(value: unknown): value is EngineManifest {
     && manifest.agent.path === 'airsim-agent'
     && manifest.launcher.path === 'run-agent.sh'
     && manifest.audio.path === 'airsim-audiod';
-}
-
-export function prepareEngineStorageScript(profile: PlatformID, release: string, requiredBytes: number): string {
-  const requiredKiB = Math.ceil(requiredBytes / 1024) + 512;
-  // UBIFS free space is compressed physical space. A fixed compression ratio
-  // falsely rejects valid updates; bounded writes below enforce the reserve.
-  return `
-set -eu
-base=${platforms[profile].base}
-release=${release}
-current=
-current_link="$(readlink "$base/current" 2>/dev/null || true)"
-if [ -n "$current_link" ]; then
-  current="\${current_link##*/}"
-fi
-for directory in $(ls -1dt "$base"/releases/* 2>/dev/null); do
-  [ -d "$directory" ] || continue
-  name="\${directory##*/}"
-  [ "$name" = "$current" ] && continue
-  rm -rf "$directory"
-done
-audio_link="$(readlink "$base/audio-current" 2>/dev/null || true)"
-for directory in $(ls -1d "$base"/audio-releases/* 2>/dev/null); do
-  [ -d "$directory" ] || continue
-  [ "\${directory##*/}" = "\${audio_link##*/}" ] && continue
-  rm -rf "$directory"
-done
-required_kib=${requiredKiB}
-device="$(df -Pk "$base" | awk 'NR == 2 { print $1 }')"
-if awk -v device="$device" '$1 == device && $3 == "ubifs" { found = 1 } END { exit !found }' /proc/mounts 2>/dev/null; then
-  required_kib=1024
-fi
-available_kib="$(df -Pk "$base" | awk 'NR == 2 { print $4 }')"
-if [ -z "$available_kib" ] || [ "$available_kib" -lt "$required_kib" ]; then
-  echo AIRSIM_ENGINE_STORAGE_SHORT
-  exit 1
-fi
-`;
 }
 
 export function installEngineScript(manifest: EngineManifest, release: string): string {
@@ -815,7 +779,7 @@ done
     return bytes;
   }
 
-  async function pushFile(adb: Adb, filename: string, bytes: Uint8Array, signal: AbortSignal, guard?: (nextBytes: number) => Promise<void>): Promise<boolean> {
+  async function pushFile(adb: Adb, filename: string, bytes: Uint8Array, signal: AbortSignal, guard?: (nextBytes: number) => Promise<number>): Promise<boolean> {
     let socket: Awaited<ReturnType<Adb['createSocket']>> | undefined;
     try {
       socket = await withTimeout(adb.createSocket('sync:'), signal, authTimeout);
@@ -851,11 +815,11 @@ done
 
           const path = `${filename},${(0o100000 | 0o700).toString()}`;
           await writeRequest('SEND', new TextEncoder().encode(path));
-          for (let offset = 0; offset < bytes.byteLength; offset += 64 * 1024) {
-            // Check one actual DATA frame at a time. A 256 KiB reservation
-            // rejects the tail of an otherwise fitting compressed EG25 image.
-            if (guard) await guard(Math.min(64 * 1024, bytes.byteLength - offset));
-            await writeRequest('DATA', bytes.subarray(offset, Math.min(bytes.byteLength, offset + 64 * 1024)));
+          for (let offset = 0; offset < bytes.byteLength;) {
+            const maximum = Math.min(64 * 1024, bytes.byteLength - offset);
+            const count = guard ? await guard(maximum) : maximum;
+            await writeRequest('DATA', bytes.subarray(offset, offset + count));
+            offset += count;
           }
           const done = new Uint8Array(8);
           done.set(new TextEncoder().encode('DONE'), 0);
@@ -1085,6 +1049,7 @@ done
         const release = manifest.agent.sha256.slice(0, 16);
         const releaseDirectory = `${base}/releases/${release}`;
         const installScript = installEngineScript(manifest, release);
+        const scriptBytes = new TextEncoder().encode(installScript);
         const staged = [ `${releaseDirectory}/.airsim-agent.new`, `${base}/.run-agent.sh.new`, `${base}/.airsim-audiod.new`,
           ...[...(manifest.platform || []), ...manifest.licenses].map(file => `${base}/.${file.path}.new`) ];
         const installedPaths = [ `${base}/current/airsim-agent`, `${base}/run-agent.sh`, `${base}/audio-current/airsim-audiod`,
@@ -1098,23 +1063,18 @@ done
         stage = '整理模块存储';
         progress('正在整理模块存储…');
         const storage = await shellText(attachment.adb,
-          prepareEngineStorageScript(profile, release, contents.reduce((n, file, i) => n + (reusable[i] ? 0 : file.byteLength), 0)), signal);
-        if (storage.includes('AIRSIM_ENGINE_STORAGE_SHORT')) throw new TransportFailure('install_failed', '模块空间不足；当前运行版本已保留。');
+          prepareEngineStorageScript(profile, release, contents.reduce((n, file, i) => n + (reusable[i] ? 0 : file.byteLength), scriptBytes.byteLength)), signal);
+        checkEngineStorage(storage);
         stage = '写入模块持久存储';
         progress('正在写入模块持久存储…');
         await shellText(attachment.adb, `mkdir -p ${releaseDirectory} && chmod 700 ${releaseDirectory}`, signal);
-        const scriptBytes = new TextEncoder().encode(installScript);
         contents.push(scriptBytes); staged.push(`${base}/.airsim-install.sh.new`);
         cleanup = `rm -f ${staged.join(' ')}; rmdir ${releaseDirectory} 2>/dev/null || true; sync`;
         await shellText(attachment.adb, `rm -f ${staged.join(' ')}`, signal);
-        const guard = async (nextBytes: number) => {
-          const free = Number((await shellText(attachment.adb,
-            `sync; df -Pk ${base} | awk 'NR == 2 { print $4 }'`, signal)).trim());
-          if (!Number.isFinite(free) || free < 512 + Math.ceil(nextBytes / 1024)) {
-            throw new TransportFailure('install_failed', '模块空间不足；当前运行版本已保留。');
-          }
-        };
+        const guard = async (nextBytes: number) => engineWriteSize(await shellText(attachment.adb,
+          `sync; df -Pk ${base} | awk 'NR == 2 { print $4 }'`, signal), nextBytes);
         for (let i = 0; i < contents.length; i++) {
+          stage = `写入模块持久存储（${artifacts[i]?.path || '安装脚本'}）`;
           if (reusable[i]) {
             await shellText(attachment.adb, `ln ${installedPaths[i]} ${staged[i]}`, signal);
           } else {

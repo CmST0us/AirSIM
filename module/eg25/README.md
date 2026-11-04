@@ -38,7 +38,7 @@ EG25 短信收件存储可能只有 23 个槽位。新版 Agent 在存储已满�
 
 1. 准备上述精确内核配置与 ARM EABI 编译器，构建 `kmod/airsim_data11.ko`。执行 `python3 module/eg25/prepare_runtime.py`，生成 `dist/` 中的驱动、源代码及 GPL 说明。
 2. 构建 `module/rm500/audio` 与本目录的原生 helper，在 `service/airsim/web` 执行 `npm ci && npm run build`。构建器固定 Go 1.24.13，为两个平台分别生成安装资源。不要把 ARM64 包用于 EG25。
-3. 模块独立供电、连接电脑数据 USB，在 Chrome/Edge 的配对页选择设备并安装 Engine。主机 `adb server` 占用 USB 时先关闭它。当前固件 USB 不提供序列号，USB 断开重连后 Chrome 需要重新选择设备授权；网页随后核验安装结果。安装器按文件传输，保留活动版本和身份，清理当前版本以外的旧 helper 发布目录，复用哈希一致的文件，按每批 64 KiB 写入检查实际空间并保留 512 KiB 余量，不足时清理暂存并停止；`/etc/inittab` 写入 `asm:12345:respawn:/usrdata/airsim-v2/run-agent.sh`。
+3. 模块独立供电、连接电脑数据 USB，在 Chrome/Edge 的配对页选择设备并安装 Engine。主机 `adb server` 占用 USB 时先关闭它。当前固件 USB 不提供序列号，USB 断开重连后 Chrome 需要重新选择设备授权；网页随后核验安装结果。安装器按文件传输，保留活动版本和身份，清理当前版本以外的旧 helper 发布目录，复用哈希一致的文件，先清理中断暂存并同步，再按实际余量以 4–64 KiB 分块写入（文件尾可更小），保留 512 KiB 余量，不足时清理暂存并停止；`/etc/inittab` 写入 `asm:12345:respawn:/usrdata/airsim-v2/run-agent.sh`。
 4. 新模块由服务管理员按 [R4 登记协议](../../protocol/v2/R4.md) 执行本机 prepare、`issue-module` 和 activate。设备私钥留在模块，网页不会签发管理员证书。已登记模块更新 Engine 后保留服务配置。
 5. 网页核对 EG25 QDC507 与短模块标识，生成五分钟连接码；在 iOS 原“添加设备”输入并确认。ECS 通过认证 hello 的 `platform` 显示型号，App 的模块范围、通话/短信接口和 WebRTC 媒体协议不变。
 

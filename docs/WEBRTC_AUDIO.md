@@ -36,7 +36,7 @@ App、ECS control／media、Agent 与 helper 必须配套更新，不能在通�
 
 ECS 需要：安全组放行 UDP／TCP 3478 与 UDP 49160–49359；部署配置 `AIRSIM_TURN_IP` 为实例公网 IPv4；`identity/turn-secret` 为 32 字节随机十六进制，仅 control 与 media 读取。media 以主机网络运行，避免为两百个中继端口各起一个端口代理进程。
 
-更新前确认无活动通话并保留回滚：服务器保存原部署配置、Caddyfile 与 `current` 指向；模块切换 `current` 与 `audio-current` 后由既有 init 监督恢复，失败时两个链接一并恢复。网页安装器在 UBIFS 分区按原始大小的 70% 估算所需空间，并清理当前版本以外的旧 helper 发布目录。
+更新前确认无活动通话并保留回滚：服务器保存原部署配置、Caddyfile 与 `current` 指向；模块切换 `current` 与 `audio-current` 后由既有 init 监督恢复，失败时两个链接一并恢复。网页安装器清理中断暂存和非活动发布目录后同步磁盘，按挂载点识别 UBIFS，不用固定压缩比估算；按实际余量以 4–64 KiB 分块写入（文件尾可更小），始终保留 512 KiB 安全余量，同时保护 current/audio-current 及仍在运行的可执行文件。实际容量仍不足时停止，保留当前版本并显示文件名、剩余空间与所需空间。
 
 ## 诊断
 
