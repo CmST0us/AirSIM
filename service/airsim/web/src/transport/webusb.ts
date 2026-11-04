@@ -6,7 +6,7 @@ import { enableEG25ADB, inspectEG25Bootstrap } from './eg25-bootstrap';
 import type { ConnectionResult, Device, DeviceTransport, EngineStatus, FailureCode, Operation } from '../pairing';
 import { TransportFailure } from '../pairing';
 import { parseSMSDiagnostics } from '../sms-diagnostics';
-import { checkEngineStorage, engineWriteSize, prepareEngineStorageScript } from './engine-storage';
+import { checkEngineStorage, engineWriteSize, EngineStorageShort, prepareEngineStorageScript, reclaimEG25EngineScript } from './engine-storage';
 export { prepareEngineStorageScript } from './engine-storage';
 
 const socketPath = '/run/airsim-v2/control.sock';
@@ -387,6 +387,11 @@ sync
 restore_root
 trap - EXIT HUP INT TERM
 
+# All payloads, the real launcher and init entry are durable before releasing
+# a low-space maintenance waiter (also survives a browser/USB interruption).
+rm -f "$base/.engine-reinstall-pending"
+sync
+
 pids="$(pidof airsim-agent 2>/dev/null || true)"
 if [ -n "$pids" ]; then
   kill -TERM $pids 2>/dev/null || true
@@ -650,6 +655,7 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
     const supportFiles = [...(manifest.platform || []).map(file => ({...file, directory: 'platform'})), ...manifest.licenses.map(file => ({...file, directory: 'licenses'}))];
     const output = await shellText(adb, `
 agent=${base}/current/airsim-agent
+printf 'reinstall_pending=%s\\n' "$(test -f ${base}/.engine-reinstall-pending && echo 1 || echo 0)"
 printf 'agent=%s\\n' "$(test -x "$agent" && echo 1 || echo 0)"
 printf 'launcher_hash=%s\\n' "$(sha256sum ${base}/run-agent.sh 2>/dev/null | awk '{print $1}')"
 printf 'audio_hash=%s\\n' "$(sha256sum ${base}/audio-current/airsim-audiod 2>/dev/null | awk '{print $1}')"
@@ -682,7 +688,8 @@ done
       // A missing socket is expected before the first deployment.
     }
     let state: EngineStatus['state'];
-    if (!installed) state = 'missing';
+    if (values.get('reinstall_pending') === '1') state = 'incomplete';
+    else if (!installed) state = 'missing';
     else if (!autostart) state = 'incomplete';
     else if (currentHash !== manifest.agent.sha256 || values.get('launcher_hash') !== manifest.launcher.sha256 || values.get('audio_hash') !== manifest.audio.sha256 || supportFiles.some(file => values.get(file.path) !== file.sha256)) state = 'outdated';
     else state = healthReady && installedVersion === manifest.version
@@ -836,6 +843,7 @@ done
             const messageBytes = await readExact(length);
             if (!messageBytes) throw new TransportFailure('install_failed', '设备写入了不完整的失败响应。');
             const message = new TextDecoder().decode(messageBytes);
+            if (/(^|: )No space left on device[.]?$/.test(message)) throw new EngineStorageShort();
             throw new TransportFailure('install_failed', message || '设备拒绝写入文件。');
           }
           if (response !== 'OKAY') {
@@ -1034,10 +1042,13 @@ done
       let stage = '准备安装';
       let cleanup: string | undefined;
       let activating = false;
+      let reinstalling = false;
       try {
         const profile = await identify(attachment.adb, signal);
         if (!profile) throw new TransportFailure('unsupported');
         const base = platforms[profile].base;
+        reinstalling = (await shellText(attachment.adb,
+          `test -f ${base}/.engine-reinstall-pending && echo pending || echo normal`, signal)).trim() === 'pending';
         stage = '准备持久化存储';
         progress('正在准备持久化存储…');
         await shellText(attachment.adb, `mkdir -p ${base}/releases && chmod 700 ${base} ${base}/releases`, signal);
@@ -1055,35 +1066,51 @@ done
         const installedPaths = [ `${base}/current/airsim-agent`, `${base}/run-agent.sh`, `${base}/audio-current/airsim-audiod`,
           ...(manifest.platform || []).map(file => `${base}/platform/${file.path}`),
           ...manifest.licenses.map(file => `${base}/licenses/${file.path}`) ];
-        // Reuse unchanged files on the same filesystem without duplicating their
-        // blocks. Validate again during staging and before activation.
-        const hashes = parseProperties(await shellText(attachment.adb, installedPaths.map((path, i) =>
-          `printf '${i}=%s\\n' "$(sha256sum ${path} 2>/dev/null | awk '{print $1}')"`).join('\n'), signal));
-        const reusable = artifacts.map((file, i) => hashes.get(String(i)) === file.sha256);
-        stage = '整理模块存储';
-        progress('正在整理模块存储…');
-        const storage = await shellText(attachment.adb,
-          prepareEngineStorageScript(profile, release, contents.reduce((n, file, i) => n + (reusable[i] ? 0 : file.byteLength), scriptBytes.byteLength)), signal);
-        checkEngineStorage(storage);
-        stage = '写入模块持久存储';
-        progress('正在写入模块持久存储…');
-        await shellText(attachment.adb, `mkdir -p ${releaseDirectory} && chmod 700 ${releaseDirectory}`, signal);
         contents.push(scriptBytes); staged.push(`${base}/.airsim-install.sh.new`);
-        cleanup = `rm -f ${staged.join(' ')}; rmdir ${releaseDirectory} 2>/dev/null || true; sync`;
-        await shellText(attachment.adb, `rm -f ${staged.join(' ')}`, signal);
-        const guard = async (nextBytes: number) => engineWriteSize(await shellText(attachment.adb,
-          `sync; df -Pk ${base} | awk 'NR == 2 { print $4 }'`, signal), nextBytes);
-        for (let i = 0; i < contents.length; i++) {
-          stage = `写入模块持久存储（${artifacts[i]?.path || '安装脚本'}）`;
-          if (reusable[i]) {
-            await shellText(attachment.adb, `ln ${installedPaths[i]} ${staged[i]}`, signal);
-          } else {
-            await pushFile(attachment.adb, staged[i], contents[i], signal, guard);
+        cleanup = `set -e; rm -f ${staged.join(' ')}; rmdir ${releaseDirectory} 2>/dev/null || true; sync; echo AIRSIM_ENGINE_STAGING_CLEAN`;
+        const stageFiles = async () => {
+          // Recompute after reclamation: the old binary/helper have been deleted
+          // and the real launcher has temporarily become a maintenance waiter.
+          const hashes = parseProperties(await shellText(attachment.adb, installedPaths.map((path, i) =>
+            `printf '${i}=%s\\n' "$(sha256sum ${path} 2>/dev/null | awk '{print $1}')"`).join('\n'), signal));
+          const reusable = artifacts.map((file, i) => hashes.get(String(i)) === file.sha256);
+          stage = '整理模块存储';
+          progress('正在整理模块存储…');
+          checkEngineStorage(await shellText(attachment.adb,
+            prepareEngineStorageScript(profile, release, contents.reduce((n, file, i) => n + (reusable[i] ? 0 : file.byteLength), 0)), signal));
+          stage = '写入模块持久存储';
+          progress('正在写入模块持久存储…');
+          await shellText(attachment.adb, `mkdir -p ${releaseDirectory} && chmod 700 ${releaseDirectory}`, signal);
+          const guard = async (nextBytes: number) => engineWriteSize(await shellText(attachment.adb,
+            `sync; df -Pk ${base} | awk 'NR == 2 { print $4 }'`, signal), nextBytes);
+          for (let i = 0; i < contents.length; i++) {
+            stage = `写入模块持久存储（${artifacts[i]?.path || '安装脚本'}）`;
+            if (reusable[i]) {
+              await shellText(attachment.adb, `ln ${installedPaths[i]} ${staged[i]}`, signal);
+            } else {
+              await pushFile(attachment.adb, staged[i], contents[i], signal, guard);
+            }
+            const actual = (await shellText(attachment.adb, `sha256sum ${staged[i]} | awk '{print $1}'`, signal)).trim();
+            if (actual !== await sha256Bytes(contents[i])) throw new TransportFailure('install_failed', '模块文件校验失败。');
           }
-          const actual = (await shellText(attachment.adb, `sha256sum ${staged[i]} | awk '{print $1}'`, signal)).trim();
-          if (actual !== await sha256Bytes(contents[i])) throw new TransportFailure('install_failed', '模块文件校验失败。');
+          await guard(0);
+        };
+        try {
+          await stageFiles();
+        } catch (error) {
+          // Only measured shortage or device ENOSPC authorizes this fallback. Network,
+          // corruption, unknown df output and cancellation never trigger deletion.
+          if (profile !== 'eg25-qdc507' || !(error instanceof EngineStorageShort) || signal.aborted) throw error;
+          stage = '清理本次暂存';
+          const cleaned = await shellText(attachment.adb, cleanup, signal);
+          if (!cleaned.includes('AIRSIM_ENGINE_STAGING_CLEAN')) throw new TransportFailure('install_failed', '暂存清理失败，未删除旧版。');
+          stage = '暂停 Engine 并释放旧版空间';
+          progress('空间不足，正在暂停 Engine 并删除旧程序；身份和配对保留…');
+          reinstalling = true;
+          const reclaimed = await shellText(attachment.adb, reclaimEG25EngineScript(), signal, 30_000);
+          if (!reclaimed.includes('AIRSIM_ENGINE_RECLAIMED')) throw new TransportFailure('install_failed', '未能完成旧程序清理。');
+          await stageFiles();
         }
-        await guard(0);
         stage = '执行持久化安装脚本';
         progress('正在执行持久化安装脚本…');
         activating = true;
@@ -1108,7 +1135,10 @@ done
         const detail = error instanceof TransportFailure
           ? error.detail
           : error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-        const message = `${stage}：${detail || '未返回错误信息'}`;
+        const recovery = reinstalling
+          ? `${(detail || '安装尚未完成').replaceAll('当前运行版本已保留。', '')} 低空间重装尚未完成，Engine 可能已暂停；身份和配对保留，请重新选择模块并继续安装。`
+          : detail || '未返回错误信息';
+        const message = `${stage}：${recovery}`;
         if (error instanceof TransportFailure) throw new TransportFailure(error.code, error.code === 'install_reconnect' ? undefined : message);
         throw new TransportFailure('install_failed', message);
       }

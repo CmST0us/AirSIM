@@ -80,4 +80,13 @@ describe('real inspection flow with ADB service rejection', () => {
     expect(root.querySelector('h1')?.textContent).toBe('安装 AirSIM Engine');
     cleanup();
   });
+
+  it('offers installation again after an interrupted low-space reinstall', async () => {
+    const { root, cleanup } = await setup(installed + '\nreinstall_pending=1', true);
+    expect(root.querySelector('h1')?.textContent).toBe('安装 AirSIM Engine');
+    expect(root.textContent).toContain('继续安装 Engine');
+    expect(root.textContent).toContain('删除旧程序再安装新版');
+    expect([...root.querySelectorAll('button')].some(b => b.textContent === '更新并启用')).toBe(true);
+    cleanup();
+  });
 });

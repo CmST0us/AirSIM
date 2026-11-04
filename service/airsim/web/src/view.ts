@@ -170,7 +170,7 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
         const description = !engine ? '核对设备名称与标识。'
           : engine.state === 'missing' ? '安装运行程序并启用开机自启。'
             : engine.state === 'outdated' ? '更新运行程序并保持开机自启。'
-            : engine.state === 'incomplete' ? '补齐开机启动，重启后仍可自动运行。'
+            : engine.state === 'incomplete' ? '继续安装 Engine 并配置开机启动，完成后恢复服务。'
               : engine.state === 'unavailable' ? '当前部署包不支持这台设备。'
                 : engineStarting ? '保持模块供电，等待启动完成后重新检查，无需重新安装。'
                   : '核对设备名称与标识。Engine 已启用开机自启。';
@@ -187,7 +187,9 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
             element('strong', '', '持久化安装'),
             element('p', '', engine?.state === 'unavailable'
               ? '请用电脑上的 Chrome 或 Edge 连接受支持的 RM500U 或 EG25 QDC507 模块。'
-              : 'AirSIM Engine 会保存到模块的持久存储，并写入开机启动配置。模块身份和现有云连接配置不会被覆盖。'),
+              : engine?.profile === 'eg25-qdc507'
+                ? '安装后自动启动。空间不足时会暂停 Engine，删除旧程序再安装新版；身份和配对保留。若更新中断，重新选择模块继续安装即可。'
+                : 'AirSIM Engine 会保存到模块的持久存储，并写入开机启动配置。模块身份和现有云连接配置不会被覆盖。'),
           );
           content.append(note);
           if (engine?.state !== 'unavailable') {
