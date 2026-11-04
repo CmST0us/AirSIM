@@ -6,6 +6,8 @@
 
 2026-11-02：SkySIM `0.9.6 (82)` 已进入 TestFlight 内部测试。短信点击发送立即显示气泡、清空输入；失败时气泡左侧红色感叹号可点按原号卡重发，并修复 iPad 横屏键盘遮挡。此次仅更新 App，无需额外更新 ECS 或 Engine；真实设备短信交互仍待验收。见 [短信交互](../docs/IOS_SMS_INTERACTION.md) 与 [发布记录](../docs/IOS_TESTFLIGHT.md)。
 
+2026-11-04 挂断恢复：`0.9.6 (83)` 已完成 Release 构建及 Apple 处理，19:30 确认进入现有 TestFlight 内部测试，可安装更新；实际设备恢复效果待验收。见 [挂断恢复](../docs/IOS_HANGUP_RECOVERY_20261104.md)。
+
 ## v2 与当前界面
 
 2026-11-02 修复 6 位短号：拨号和短信号码接受可选 `+` 与 6–15 位 ASCII 数字，保留前导零。SkySIM `0.9.6 (81)` 已通过 Apple 处理并加入现有 TestFlight 内部测试。云端使用需同步更新 App、ECS 和模块 Engine，USB 本地需更新 App 与 Engine；发布和单元测试不代表已通过运营商实拨。

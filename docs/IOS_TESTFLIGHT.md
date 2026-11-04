@@ -110,3 +110,17 @@ SwiftPM 的 WebRTC 二进制包不附带 dSYM。正式上传前，从与 `Packag
 Apple 测试员页面已报告用户的 iPhone Duo / iOS 27.2 安装 `0.9.6 (82)`；这是 Apple 的安装状态证据，本轮未代用户安装，也未重新执行真实通话、短信、推送或 USB 验收。main 的 App 发布端继续使用 Build 82，不需要新增构建。
 
 文件对比与在线状态见 [main 核验记录](IOS_TESTFLIGHT_MAIN_VERIFICATION_20261102.json)。最新截图 `main-verification-internal-testing.jpg`、`main-verification-build-detail.jpg`、`main-verification-installed.jpg` 保存在 Build 82 产物目录。此次仅更新本文及该 JSON，`git diff --check` 和 JSON 解析检查通过；改动留在工作区，交由主控会话统一提交。
+
+## 2026-11-04：挂断待确认阻塞恢复（Build 83）
+
+基于 main `1fdf5874ae995373ab9b6abaeff07e4b623b058f`，三个发布 Target 的版本为 `0.9.6 (83)`。修复旧挂断无回执或 Engine 运行实例替换后永久阻塞拨号/接听；仅在可信的新鲜状态确认旧通话结束或运行代次替换时清除本机挂断等待，不重发命令或修改云端回执。具体边界见 [挂断恢复](IOS_HANGUP_RECOVERY_20261104.md)。
+
+- 已核对交接 JSON 的三个源码/测试文件 SHA-256 与 main 一致，实际 xcresult 为 108 项通过、0 失败；既有未签名模拟器真实 Keychain 用例仍被明确排除。
+- Release 归档通过，244 个 iOS 文件在归档期间未变；WebRTC 155.0.0 iOS arm64 dSYM 与归档框架 UUID 完全一致并已补入。分发导出和三个 Target 严格签名校验均通过，主 App 与 Watch 使用 production APNs，相机说明与隐私清单保留。
+- 产物目录为 `iOS/build/testflight-20261104-build83/`，包含 `source-manifest.json`、`hangup-handoff-verification.json`、`symbols-verification.json`、`release-status.json` 和脱敏构建日志。
+- 最终分发 IPA SHA-256 为 `bd1cedd9530d96553ccd8e03979657e6132c05fd0192477bfa22d5e5d5e713bb`，检查结果为产物目录中的 `verification.json`。Apple 登录恢复后，已核对全部上传记录，最高构建仍为 82，Build 83 无冲突；北京时间 19:24:49 上传返回 `Upload succeeded`、`Uploaded package is processing` 和 `EXPORT SUCCEEDED`，无上传警告。19:29，Apple 上传状态已显示“完成”。
+- 19:30，Build 83 已加入原“内部测试”群组，状态为“正在测试”，现有用户可在 TestFlight 更新。群组保留两位测试员和 Build 82、81、80，共四个构建；本轮未确认 Build 83 已在真实设备安装。
+- 简体中文测试说明已保存，重点覆盖模块重连或 Engine 更新后的拨号/接听恢复，以及重启 App 后旧挂断不再阻塞。构建 ID 为 `a72979b3-f262-49c2-946f-a8987e14dc10`；最终截图为产物目录中的 `skysim-internal-testing.jpg` 和 `testflight-build83-details.jpg`，状态记录为 `release-status.json`。
+- 本轮仅负责 App 发布，未修改业务源码、ECS 或 Engine，未代用户拨打电话或安装真机；版本号与发布记录随本次 main 提交保存。
+
+本次发布修改 `iOS/AirSIM.xcodeproj/project.pbxproj` 构建号，同步本文、挂断恢复 Markdown/JSON、`iOS/README.md`、根 `README.md`、`AGENTS.md`、`LLM.txt`、`codex.md`、`claude.md` 和 `docs/AVF_INSTALL_GUIDE.md` 的状态。业务源码保持 main `1fdf587`，文档与状态 JSON 检查通过。

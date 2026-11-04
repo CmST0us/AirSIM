@@ -16,3 +16,5 @@
 - 新增同一通话断开、Engine 重启、后端代次替换、仅连接变化、错身份/模块/路由、离线/陈旧快照等 22 场景；另覆盖回执请求竞态和持久化失败。
 - iPhone 16 Pro / iOS 18.5 模拟器 CloudV2 回归 108 项通过、0 失败（18:43:34 完成）；排除既有未签名模拟器 Keychain 限制用例。测试结果 `/tmp/airsim-hangup-fix-20261104.xcresult`，修复前失败证据 `/tmp/airsim-hangup-reproduce-20261104.xcresult`。真实手机更新后的按钮与通话仍待验收。
 - 此改动仅需更新 SkySIM App；ECS、网页 Engine、模块启动器及配对身份无变更。TestFlight 发布状态见 [发布记录](IOS_TESTFLIGHT.md)。
+
+TestFlight 已交付：已基于 main `1fdf587` 完成 `0.9.6 (83)` Release 归档及分发导出，三个 Target 严格签名校验通过，主 App/Watch 为 production APNs，源码摘要与交接一致，WebRTC 符号匹配。Apple 登录恢复后确认原最高构建为 82；Build 83 于北京时间 19:24:49 上传成功，无上传警告，19:29 确认 Apple 处理完成，19:30 确认加入原“内部测试”群组并显示“正在测试”。群组保留两位测试员及 Build 82、81、80，简体中文测试说明已保存。用户可在 TestFlight 更新至 `0.9.6 (83)`，打开 App 等待模块在线，再验证拨号和接听恢复；本轮未代用户安装或执行真实通话。构建 ID 为 `a72979b3-f262-49c2-946f-a8987e14dc10`，交付截图和状态记录保存在 `iOS/build/testflight-20261104-build83/`。

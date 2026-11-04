@@ -1,5 +1,5 @@
 {
-  "status": "validated_pending_testflight",
+  "status": "released_pending_real_device_validation",
   "base_commit": "c965d83de39dc3e440b1f4f5cc07257f79dbed3d",
   "source_files": {
     "iOS/AirSIM/CloudV2/CloudV2Model.swift": "377ab717763a04d74c3802a2d311c1f9481c51d384351d2bd24994a58c76ee5d",
@@ -25,5 +25,47 @@
     "cloud_receipts_modified": false,
     "cloud_deployed": false,
     "engine_changed": false
+  },
+  "testflight": {
+    "status": "testing",
+    "source_commit": "1fdf5874ae995373ab9b6abaeff07e4b623b058f",
+    "version": "0.9.6",
+    "build": "83",
+    "app_id": "6829440499",
+    "bundle_id": "com.eric3u.airsim2",
+    "source_hashes_match_release": true,
+    "latest_existing_build_confirmed": "82",
+    "artifacts": "/Users/eki/Project/Embedded_Project/AirSIM/iOS/build/testflight-20261104-build83",
+    "uploaded": true,
+    "archive": "passed",
+    "export": "passed",
+    "distribution_checks": "passed",
+    "webrtc_dsym_uuid_match": true,
+    "ipa_sha256": "bd1cedd9530d96553ccd8e03979657e6132c05fd0192477bfa22d5e5d5e713bb",
+    "source_unchanged_during_archive": true,
+    "uploaded_at": "2026-11-04T19:24:49+08:00",
+    "upload_warnings": [],
+    "build_id": "a72979b3-f262-49c2-946f-a8987e14dc10",
+    "apple_processing": "completed",
+    "apple_processing_observed_at": "2026-11-04T19:29:00+08:00",
+    "internal_testing": "testing",
+    "internal_testing_verified_at": "2026-11-04T19:30:28+08:00",
+    "internal_group_id": "dfc78074-31d3-4700-acd8-3745d1046910",
+    "internal_group_name": "内部测试",
+    "internal_testers": 2,
+    "internal_group_builds": [
+      "83",
+      "82",
+      "81",
+      "80"
+    ],
+    "test_notes_locale": "zh-Hans",
+    "test_notes_saved": true,
+    "physical_device_install_verified": false,
+    "build_url": "https://appstoreconnect.apple.com/teams/69a6de87-b902-47e3-e053-5b8c7c11a4d1/apps/6829440499/testflight/ios/a72979b3-f262-49c2-946f-a8987e14dc10",
+    "proof_screenshots": [
+      "/Users/eki/Project/Embedded_Project/AirSIM/iOS/build/testflight-20261104-build83/skysim-internal-testing.jpg",
+      "/Users/eki/Project/Embedded_Project/AirSIM/iOS/build/testflight-20261104-build83/testflight-build83-details.jpg"
+    ]
   }
 }
