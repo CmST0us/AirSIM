@@ -1,5 +1,7 @@
 # 模块网页安装器：EG25 / macOS
 
+2026-11-04：网页 Engine 安装器已修复中断暂存清理顺序、UBIFS 识别和低空间分块写入，通过 Workbench 发布 `installer-storage-20261104`；保留 512 KiB 余量及活动版本，96 kbps Engine 包不变。71 项测试通过，本轮无真机复验。详见 [空间检查修复](ENGINE_STORAGE_UPDATE_20261104.md)。
+
 2026-11-02 22:28：完整修复链已提交到 main（`f49b425`），并从独立工作区构建 `main-f49b425-20261102`。Workbench 已更新云端 control 和两平台网页 Engine，当前 EG25 已安装；最终包通过断电自启、新短信到达模块/云端及再次满仓自动清理验收。SkySIM 82 与 main 的 App 源码一致。详见 [main 部署](MAIN_DEPLOYMENT_20261102.md)。
 
 2026-11-02 收件修复新增 EG25 的“短信收件诊断”，可在选择并更新模块后直接读取容量、接收配置和轮询计数，无需重置配对。新版 Engine 满箱时按时间回收旧的完整短信；发布状态和真机证据见 [收件调查](EG25_SMS_RECEIVE_INVESTIGATION.md)。
@@ -46,8 +48,8 @@ Vitest 覆盖真实控制器与 ADB 服务拒绝、出厂 USB 发现、无序列
 - [Quectel USB 描述符说明](https://forums.quectel.com/uploads/short-url/uXpQMicPJt44aEHQ2YOqZgJhpjh.pdf)及[厂商 ADB 授权顺序](https://forums.quectel.com/t/how-to-enable-adb-interface-for-new-ec25-e-modem/21951)。
 - [旧式授权兼容向量](https://github.com/carp4/qadbkey-unlock/blob/cab52a0a7429c8d8b8f31da8894c8c93155c0fc5/README.md)。哈希原语使用 MIT 许可的 noble-hashes，声明随发布包保留。
 
-## 本次部署与回滚位置
+## 历史短信编码发布与回滚位置
 
-当前发布版本：`sms-pdu-20261102`（2026-11-02 14:35），在 `shortnumber-20261102` 基础上仅更新 EG25 Agent 和清单，修复短号收件地址及 UCS-2 正文编码。发布副本在 `/opt/airsim-v2/releases/sms-pdu-20261102/web`，Caddy 挂载目录仍为 `/opt/airsim-v2/releases/usb-local-20261030/web/dist`，静态备份为 `/opt/airsim-v2/backups/sms-pdu-20261102/web`。四个服务容器、RM500 包和模块启动器未变；EG25 由用户自行更新，没有新的真机或断电验收。详见 [短信编码修复](EG25_SMS_FIX.md)；此前云端控制服务更新见 [短号部署](SHORT_NUMBER_UPDATE.md)。
+2026-11-02 发布版本：`sms-pdu-20261102`（2026-11-02 14:35），在 `shortnumber-20261102` 基础上仅更新 EG25 Agent 和清单，修复短号收件地址及 UCS-2 正文编码。发布副本在 `/opt/airsim-v2/releases/sms-pdu-20261102/web`，Caddy 挂载目录仍为 `/opt/airsim-v2/releases/usb-local-20261030/web/dist`，静态备份为 `/opt/airsim-v2/backups/sms-pdu-20261102/web`。四个服务容器、RM500 包和模块启动器未变；EG25 由用户自行更新，没有新的真机或断电验收。详见 [短信编码修复](EG25_SMS_FIX.md)；此前云端控制服务更新见 [短号部署](SHORT_NUMBER_UPDATE.md)。
 
 本地 58 项网页测试、Agent 的 `GOTOOLCHAIN=go1.24.13 go test ./...`、TypeScript、Vite 生产构建与安装资源哈希校验均通过。生产 `/healthz` 与 `/readyz` 返回 200，匿名 `/v2/modules` 保持 401。另外从 ECS 通过公网域名访问首页、前端 JS 和两平台 manifest，内容哈希均与本次发布一致。网页构建和源站/公网资源验证不等于 Chrome 真机 USB 安装验收。

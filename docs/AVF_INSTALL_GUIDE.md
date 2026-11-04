@@ -1,5 +1,7 @@
 # AirSIM AVF Linux Agent 安装与无损排障
 
+2026-11-04：网页 Engine 安装器已修复中断暂存清理顺序、UBIFS 识别和低空间分块写入，通过 Workbench 发布 `installer-storage-20261104`；保留 512 KiB 余量及活动版本，96 kbps Engine 包不变。71 项测试通过，本轮无真机复验。详见 [空间检查修复](ENGINE_STORAGE_UPDATE_20261104.md)。 此项属于嵌入式 v2 网页安装，不使用 AVF Debian 流程。
+
 2026-11-02 22:28：完整修复链已提交到 main（`f49b425`），并从独立工作区构建 `main-f49b425-20261102`。Workbench 已更新云端 control 和两平台网页 Engine，当前 EG25 已安装；最终包通过断电自启、新短信到达模块/云端及再次满仓自动清理验收。SkySIM 82 与 main 的 App 源码一致。详见 [main 部署](MAIN_DEPLOYMENT_20261102.md)。 此项属于 EG25 v2，不使用 AVF Debian 安装流程。
 
 2026-11-02 22:01：EG25 收件故障确认为 ME 短信存储满（23/23）。新版 Engine 满仓时按时间回收旧的完整短信，已在真机两次触发清理并恢复模块→云端→SkySIM 收件；用户确认测试短信已显示。网页诊断与 Engine 已通过 Workbench 发布 `sms-receive-20261102`。App、ECS 业务容器和启动器不变；另一次修复前的自主重启原因未定，详见 [收件修复](EG25_SMS_RECEIVE_INVESTIGATION.md)。 此项属于 EG25 v2，不使用本文的 AVF Debian 安装流程。

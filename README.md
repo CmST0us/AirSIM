@@ -1,5 +1,7 @@
 # AirSIM — Android 与 iPhone / Apple Watch 跨设备通话、短信和 VoWLAN
 
+2026-11-04：网页 Engine 安装器已修复中断暂存清理顺序、UBIFS 识别和低空间分块写入，通过 Workbench 发布 `installer-storage-20261104`；保留 512 KiB 余量及活动版本，96 kbps Engine 包不变。71 项测试通过，本轮无真机复验。详见 [空间检查修复](docs/ENGINE_STORAGE_UPDATE_20261104.md)。
+
 2026-11-04：96 kbps Opus 已提交 main（`7f5e8d9`），通过 Workbench 发布 EG25／RM500 网页 Engine 包；模块须自行更新 Engine 后生效，App 与云端业务容器不变，本轮未安装真机。详见 [96 kbps 发布](docs/OPUS96_WEB_ENGINE_DEPLOYMENT_20261104.md)。
 
 2026-11-02 22:28：完整修复链已提交到 main（`f49b425`），并从独立工作区构建 `main-f49b425-20261102`。Workbench 已更新云端 control 和两平台网页 Engine，当前 EG25 已安装；最终包通过断电自启、新短信到达模块/云端及再次满仓自动清理验收。SkySIM 82 与 main 的 App 源码一致。详见 [main 部署](docs/MAIN_DEPLOYMENT_20261102.md)。
