@@ -42,7 +42,7 @@ private final class V2TestPending: V2PendingStore {
     var fails = false
     func load() throws -> V2PendingCommand? { value }
     func save(_ pending: V2PendingCommand) throws { if fails { throw V2Error.persistence }; value = pending }
-    func clear() throws { value = nil }
+    func clear() throws { if fails { throw V2Error.persistence }; value = nil }
 }
 @MainActor private final class V2TestTransport: V2HTTPTransport {
     var requests: [URLRequest] = []
@@ -1034,6 +1034,114 @@ extension CloudV2Tests {
 }
 
 extension CloudV2Tests {
+    @MainActor func testHangupReconciliationRequiresFreshScopedEvidence() async throws {
+        let transport = V2TestTransport { _ in V2HTTPResponse(status: 200, body: try v2Discovery()) }
+        let client = V2Client(transport: transport, tokens: V2TestTokens(), now: { v2Now })
+        _ = try await client.connect(v2Config())
+        let cases: [(String, Bool)] = [
+            ("disconnected", true), ("reboot", true), ("backend", true), ("reconnected_disconnected", true),
+            ("reconnected_active", false), ("missing_call", false), ("other_call", false),
+            ("stale", false), ("future", false), ("offline", false), ("directory_offline", false),
+            ("directory_mismatch", false), ("not_ready", false), ("calls_unavailable", false),
+            ("other_module", false), ("other_client", false), ("other_server", false), ("other_route", false),
+            ("sms.send", false), ("call.dial", false), ("call.answer", false), ("call.dtmf", false),
+        ]
+        for (scenario, resolves) in cases {
+            var binding = v2Binding()
+            if scenario == "reboot" { binding = V2ControlBinding(identity: binding.identity, moduleID: v2ID, bootID: v2OtherID, backendEpoch: v2ID, connectionEpoch: v2ID) }
+            if scenario == "backend" { binding = V2ControlBinding(identity: binding.identity, moduleID: v2ID, bootID: v2ID, backendEpoch: v2OtherID, connectionEpoch: v2ID) }
+            if scenario.hasPrefix("reconnected") { binding = V2ControlBinding(identity: binding.identity, moduleID: v2ID, bootID: v2ID, backendEpoch: v2ID, connectionEpoch: v2OtherID) }
+            if scenario == "other_module" { binding = v2Binding(module: v2OtherID) }
+            if scenario == "other_client" { binding = v2Binding(client: v2OtherID) }
+            if scenario == "other_route" { binding.usbLocal = true }
+            let action = scenario.contains(".") ? scenario : "call.hangup"
+            let pending = V2PendingCommand(binding: binding, commandID: v2ID, action: action, generation: v2ID, callID: v2OtherID)
+            let store = V2TestPending(); store.value = pending
+            let machine = try V2CommandMachine(client: client, store: store)
+            var calls = [v2CallObject(state: "disconnected")]
+            if ["reboot", "backend", "missing_call"].contains(scenario) { calls = [] }
+            if scenario == "reconnected_active" { calls = [v2CallObject()] }
+            if scenario == "other_call" { calls = [v2CallObject(id: v2ID, state: "disconnected")] }
+            let age: Double = scenario == "stale" ? 9 : scenario == "future" ? -4 : 0
+            var object = try JSONSerialization.jsonObject(with: v2SnapshotData(age: age, calls: calls)) as! [String: Any]
+            var directory: [String: Any] = ["module_id": v2ID, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID]
+            if scenario == "offline" { object["online"] = false }
+            if scenario == "other_server" { object["server_id"] = v2OtherID }
+            if scenario == "directory_offline" { directory["online"] = false }
+            if scenario == "directory_mismatch" { directory["connection_epoch"] = v2OtherID }
+            if scenario == "not_ready" || scenario == "calls_unavailable" {
+                var snapshot = object["snapshot"] as! [String: Any]
+                let key = scenario == "not_ready" ? "control" : "calls"
+                var section = snapshot[key] as! [String: Any]
+                section[scenario == "not_ready" ? "ready" : "available"] = false
+                snapshot[key] = section; object["snapshot"] = snapshot
+            }
+            let response = try V2JSON.decode(V2SnapshotResponse.self, from: v2Data(object), limit: 262144)
+            let module = try V2JSON.decode(V2Module.self, from: v2Data(directory), limit: 1024)
+            XCTAssertEqual(try machine.reconcileEndedHangup(response, configuration: v2Config(), module: module, now: v2Now, usbLocal: false), resolves, scenario)
+            XCTAssertEqual(machine.pending, resolves ? nil : pending, scenario)
+            XCTAssertEqual(store.value, resolves ? nil : pending, scenario)
+            XCTAssertEqual(machine.phase, resolves ? .idle : .unknown, scenario)
+        }
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod != "GET" }.count, 0)
+    }
+
+    @MainActor func testHangupReconciliationWaitsForReceiptReadAndDurableClear() async throws {
+        var continuation: CheckedContinuation<V2HTTPResponse, Error>?
+        let transport = V2TestTransport { request in
+            if request.url!.path == "/.well-known/airsim" { return V2HTTPResponse(status: 200, body: try v2Discovery()) }
+            return try await withCheckedThrowingContinuation { continuation = $0 }
+        }
+        let client = V2Client(transport: transport, tokens: V2TestTokens(), now: { v2Now })
+        _ = try await client.connect(v2Config())
+        let store = V2TestPending()
+        store.value = V2PendingCommand(binding: v2Binding(), commandID: v2ID, action: "call.hangup", generation: v2ID, callID: v2OtherID)
+        let machine = try V2CommandMachine(client: client, store: store)
+        let response = try V2JSON.decode(V2SnapshotResponse.self, from: v2SnapshotData(calls: [v2CallObject(state: "disconnected")]), limit: 262144)
+        let module = try V2JSON.decode(V2Module.self, from: v2Data(["module_id": v2ID, "online": true, "last_seen": V2Validation.timestamp(v2Now), "agent_boot_id": v2ID, "backend_epoch": v2ID, "connection_epoch": v2ID]), limit: 1024)
+        let read = Task { try await machine.recover() }
+        await v2Yield()
+        XCTAssertNotNil(continuation)
+        XCTAssertFalse(try machine.reconcileEndedHangup(response, configuration: v2Config(), module: module, now: v2Now, usbLocal: false))
+        continuation?.resume(returning: V2HTTPResponse(status: 200, body: try v2Accepted(id: v2ID, action: "call.hangup", callID: v2OtherID)))
+        try await read.value
+        XCTAssertEqual(machine.phase, .receipt(serverState: "completed", receiptState: "accepted"))
+        store.fails = true
+        XCTAssertThrowsError(try machine.reconcileEndedHangup(response, configuration: v2Config(), module: module, now: v2Now, usbLocal: false))
+        XCTAssertNotNil(machine.pending); XCTAssertNotNil(store.value)
+        store.fails = false
+        XCTAssertTrue(try machine.reconcileEndedHangup(response, configuration: v2Config(), module: module, now: v2Now, usbLocal: false))
+        XCTAssertNil(machine.pending); XCTAssertNil(store.value)
+        XCTAssertEqual(transport.requests.filter { $0.httpMethod != "GET" }.count, 0)
+    }
+
+    @MainActor func testRestoredUnknownHangupAfterEngineRestartAllowsDialAndAnswer() async throws {
+        for incoming in [false, true] {
+            let pending = V2PendingCommand(binding: v2Binding(), commandID: v2ID, action: "call.hangup", generation: v2ID, callID: v2ID)
+            let owner = V2CallContext(binding: v2Binding(), callID: v2ID, generation: v2ID)
+            let fixture = try V2PollFixture(pushController: nil, restoredOwner: owner, restoredPending: pending)
+            addTeardownBlock { await fixture.close() }
+            fixture.bootID = v2OtherID
+            fixture.commandHTTPStatus = 404 // The old receipt cannot be recovered.
+            if incoming {
+                var call = v2CallObject(state: "incoming"); call["direction"] = "incoming"; call["ownership"] = "incoming"
+                fixture.snapshotCalls = [call]
+            }
+            await fixture.model.sceneChanged(.active)
+            try await v2PollWait { fixture.model.telephonyReady && fixture.model.ownedCall == nil }
+            XCTAssertFalse(fixture.model.hasUnresolvedCommand)
+            XCTAssertTrue(fixture.model.canAct)
+            XCTAssertNil(try V2FilePendingStore(url: fixture.root.appendingPathComponent("pending.json")).load())
+            XCTAssertEqual(fixture.writes, 0) // Recovery never resends the hangup.
+            fixture.commandHTTPStatus = 200
+            if incoming { await fixture.model.answerInApp(try XCTUnwrap(fixture.model.activeCall)) }
+            else { fixture.model.number = "00000000001"; await fixture.model.dial() }
+            XCTAssertEqual(fixture.writes, 1)
+            XCTAssertEqual(fixture.commands.last?["action"] as? String, incoming ? "call.answer" : "call.dial")
+            await fixture.close()
+        }
+    }
+
     @MainActor func testRestoredOwnerFromPreviousRuntimeReleasesAndAllowsIncomingAnswer() async throws {
         for changedBoot in [true, false] {
             let old = V2CallContext(binding: v2Binding(), callID: v2ID, generation: v2ID)

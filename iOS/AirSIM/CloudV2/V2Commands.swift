@@ -153,6 +153,26 @@ final class V2CommandMachine {
         default: throw V2Error.busy
         }
     }
+    /// A hangup's goal can be observed even when its receipt was lost. This does
+    /// not assert that the command executed, and never resubmits any command.
+    @discardableResult
+    func reconcileEndedHangup(_ response: V2SnapshotResponse, configuration: V2Configuration,
+                             module: V2Module, now: Date, usbLocal: Bool) throws -> Bool {
+        guard !requestInFlight, let pending, pending.action == "call.hangup",
+              client.configuration?.identity == configuration.identity,
+              let snapshot = response.snapshot, snapshot.control.ready, snapshot.calls.available,
+              let fresh = try? response.controlBinding(configuration: configuration, module: module, now: now, usbLocal: usbLocal),
+              fresh.identity == pending.binding.identity, fresh.moduleID == pending.binding.moduleID,
+              fresh.usbLocal == pending.binding.usbLocal else { return false }
+        let replaced = fresh.bootID != pending.binding.bootID || fresh.backendEpoch != pending.binding.backendEpoch
+        let disconnected = snapshot.calls.calls.contains { $0.call_id == pending.callID && $0.state == "disconnected" }
+        guard replaced || disconnected else { return false }
+        // Clear durably before unlocking the UI. An absent call in the same
+        // runtime, an outage, or an unknown dial/SMS is not proof of completion.
+        try store.clear()
+        self.pending = nil; phase = .idle; receiptMessageID = nil
+        return true
+    }
     func clearOwnedCall() throws { try ownedStore?.clear(); ownedCall = nil }
     /// Keeps the owned call when the module reconnected to the server under a new connection epoch.
     func rebindOwnedCall(_ context: V2CallContext) throws {

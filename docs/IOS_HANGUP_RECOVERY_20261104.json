@@ -1,0 +1,29 @@
+{
+  "status": "validated_pending_testflight",
+  "base_commit": "c965d83de39dc3e440b1f4f5cc07257f79dbed3d",
+  "source_files": {
+    "iOS/AirSIM/CloudV2/CloudV2Model.swift": "377ab717763a04d74c3802a2d311c1f9481c51d384351d2bd24994a58c76ee5d",
+    "iOS/AirSIM/CloudV2/V2Commands.swift": "fde87ef643bcca2a66da632b41ae397490416eebf4abc9eca02c47a9da0dd691",
+    "iOS/AirSIMTests/CloudV2Tests.swift": "6c82d20bd252341cd0422a2fab95e2468a58c4bdca375a27849f49c3908c8cca"
+  },
+  "verification": {
+    "tests_passed": 108,
+    "failures": 0,
+    "excluded": "testRealKeychainRoundTripWithIsolatedAccount: existing unsigned simulator limitation",
+    "simulator": "iPhone 16 Pro / iOS 18.5",
+    "result_bundle": "/tmp/airsim-hangup-fix-20261104.xcresult",
+    "before_fix_result_bundle": "/tmp/airsim-hangup-reproduce-20261104.xcresult",
+    "real_device_validation": false
+  },
+  "production": {
+    "read_only": true,
+    "online_modules": 2,
+    "control_ready": true,
+    "telephony_ready": true,
+    "audio_available": true,
+    "unknown_hangup_observed": true,
+    "cloud_receipts_modified": false,
+    "cloud_deployed": false,
+    "engine_changed": false
+  }
+}

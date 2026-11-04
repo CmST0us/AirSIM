@@ -28,7 +28,7 @@ App 链接 `WebRTC.framework` 并随包嵌入，主 target 的运行时搜索路
 
 模块在响铃中重建通话时，新推送接替尚未接听的系统来电；已有系统通话时其他推送直接确认。只有 CallKit 不可用、推送无效或身份不符时才上报并立即结束“AirSIM 来电已失效”占位来电。Debug 构建在本机偏好中保存不含号码和内容的诊断：`airsim.v2.last-media-stats`（最近一次通话的媒体计数）、`airsim.v2.debug-trace`（最近 60 条通话路径阶段）、`airsim.v2.last-incoming-diagnostic` 与 `airsim.push.last-rejection`，可用 `xcrun devicectl device copy from` 从应用容器读取。WebRTC 的第三方许可证随 App 打包为 `WebRTC-LICENSE.txt`。
 
-模块启动或后端代次变更后，App 使用与当前模块目录一致的新鲜快照释放失效的本机通话所有权，新来电仍可显示和接听。模块与 ECS 的控制连接重连时，App 在新鲜快照显示同一通话仍在后把所持通话改绑到新连接代次并持久化，CallKit 系统通话同步改绑；模块离线或快照过期期间系统通话与运行中的音频保持，后台也会在连接代次变化时刷新模块目录完成改绑。通话期间状态轮询失败最多间隔 2 秒重试。待确认命令继续查询结果，不清除或自动重发。
+模块启动或后端代次变更后，App 使用与当前模块目录一致的新鲜快照释放失效的本机通话所有权，新来电仍可显示和接听。模块与 ECS 的控制连接重连时，App 在新鲜快照显示同一通话仍在后把所持通话改绑到新连接代次并持久化，CallKit 系统通话同步改绑；模块离线或快照过期期间系统通话与运行中的音频保持，后台也会在连接代次变化时刷新模块目录完成改绑。通话期间状态轮询失败最多间隔 2 秒重试。待确认命令继续查询原结果，不自动重发。挂断是有限例外：已验证的新鲜快照确认原通话 disconnected 或原运行代次已被替换时，持久清除旧挂断 pending，避免永久阻塞拨号和接听；须匹配当前在线目录、身份、模块与路径，control.ready 和 calls.available 均可用，且没有回执请求在途。不会据此清除未知拨号、接听或短信。验证及发布状态见 [挂断恢复](../docs/IOS_HANGUP_RECOVERY_20261104.md)。
 
 此前原视图接入已通过 15 项 UI 自动化；该轮单元测试 141 项中 139 项通过、1 项硬件音频测试按条件跳过，另有 1 项模拟器真实 Keychain 往返测试受当前测试签名环境限制。CallKit 与已有通话的后台生命周期按 [系统通话契约](../protocol/v2/CALLKIT.md) 实施，真机呼出、系统来电接听、后台保持及原 App 挂断已通过。v2 已接入独立 PushKit/APNs 注册、冷启动来电关联、后台短信通知和首次使用权限申请；真实后台推送仍要求 ECS 完整配置 APNs provider，见 [APNs 扩展](../protocol/v2/APNS_EXTENSION.md)。设备配对的 WebUSB、生产 ECS claim、模块范围绑定和完整原界面配对流程已通过；实现与剩余边界见 [配对记录](../docs/IOS_AIRSIM_PAIRING.md)。此前 [R5](../docs/IOS_AIRSIM_R5.md) 为模拟器前台闭环，[R6](../docs/IOS_AIRSIM_R6.md) 已确认实体双向音频，但通话质量尚未通过。Watch v2 暂不支持。
 

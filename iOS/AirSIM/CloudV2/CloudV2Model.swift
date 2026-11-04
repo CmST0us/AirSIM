@@ -725,13 +725,8 @@ final class CloudV2Model: ObservableObject {
             history = candidate; historyDirty = true
         }
         try saveDirtyHistory()
-        if let pending = machine?.pending, pending.action == "call.hangup",
-           pending.binding.identity == config.identity, pending.binding.moduleID == response.module_id,
-           response.online, response.connection_epoch == pending.binding.connectionEpoch,
-           snapshot.agent_boot_id == pending.binding.bootID, snapshot.backend_epoch == pending.binding.backendEpoch,
-           (-3...8).contains(now().timeIntervalSince(snapshot.observedAt)),
-           snapshot.calls.calls.contains(where: { $0.call_id == pending.callID && $0.state == "disconnected" }) {
-            if case .receipt = machine?.phase { try machine?.acknowledgeResolved() }
+        if let module = selectedModule {
+            try machine?.reconcileEndedHangup(response, configuration: config, module: module, now: now(), usbLocal: client.usingUSB)
         }
         if let context = ownedCall, context.binding.identity == config.identity,
            context.binding.moduleID == response.module_id,
