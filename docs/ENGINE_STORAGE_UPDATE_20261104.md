@@ -1,5 +1,7 @@
 # 网页 Engine 更新空间检查修复（2026-11-04）
 
+后续：用户在本版重试后仍空间不足，明确授权删除旧程序。15:19 已发布 [低空间重装补修](ENGINE_RECLAIM_UPDATE_20261104.md)，本页保留上午版本的历史范围，不表示它解决了该模块实际容量问题。
+
 用户反馈 EG25 更新 96 kbps Engine 时出现“模块空间不足；当前运行版本已保留”。模块无法接回 Mac，按用户要求直接修改网页安装器。本轮没有该模块的实时 df、文件清单或完整失败阶段，因此不能把其中某一个代码缺陷认定为本次真机报错的唯一原因。
 
 源码提交 `20e760dac887457ee537e7fec9f75978b8327d86`，发布 `installer-storage-20261104`。11:36:30（北京时间）通过 alibabacloud-workbench-cli 的 `default` profile 发布到 `i-wz93dhbsy21quebidepg` / `airsim.eric3u.cc`。

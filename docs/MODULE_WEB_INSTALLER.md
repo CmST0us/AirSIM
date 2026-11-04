@@ -1,5 +1,7 @@
 # 模块网页安装器：EG25 / macOS
 
+2026-11-04 15:19：用户重试后仍空间不足，并授权删除旧版。网页已加入 EG25 低空间重装：完整下载校验后暂停 Agent/helper、删除旧程序再写入，保留身份/配对/状态，中断后重新选择继续安装，完成后恢复自启动。Workbench 已发布 `installer-reclaim-20261104`（源码 `492daa6`），85 项测试通过；96 kbps Engine 包不变，未做本轮真机验收。详见 [低空间重装](ENGINE_RECLAIM_UPDATE_20261104.md)。
+
 2026-11-04：网页 Engine 安装器已修复中断暂存清理顺序、UBIFS 识别和低空间分块写入，通过 Workbench 发布 `installer-storage-20261104`；保留 512 KiB 余量及活动版本，96 kbps Engine 包不变。71 项测试通过，本轮无真机复验。详见 [空间检查修复](ENGINE_STORAGE_UPDATE_20261104.md)。
 
 2026-11-02 22:28：完整修复链已提交到 main（`f49b425`），并从独立工作区构建 `main-f49b425-20261102`。Workbench 已更新云端 control 和两平台网页 Engine，当前 EG25 已安装；最终包通过断电自启、新短信到达模块/云端及再次满仓自动清理验收。SkySIM 82 与 main 的 App 源码一致。详见 [main 部署](MAIN_DEPLOYMENT_20261102.md)。

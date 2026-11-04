@@ -1,0 +1,215 @@
+{
+  "release": "installer-reclaim-20261104",
+  "source_commit": "492daa6dc97476e5f0d3f509f05a477cad97b197",
+  "deployed_at": "2026-11-04T15:19:33.057770+08:00",
+  "instance_id": "i-wz93dhbsy21quebidepg",
+  "domain": "airsim.eric3u.cc",
+  "live_root": "/opt/airsim-v2/releases/usb-local-20261030/web/dist",
+  "backup": "/opt/airsim-v2/backups/installer-reclaim-20261104",
+  "static_files": {
+    "index.html": {
+      "size": 428,
+      "sha256": "3b6c01dfc288580ff5574d9a03f3498c2938652ed25f40591a4f1d9e9d10ea8b"
+    },
+    "assets/index-B7PL8cnH.js": {
+      "size": 118123,
+      "sha256": "0721de3357f06c93643958b444b2c1803574661180549ab48c77052b14f0698e"
+    },
+    "assets/index-Bi9Jozh_.css": {
+      "size": 6736,
+      "sha256": "c4a8b61e797f78bf4677326943c22136ee48859c8d99a3e83735d19884cd8e19"
+    }
+  },
+  "origin_tls_verified_files": 26,
+  "engine_files_unchanged": 23,
+  "services_unchanged": true,
+  "services": {
+    "airsim-v2-control-1": {
+      "id": "95c05e1ff53aafd75f08905a8cd13aedc1c6c28d8e2107be20c98f2bf02692aa",
+      "image": "sha256:115edb7852e0b7c66ee6b69e117cc4e10e1910a888dcd5c3d037182a1197e837",
+      "started": "2026-11-02T14:21:15.076944691Z",
+      "status": "running"
+    },
+    "airsim-v2-media-1": {
+      "id": "416998a3fb6cbc6a2d2aa63dd163b6eb79dabd660c96f6f1806b6eea92f07fc0",
+      "image": "sha256:d9d143db25607ecfca4d994ccaa313a491cc72fba52e3e815b13a7092192701b",
+      "started": "2026-11-01T09:19:15.2805418Z",
+      "status": "running"
+    },
+    "airsim-v2-edge-1": {
+      "id": "081c892cc3b1e6a68049acc1c372b558c04ed25b072113529229c0e9d1cf1204",
+      "image": "sha256:ef0695b8da247e06b96cf4e341a5035d07dfb98679ed69a5e1a479df1dda6b0a",
+      "started": "2026-11-01T00:15:08.926409806Z",
+      "status": "running"
+    },
+    "airsim-cloudflared": {
+      "id": "392ee42da322be8850e8d156cd1c260258a8e016ac17221616cc9670038a6653",
+      "image": "sha256:c6c7ae1d5dfdcb094ad344ed68ccffc26635c9c6be80965664c33baf064b0515",
+      "started": "2026-10-26T23:48:44.059303687Z",
+      "status": "running"
+    },
+    "airsim-v2-postgres-1": {
+      "id": "16bd083935e59b891924fad52743b5be27c82a42ea4a496b3dfc8629cc3e8f77",
+      "image": "sha256:04997dc6db8ad887d2cdb999cc7c690d2be8a167bc71ddd373ab014cea397bb8",
+      "started": "2026-10-24T09:21:07.083138716Z",
+      "status": "running"
+    }
+  },
+  "health": {
+    "/healthz": {
+      "alive": true
+    },
+    "/readyz": {
+      "ready": true
+    }
+  },
+  "unauthorized_modules_status": "401",
+  "device_installation_tested": false,
+  "power_cycle_tested": false,
+  "public_tls_verified_files": {
+    "index.html": {
+      "size": 428,
+      "sha256": "3b6c01dfc288580ff5574d9a03f3498c2938652ed25f40591a4f1d9e9d10ea8b",
+      "cache_control": "no-store"
+    },
+    "assets/index-B7PL8cnH.js": {
+      "size": 118123,
+      "sha256": "0721de3357f06c93643958b444b2c1803574661180549ab48c77052b14f0698e",
+      "cache_control": "no-store"
+    },
+    "assets/index-Bi9Jozh_.css": {
+      "size": 6736,
+      "sha256": "c4a8b61e797f78bf4677326943c22136ee48859c8d99a3e83735d19884cd8e19",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/COPYING-GPL-2.0": {
+      "size": 18693,
+      "sha256": "af8067302947c01fd9eee72befa54c7e3ef8a48fecde7fd71277f2290b2bf0f7",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/LICENSE": {
+      "size": 4563,
+      "sha256": "c0ea4a896d2c8c394b29f9427589996db826cd501c512279ff0ed3ef48fabbe5",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/MODULE-REPORT.md": {
+      "size": 7443,
+      "sha256": "fb9d58336bcfdad8938d7833c113a815c2153d9a04564eb73cddabea737f8be2",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/NOTICE": {
+      "size": 400,
+      "sha256": "82bb82e0816c778a09b7ddc8cea0f9126847d6e489bf0aeb7fb1dff2dfc54454",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/OPUS-LICENSE.txt": {
+      "size": 1945,
+      "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/THIRD_PARTY_NOTICES.md": {
+      "size": 8573,
+      "sha256": "08085fb518298756f0a4bc27a73e51fb40f5db598591b869dce26ad19f327bde",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/airsim-agent": {
+      "size": 11141304,
+      "sha256": "b40638aa0c96b62dc9330429f7070252acd3477a31e8f7829de03ebd6e3a8484",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/airsim-audiod": {
+      "size": 331936,
+      "sha256": "0edce3cfb8d874badf1e2443b044c19ebd890fcfae5f86ef6e53d29eb38e4243",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/airsim_data11.c": {
+      "size": 3758,
+      "sha256": "bfe3303f4ebefeda3482d26da1aebfcf316ebe69a2d8a2cafb59245cbcb8a41c",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/airsim_data11.ko": {
+      "size": 6144,
+      "sha256": "e92a920829236a2b02a0ba8bd259b63f2557a825ed580bb805b898ddc77dc003",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/isrgrootx1.pem": {
+      "size": 1939,
+      "sha256": "22b557a27055b33606b6559f37703928d3e4ad79f110b407d04986e1843543d1",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/manifest.json": {
+      "size": 2240,
+      "sha256": "05d60f177cc2e4c948bd1a77177a492055d65006d6e6a60ff2492f90af829fea",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/qdc507_aprv3.ko": {
+      "size": 36664,
+      "sha256": "3d82d3dec4f1e323201bba87156df9d41438e08314097353f2607f9117211d4a",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/qdc507_voice.ko": {
+      "size": 999236,
+      "sha256": "ed3821682d5309969a01c764192c83feff9669c61ef237c69475cd1619cf296c",
+      "cache_control": "no-store"
+    },
+    "engine/eg25-qdc507/run-agent.sh": {
+      "size": 3264,
+      "sha256": "05c2d0eea116f9460a4e118160e495394d118e2b5136413ea549dd693bd290f8",
+      "cache_control": "no-store"
+    },
+    "engine/rm500u-embedded/LICENSE": {
+      "size": 4563,
+      "sha256": "c0ea4a896d2c8c394b29f9427589996db826cd501c512279ff0ed3ef48fabbe5",
+      "cache_control": "no-store"
+    },
+    "engine/rm500u-embedded/NOTICE": {
+      "size": 400,
+      "sha256": "82bb82e0816c778a09b7ddc8cea0f9126847d6e489bf0aeb7fb1dff2dfc54454",
+      "cache_control": "no-store"
+    },
+    "engine/rm500u-embedded/OPUS-LICENSE.txt": {
+      "size": 1945,
+      "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551",
+      "cache_control": "no-store"
+    },
+    "engine/rm500u-embedded/THIRD_PARTY_NOTICES.md": {
+      "size": 8573,
+      "sha256": "08085fb518298756f0a4bc27a73e51fb40f5db598591b869dce26ad19f327bde",
+      "cache_control": "no-store"
+    },
+    "engine/rm500u-embedded/airsim-agent": {
+      "size": 11272376,
+      "sha256": "a10c8da6f2ac92347712273dcdd7c71660cb7ea2d31605872857ce8cc610d281",
+      "cache_control": "no-store"
+    },
+    "engine/rm500u-embedded/airsim-audiod": {
+      "size": 396392,
+      "sha256": "aac0d1968d6c92b3845ab38326006f8d5f8ad767b85ff2e5d6b893b3e8dc9b6d",
+      "cache_control": "no-store"
+    },
+    "engine/rm500u-embedded/manifest.json": {
+      "size": 1178,
+      "sha256": "894f2cccfbc8e86c13140a7a500867f4741e35570d556885256f42d5674d471e",
+      "cache_control": "no-store"
+    },
+    "engine/rm500u-embedded/run-agent.sh": {
+      "size": 1832,
+      "sha256": "22321e7334b15924c9e7562a10c232aa60a131dfdc80e145946b6fd02af5af91",
+      "cache_control": "no-store"
+    }
+  },
+  "public_health": {
+    "/healthz": {
+      "alive": true
+    },
+    "/readyz": {
+      "ready": true
+    }
+  },
+  "local_validation": {
+    "vitest_passed": 85,
+    "typescript": "passed",
+    "production_build": "passed",
+    "physical_eg25": "unavailable; user authorized deleting old program before writing"
+  }
+}
