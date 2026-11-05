@@ -15,9 +15,9 @@
 
 业务信令、所有权与 TURN 接口兼容，没有新的云端业务代码需要替换，因此本次云端变更是静态 Engine 发布。
 
-## App 已上传，内部测试待确认
+## App 已进入内部测试
 
-SkySIM `0.9.6 (84)` 已完成 Release 分发构建、导出和签名校验，于 23:38:54 上传成功，无上传警告，Apple 返回正在处理。IPA SHA-256 为 `b2c93cf11dcc50a5543c3bed76729baf600e1322361a35627ba811941d7c9c42`。App Store Connect 网页会话已过期，内部测试分配待登录恢复；当前不能据此宣称 Build 84 已可安装。使用既有用户 Team、Bundle ID `com.eric3u.airsim2` 和 ASC App `6829440499`，继续由既有“构建 Release 并上传 TestFlight”聊天处理。最新结果见 [SkySIM TestFlight](IOS_TESTFLIGHT.md)。
+SkySIM `0.9.6 (84)` 已完成 Release 分发构建、导出和签名校验，于 23:38:54 上传成功，无上传警告，Apple 返回正在处理。IPA SHA-256 为 `b2c93cf11dcc50a5543c3bed76729baf600e1322361a35627ba811941d7c9c42`。11 月 6 日用户恢复网页登录后，01:09:39 确认 Apple 处理完成，01:10:37 确认 Build 84 已加入原有“内部测试”群组并显示“正在测试”，两位原有测试员可在 TestFlight 更新。群组保留之前四个构建，未新增测试员、未重复上传。上述时间为北京时间在线观察时间，并非 Apple 实际处理结束时间。使用既有用户 Team、Bundle ID `com.eric3u.airsim2` 和 ASC App `6829440499`；构建 ID 为 `012d4f38-6339-492d-908e-434db3b83833`，简体中文测试说明已保存。本轮未确认真实设备已安装 Build 84。详情见 [SkySIM TestFlight](IOS_TESTFLIGHT.md)。
 
 ## 生效与回退
 

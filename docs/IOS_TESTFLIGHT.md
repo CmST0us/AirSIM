@@ -126,12 +126,14 @@ Apple 测试员页面已报告用户的 iPhone Duo / iOS 27.2 安装 `0.9.6 (82)
 本次发布修改 `iOS/AirSIM.xcodeproj/project.pbxproj` 构建号，同步本文、挂断恢复 Markdown/JSON、`iOS/README.md`、根 `README.md`、`AGENTS.md`、`LLM.txt`、`codex.md`、`claude.md` 和 `docs/AVF_INSTALL_GUIDE.md` 的状态。业务源码保持 main `1fdf587`，文档与状态 JSON 检查通过。
 
 
-## 2026-11-05：云端音频双包冗余（Build 84，已上传待内部测试）
+## 2026-11-05～06：云端音频双包冗余（Build 84，已进入内部测试）
 
 基于已推送 main 的 `f2bb817ac8cfe73c33c77774b3a157966b3d805d`，本次 App 启用 WebRTC Opus/RED 最多两包冗余，并在音频会话或 Peer 工厂初始化前设置 SDK 选项。配套 Engine 为 `2.0.0-dev.audio1`、helper 为 `0.6.1-opus`，由主控会话发布；方案与真实设备边界见 [云端音频重构](CLOUD_AUDIO_REBUILD_20261105.md)。
 
-- 继续使用 SkySIM / `com.eric3u.airsim2` / App Store Connect `6829440499` 和原用户 Team。本次使用 `0.9.6 (84)`；Apple 网页会话已过期，登录控件曾持续空白加载，未能从网页读取最高构建号。随后通过 Chrome 原生界面退出网页调试连接，恢复正常密码输入框；现等待用户完成密码和验证。通过仍有效的 Xcode 分发账户上传，Apple 已接受 Build 84；北京时间 23:38:54 返回 `Uploaded package is processing`、`EXPORT SUCCEEDED`，无上传警告。处理完成与内部测试分配仍待网页登录恢复后确认，不能据此宣称已可安装。
+- 继续使用 SkySIM / `com.eric3u.airsim2` / App Store Connect `6829440499` 和原用户 Team。本次使用 `0.9.6 (84)`；Apple 网页会话过期且登录控件空白，曾阻塞在线状态核对。通过 Chrome 原生界面退出网页调试连接后恢复密码输入框，用户于 11 月 6 日完成登录。上传已于北京时间 11 月 5 日 23:38:54 通过仍有效的 Xcode 分发账户完成，返回 `Uploaded package is processing`、`EXPORT SUCCEEDED`，无上传警告；本轮未重复上传。
+- 11 月 6 日 01:09:39 在线确认 Build 84 上传状态为“完成”，它是当前最高构建；01:10:37 确认已加入原“内部测试”群组并显示“正在测试”，现有测试员可在 TestFlight 更新至 `0.9.6 (84)`。群组保留两位测试员及 Build 83、82、81、80，共五个构建，未新增测试员。本轮未确认 Build 84 已在真实设备安装。
+- 简体中文测试说明已保存，包含双向音频、短暂丢包后的恢复和配套 Engine 更新要求。构建 ID 为 `012d4f38-6339-492d-908e-434db3b83833`；群组 ID 为 `dfc78074-31d3-4700-acd8-3745d1046910`。处理完成和内部测试状态的时间均为在线观察时间，并非 Apple 实际处理结束时间。
 - Release 归档与 App Store Connect 分发导出通过，三个发布 Target 的严格签名、Bundle ID、分发 profile 和隐私清单检查通过，主 App 与 Watch 为 production APNs。相机、麦克风及通讯录用途说明保留，WebRTC 155.0.0 arm64 dSYM 与框架 UUID 匹配。
 - 244 个 iOS 文件在归档期间未变；`V2WebRTC.swift` SHA-256 与音频交接证据一致。本轮按用户要求不重复功能或真机测试；交接记录的 108 项 iOS 回归及实际 SDK 双向合成音频互通通过属于此前验证，不等于本轮真实通话验收。
-- 产物保存在 `iOS/build/testflight-20261105-build84/`：`source-manifest.json`、`audio-handoff-verification.json`、`symbols-verification.json`、`verification.json`、`release-status.json`、脱敏日志、测试说明草稿和登录阻塞截图。分发 IPA SHA-256 为 `b2c93cf11dcc50a5543c3bed76729baf600e1322361a35627ba811941d7c9c42`。
+- 产物保存在 `iOS/build/testflight-20261105-build84/`：`source-manifest.json`、`audio-handoff-verification.json`、`symbols-verification.json`、`verification.json`、`release-status.json`、脱敏日志和已保存的测试说明；在线证据为 `testflight-online-evidence.json`，截图为 `testflight-upload-completed.jpg`、`testflight-build84-details.jpg` 和 `skysim-internal-testing.jpg`。历史登录阻塞截图保留。分发 IPA SHA-256 为 `b2c93cf11dcc50a5543c3bed76729baf600e1322361a35627ba811941d7c9c42`。
 - 本发布会话仅修改 `iOS/AirSIM.xcodeproj/project.pbxproj` 构建号、本文及忽略目录下的发布证据；保留其他会话改动，不自行 commit/push。网页 Engine 发布及统一文档状态由主控会话处理。本轮未安装真实设备或执行通话。

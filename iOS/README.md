@@ -1,6 +1,6 @@
 # AirSIM iOS 与 watchOS
 
-2026-11-05：云端音频重构已合入 main，配套网页 Engine 已发布；SkySIM `0.9.6 (84)` 于 23:38 上传成功，Apple 处理确认和内部测试待网页登录恢复。本轮未安装真机，详见[发布记录](../docs/CLOUD_AUDIO_DEPLOYMENT_20261105.md)。
+2026-11-05：云端音频重构已合入 main，配套网页 Engine 已发布；SkySIM `0.9.6 (84)` 已于 11 月 6 日 01:10 确认进入原有 TestFlight 内部测试，可安装更新。本轮未安装真机，详见[发布记录](../docs/CLOUD_AUDIO_DEPLOYMENT_20261105.md)。
 
 ## SkySIM 与独立 TestFlight 应用
 

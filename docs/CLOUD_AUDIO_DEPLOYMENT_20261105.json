@@ -209,12 +209,32 @@
   "testflight": {
     "version": "0.9.6",
     "build": "84",
-    "status": "uploaded_processing_confirmation_pending",
-    "internal_testing": "pending_apple_web_login",
+    "status": "processing_completed",
+    "internal_testing": "testing",
     "upload_succeeded": true,
     "uploaded_at": "2026-11-05T23:38:54+08:00",
     "upload_warnings": [],
-    "ipa_sha256": "b2c93cf11dcc50a5543c3bed76729baf600e1322361a35627ba811941d7c9c42"
+    "ipa_sha256": "b2c93cf11dcc50a5543c3bed76729baf600e1322361a35627ba811941d7c9c42",
+    "build_id": "012d4f38-6339-492d-908e-434db3b83833",
+    "processing_observed_at": "2026-11-05T17:09:39.799Z",
+    "internal_testing_observed_at": "2026-11-05T17:10:37.941Z",
+    "observation_timezone": "UTC; equivalent Asia/Shanghai times recorded in Markdown",
+    "internal_group_name": "内部测试",
+    "internal_group_id": "dfc78074-31d3-4700-acd8-3745d1046910",
+    "internal_group_tester_count": 2,
+    "internal_group_builds": [
+      "84",
+      "83",
+      "82",
+      "81",
+      "80"
+    ],
+    "new_testers_added": false,
+    "upload_repeated": false,
+    "test_notes_saved": true,
+    "installable_for_existing_internal_testers": true,
+    "device_installation_verified": false,
+    "evidence_directory": "iOS/build/testflight-20261105-build84"
   },
   "validation_policy": "User requested direct deployment without additional functional or physical testing; build, signature, checksums and deployment health verification retained.",
   "local_release_directory": "/tmp/airsim-audio-red-f2bb817-20261105"
