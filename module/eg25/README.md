@@ -1,6 +1,6 @@
 # EG25 QDC507
 
-2026-11-05：当前源码包含[云端音频重构候选版](../../docs/CLOUD_AUDIO_REBUILD_20261105.md)，仅完成离线验证，尚未发布或安装真机。生产发布事实仍以此前记录为准。
+2026-11-05：云端音频重构已合入 main，通过 Workbench 发布网页 Engine `2.0.0-dev.audio1` / helper `0.6.1-opus`，模块由用户更新；本轮未安装真机。App TestFlight 进度与包摘要见[发布记录](../../docs/CLOUD_AUDIO_DEPLOYMENT_20261105.md)。
 
 2026-11-02 22:28：完整修复链已提交到 main（`f49b425`），并从独立工作区构建 `main-f49b425-20261102`。Workbench 已更新云端 control 和两平台网页 Engine，当前 EG25 已安装；最终包通过断电自启、新短信到达模块/云端及再次满仓自动清理验收。SkySIM 82 与 main 的 App 源码一致。详见 [main 部署](../../docs/MAIN_DEPLOYMENT_20261102.md)。
 

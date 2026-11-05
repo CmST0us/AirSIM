@@ -1,6 +1,6 @@
 # v2 WebRTC 音频
 
-2026-11-05：当前源码已完成[云端音频重构的离线验证](CLOUD_AUDIO_REBUILD_20261105.md)，尚未发布或安装真机；下方参数表描述候选源码，历史生产与实测记录保留原日期。
+2026-11-05：已完成[云端音频重构的离线验证](CLOUD_AUDIO_REBUILD_20261105.md)，23:31 通过 Workbench 发布网页 Engine，模块由用户更新；App TestFlight 进度见[发布记录](CLOUD_AUDIO_DEPLOYMENT_20261105.md)。本轮无真机通话验收，历史实测记录保留原日期。
 
 v2 云端与 USB 本地通话媒体为 App 与模块之间的 WebRTC 音频连接。App 的 libwebrtc 负责采集、回声消除、Opus 编解码与 NetEQ 抖动缓冲；模块 Agent 内嵌 Pion 终结 ICE、DTLS-SRTP 与 RTP，原生 `airsim-audiod` 用定点 libopus 编解码并读写 PCM 硬件；ECS 只转交 SDP，并以 TURN 中继蜂窝 NAT 后的模块。字段、期限与帧格式见 [WebRTC 协议](../protocol/v2/WEBRTC.md)。
 

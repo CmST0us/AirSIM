@@ -1,6 +1,6 @@
 # v2 WebRTC 通话媒体
 
-2026-11-05 下述媒体与播放规则已在离线候选源码实现，尚未部署。验证及兼容边界见 [重构记录](../../docs/CLOUD_AUDIO_REBUILD_20261105.md)。
+2026-11-05 下述媒体与播放规则已通过离线验证，网页 Engine 已发布，模块须更新后生效。App 发布进度见[发布记录](../../docs/CLOUD_AUDIO_DEPLOYMENT_20261105.md)，验证及兼容边界见[重构记录](../../docs/CLOUD_AUDIO_REBUILD_20261105.md)。
 
 通话媒体使用 WebRTC：iPad／iPhone 与模块之间建立一条 DTLS-SRTP 音频连接，ECS 转交 SDP 并提供 TURN 中继，USB 本地经模块 USB 地址直连。App、ECS control／media、Agent 与 helper 必须配套更新。
 

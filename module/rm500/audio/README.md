@@ -1,6 +1,6 @@
 # airsim-audiod — R3 native helper
 
-2026-11-05：当前源码包含[云端音频重构候选版](../../../docs/CLOUD_AUDIO_REBUILD_20261105.md)，仅完成离线验证，尚未发布或安装真机。生产发布事实仍以此前记录为准。
+2026-11-05：云端音频重构已合入 main，通过 Workbench 发布网页 Engine `2.0.0-dev.audio1` / helper `0.6.1-opus`，模块由用户更新；本轮未安装真机。App TestFlight 进度与包摘要见[发布记录](../../../docs/CLOUD_AUDIO_DEPLOYMENT_20261105.md)。
 
 Implementation for the controller's [R3 contract](../../../docs/RM500_AGENT_R3.md). The controller deployed decision04 and passed75.004 seconds of local bidirectional content acceptance on the current firmware with a16kHz vendor voice clock. Runtime voice_ready=false and verification=unverified remain the experimental publication gate. It does not invoke tinycap/tinyplay, the CLI, or the old Agent, and does not change mixer controls.
 

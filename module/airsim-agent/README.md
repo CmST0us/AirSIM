@@ -1,6 +1,6 @@
 # airsim-agent v2
 
-2026-11-05：当前源码包含[云端音频重构候选版](../../docs/CLOUD_AUDIO_REBUILD_20261105.md)，仅完成离线验证，尚未发布或安装真机。生产发布事实仍以此前记录为准。
+2026-11-05：云端音频重构已合入 main，通过 Workbench 发布网页 Engine `2.0.0-dev.audio1` / helper `0.6.1-opus`，模块由用户更新；本轮未安装真机。App TestFlight 进度与包摘要见[发布记录](../../docs/CLOUD_AUDIO_DEPLOYMENT_20261105.md)。
 
 2026-11-03：源码将模块与 App 的 Opus 双向目标码率提高到 96 kbps VBR，保持 16 kHz、20 ms 与丢包保护。Agent 的 SDP 应答和原生 helper 须成对更新；现有 SkySIM 可协商，无需为此更新 ECS。2026-11-04 已通过 Workbench 发布两平台网页 Engine 包（main `7f5e8d9`）；模块须更新 Engine 后生效，本轮未安装真机。验证与边界见 [WebRTC 音频](../../docs/WEBRTC_AUDIO.md)。
 

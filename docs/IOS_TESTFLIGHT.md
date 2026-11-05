@@ -124,3 +124,14 @@ Apple 测试员页面已报告用户的 iPhone Duo / iOS 27.2 安装 `0.9.6 (82)
 - 本轮仅负责 App 发布，未修改业务源码、ECS 或 Engine，未代用户拨打电话或安装真机；版本号与发布记录随本次 main 提交保存。
 
 本次发布修改 `iOS/AirSIM.xcodeproj/project.pbxproj` 构建号，同步本文、挂断恢复 Markdown/JSON、`iOS/README.md`、根 `README.md`、`AGENTS.md`、`LLM.txt`、`codex.md`、`claude.md` 和 `docs/AVF_INSTALL_GUIDE.md` 的状态。业务源码保持 main `1fdf587`，文档与状态 JSON 检查通过。
+
+
+## 2026-11-05：云端音频双包冗余（Build 84，已上传待内部测试）
+
+基于已推送 main 的 `f2bb817ac8cfe73c33c77774b3a157966b3d805d`，本次 App 启用 WebRTC Opus/RED 最多两包冗余，并在音频会话或 Peer 工厂初始化前设置 SDK 选项。配套 Engine 为 `2.0.0-dev.audio1`、helper 为 `0.6.1-opus`，由主控会话发布；方案与真实设备边界见 [云端音频重构](CLOUD_AUDIO_REBUILD_20261105.md)。
+
+- 继续使用 SkySIM / `com.eric3u.airsim2` / App Store Connect `6829440499` 和原用户 Team。本次使用 `0.9.6 (84)`；Apple 网页会话已过期，登录控件持续空白加载，未能从网页读取最高构建号。通过仍有效的 Xcode 分发账户上传，Apple 已接受 Build 84；北京时间 23:38:54 返回 `Uploaded package is processing`、`EXPORT SUCCEEDED`，无上传警告。处理完成与内部测试分配仍待网页登录恢复后确认，不能据此宣称已可安装。
+- Release 归档与 App Store Connect 分发导出通过，三个发布 Target 的严格签名、Bundle ID、分发 profile 和隐私清单检查通过，主 App 与 Watch 为 production APNs。相机、麦克风及通讯录用途说明保留，WebRTC 155.0.0 arm64 dSYM 与框架 UUID 匹配。
+- 244 个 iOS 文件在归档期间未变；`V2WebRTC.swift` SHA-256 与音频交接证据一致。本轮按用户要求不重复功能或真机测试；交接记录的 108 项 iOS 回归及实际 SDK 双向合成音频互通通过属于此前验证，不等于本轮真实通话验收。
+- 产物保存在 `iOS/build/testflight-20261105-build84/`：`source-manifest.json`、`audio-handoff-verification.json`、`symbols-verification.json`、`verification.json`、`release-status.json`、脱敏日志、测试说明草稿和登录阻塞截图。分发 IPA SHA-256 为 `b2c93cf11dcc50a5543c3bed76729baf600e1322361a35627ba811941d7c9c42`。
+- 本发布会话仅修改 `iOS/AirSIM.xcodeproj/project.pbxproj` 构建号、本文及忽略目录下的发布证据；保留其他会话改动，不自行 commit/push。网页 Engine 发布及统一文档状态由主控会话处理。本轮未安装真实设备或执行通话。
