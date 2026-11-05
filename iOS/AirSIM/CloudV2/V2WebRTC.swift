@@ -71,10 +71,24 @@ protocol V2MediaAudio: AnyObject {
     func select(_ route: V2AudioRoute) throws
 }
 
+// The bundled SDK exposes field trials through this process-wide API. Initialize
+// once, before either RTCAudioSession or the peer factory touches WebRTC.
+@MainActor
+private enum V2WebRTCRuntime {
+    private static let initialized: Void = {
+        // Two exact prior Opus packets protect a two-packet burst. libwebrtc
+        // drops older redundancy first when its packet size budget is reached.
+        RTCInitFieldTrialDictionary(["WebRTC-Audio-Red-For-Opus": "Enabled-2"])
+        RTCInitializeSSL()
+    }()
+    static func initialize() { _ = initialized }
+}
+
 @MainActor
 final class V2WebRTCAudio: V2MediaAudio {
     private var session: RTCAudioSession { RTCAudioSession.sharedInstance() }
     init() {
+        V2WebRTCRuntime.initialize()
         session.useManualAudio = true
         session.isAudioEnabled = false
     }
@@ -137,7 +151,7 @@ final class V2WebRTCAudio: V2MediaAudio {
 @MainActor
 final class V2WebRTCPeer: V2MediaPeer {
     private static let factory: RTCPeerConnectionFactory = {
-        RTCInitializeSSL()
+        V2WebRTCRuntime.initialize()
         return RTCPeerConnectionFactory(encoderFactory: nil, decoderFactory: nil)
     }()
     var onState: ((V2PeerState) -> Void)?
@@ -147,7 +161,11 @@ final class V2WebRTCPeer: V2MediaPeer {
     private let relayed: Bool
 
     /// Without ICE servers the connection is the USB link and host candidates suffice.
-    init(servers: [V2ICEServer]) throws {
+    init(servers: [V2ICEServer], peerFactory: RTCPeerConnectionFactory? = nil) throws {
+        V2WebRTCRuntime.initialize()
+        // Injection permits a synthetic audio device in offline interoperability
+        // tests; normal calls use the shared system-audio factory.
+        let factory = peerFactory ?? Self.factory
         let config = RTCConfiguration()
         config.iceServers = servers.map { RTCIceServer(urlStrings: $0.urls, username: $0.username, credential: $0.credential) }
         config.sdpSemantics = .unifiedPlan
@@ -156,10 +174,10 @@ final class V2WebRTCPeer: V2MediaPeer {
         config.continualGatheringPolicy = .gatherOnce
         config.tcpCandidatePolicy = .disabled
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        guard let connection = Self.factory.peerConnection(with: config, constraints: constraints, delegate: observer) else { throw V2PeerError.offer }
+        guard let connection = factory.peerConnection(with: config, constraints: constraints, delegate: observer) else { throw V2PeerError.offer }
         self.connection = connection
         relayed = !servers.isEmpty
-        track = Self.factory.audioTrack(with: Self.factory.audioSource(with: constraints), trackId: "audio")
+        track = factory.audioTrack(with: factory.audioSource(with: constraints), trackId: "audio")
         let initial = RTCRtpTransceiverInit(); initial.direction = .sendRecv; initial.streamIds = ["airsim"]
         guard connection.addTransceiver(with: track, init: initial) != nil else { connection.close(); throw V2PeerError.offer }
         observer.state = { [weak self] state in Task { @MainActor in self?.onState?(state) } }

@@ -1,5 +1,7 @@
 # airsim-agent v2
 
+2026-11-05：当前源码包含[云端音频重构候选版](../../docs/CLOUD_AUDIO_REBUILD_20261105.md)，仅完成离线验证，尚未发布或安装真机。生产发布事实仍以此前记录为准。
+
 2026-11-03：源码将模块与 App 的 Opus 双向目标码率提高到 96 kbps VBR，保持 16 kHz、20 ms 与丢包保护。Agent 的 SDP 应答和原生 helper 须成对更新；现有 SkySIM 可协商，无需为此更新 ECS。2026-11-04 已通过 Workbench 发布两平台网页 Engine 包（main `7f5e8d9`）；模块须更新 Engine 后生效，本轮未安装真机。验证与边界见 [WebRTC 音频](../../docs/WEBRTC_AUDIO.md)。
 
 EG25 已增加满箱按时间回收旧短信和受保护的只读短信诊断。回收按完整消息分组，避免拆散长短信，不删除 App 历史；诊断只提供容量、配置、计数和固定错误码。发布与真机验收状态见 [收件调查](../../docs/EG25_SMS_RECEIVE_INVESTIGATION.md)。`cmd/sms-maintenance` 是独立的离线维护工具，不随 Engine 分发；只允许在明确确认删除范围且 Agent 已停止时，核对固件与存储计数后执行一次 ME 全清。
@@ -34,9 +36,9 @@ R1 AT 只读采样与精确 RM500 profile 校验继续保留。R2 新增长期�
 
 待处理接听命令经定时轮询或 `receipt_query` 返回 `accepted`／`observed` 时，统一更新通话声明和媒体所有权，后续 `media_start` 使用同一客户端与 generation。回执查询即使状态未变化也返回结果。
 
-`/v2/local/cloud/media-stats` 统计候选类型、收发包、丢包、晚到、FEC、PLC、队列裁剪、本地输入缺口，以及等待 helper 帧、RTP 发送、App RTP 到达与播放节拍的停顿次数和最长停顿，会话期间的垃圾回收次数与存活堆；helper 的 `silence_samples` 仍只统计实际全零 PCM。硬件路由、音频 lease 与 PCM 配置保持既有约束。Agent 与 helper 必须配套构建、切换和回滚。EG25 已部署 WebRTC 版本，部署与验收边界见 [WebRTC 音频](../../docs/WEBRTC_AUDIO.md)；RM500 尚未更新。
+`/v2/local/cloud/media-stats` 统计候选类型、收发包、缺失帧、晚到、RED 精确恢复、FEC 尝试、PLC、过期帧、异常包、重复包、播放重同步、本地输入缺口，以及等待 helper 帧、RTP 发送、App RTP 到达与播放节拍的停顿次数和最长停顿，会话期间的垃圾回收次数与存活堆；helper 的 `silence_samples` 仍只统计实际全零 PCM。硬件路由、音频 lease 与 PCM 配置保持既有约束。Agent 与 helper 必须配套构建、切换和回滚。EG25 已部署 WebRTC 版本，部署与验收边界见 [WebRTC 音频](../../docs/WEBRTC_AUDIO.md)；RM500 尚未更新。
 
-下行 RTP 在首包后 80 ms 起播，超过 12 帧裁剪至最新 4 帧，持续超过 6 帧时逐帧回落；送帧唤醒晚于时隙时逐帧追播，相邻输出至少间隔 5 ms，落后超过 240 ms 才重新对齐网格。Agent 按 helper 播放队列容量（4 包）校验 `queue_peak`。
+下行 RTP 按时间戳在首包后 60 ms 起播，优先 RED 精确恢复，缺包时也推进时间线；晚醒跳过过期帧，持续晚到或过量积压做有界重同步并计数。Agent 按 helper 播放队列容量（4 包）校验 `queue_peak`。
 
 本机诊断经 `control.sock` 提供：`/v2/local/cloud/media-stats` 返回当前或上一次媒体会话的计数，`/v2/local/audio` 返回媒体会话、helper 实际 PCM 配置与统计。统计仅在内存中保存，Agent 重启后清空。EG25 控制后端的断开原因以固定类别写入 `agent.log`。
 

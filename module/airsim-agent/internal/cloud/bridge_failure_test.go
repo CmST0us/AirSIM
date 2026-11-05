@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"airsim.local/airsim-agent/internal/media"
+	"airsim.local/airsim-agent/internal/rtc"
 	"context"
 	"errors"
 	"net"
@@ -19,7 +20,7 @@ type fakePeer struct {
 }
 
 func newFakePeer() *fakePeer { return &fakePeer{failed: make(chan struct{})} }
-func (p *fakePeer) WriteOpus(b []byte) error {
+func (p *fakePeer) WriteOpus(b []byte, _ uint64) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.written = append(p.written, append([]byte(nil), b...))
@@ -39,17 +40,17 @@ type fakeTrack struct {
 func newFakeTrack() *fakeTrack {
 	return &fakeTrack{packets: make(chan []byte, 64), closed: make(chan struct{})}
 }
-func (t *fakeTrack) ReadPacket(buf []byte, deadline time.Time) (uint16, []byte, error) {
+func (t *fakeTrack) ReadPacket(buf []byte, deadline time.Time) ([]rtc.AudioPacket, error) {
 	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
 	select {
 	case p := <-t.packets:
 		t.seq++
-		return t.seq, p, nil
+		return []rtc.AudioPacket{{Sequence: t.seq, Timestamp: uint32(t.seq) * rtc.OpusFrameTicks, Payload: p}}, nil
 	case <-timer.C:
-		return 0, nil, os.ErrDeadlineExceeded
+		return nil, os.ErrDeadlineExceeded
 	case <-t.closed:
-		return 0, nil, net.ErrClosed
+		return nil, net.ErrClosed
 	}
 }
 

@@ -6,6 +6,8 @@ package rtc
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math/rand/v2"
 	"net"
 	"regexp"
 	"strings"
@@ -16,7 +18,6 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
-	"github.com/pion/webrtc/v4/pkg/media"
 )
 
 type ICEServer struct {
@@ -50,7 +51,12 @@ var (
 
 type Peer struct {
 	pc        *webrtc.PeerConnection
-	track     *webrtc.TrackLocalStaticSample
+	track     *webrtc.TrackLocalStaticRTP
+	codecs    audioCodecs
+	sendMu    sync.Mutex
+	sequence  uint16
+	timestamp uint32
+	history   []AudioPacket
 	sender    *webrtc.RTPSender
 	remote    chan *webrtc.TrackRemote
 	connected chan struct{}
@@ -58,9 +64,12 @@ type Peer struct {
 	up, down  sync.Once
 }
 
-func api(c Config) *webrtc.API {
+func api(c Config, codecs audioCodecs) *webrtc.API {
 	m := &webrtc.MediaEngine{}
-	_ = m.RegisterCodec(webrtc.RTPCodecParameters{RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2, SDPFmtpLine: opusFmtp}, PayloadType: 111}, webrtc.RTPCodecTypeAudio)
+	for _, codec := range codecs.parameters() {
+		_ = m.RegisterCodec(codec, webrtc.RTPCodecTypeAudio)
+	}
+
 	r := &interceptor.Registry{}
 	_ = webrtc.ConfigureRTCPReports(r)
 	s := webrtc.SettingEngine{}
@@ -86,11 +95,15 @@ func Answer(ctx context.Context, c Config, offer string) (*Peer, string, error) 
 	for _, s := range c.Servers {
 		configuration.ICEServers = append(configuration.ICEServers, webrtc.ICEServer{URLs: s.URLs, Username: s.Username, Credential: s.Credential})
 	}
-	pc, e := api(c).NewPeerConnection(configuration)
+	codecs, e := offeredAudioCodecs(offer)
 	if e != nil {
 		return nil, "", e
 	}
-	p := &Peer{pc: pc, remote: make(chan *webrtc.TrackRemote, 1), connected: make(chan struct{}), failed: make(chan struct{})}
+	pc, e := api(c, codecs).NewPeerConnection(configuration)
+	if e != nil {
+		return nil, "", e
+	}
+	p := &Peer{pc: pc, codecs: codecs, sequence: uint16(rand.Uint32()), timestamp: rand.Uint32(), remote: make(chan *webrtc.TrackRemote, 1), connected: make(chan struct{}), failed: make(chan struct{})}
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
 		switch s {
 		case webrtc.PeerConnectionStateConnected:
@@ -100,7 +113,7 @@ func Answer(ctx context.Context, c Config, offer string) (*Peer, string, error) 
 		}
 	})
 	pc.OnTrack(func(t *webrtc.TrackRemote, r *webrtc.RTPReceiver) {
-		if t.Kind() != webrtc.RTPCodecTypeAudio || !strings.EqualFold(t.Codec().MimeType, webrtc.MimeTypeOpus) {
+		if t.Kind() != webrtc.RTPCodecTypeAudio || (!strings.EqualFold(t.Codec().MimeType, webrtc.MimeTypeOpus) && !strings.EqualFold(t.Codec().MimeType, "audio/red")) {
 			return
 		}
 		select {
@@ -114,7 +127,12 @@ func Answer(ctx context.Context, c Config, offer string) (*Peer, string, error) 
 		p.Close()
 		return nil, "", ErrRejected
 	}
-	p.track, e = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}, "audio", "airsim")
+	capability := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}
+	if codecs.hasRED {
+		capability.MimeType = "audio/red"
+		capability.SDPFmtpLine = fmt.Sprintf("%d/%d", codecs.opus, codecs.opus)
+	}
+	p.track, e = webrtc.NewTrackLocalStaticRTP(capability, "audio", "airsim")
 	if e == nil {
 		p.sender, e = pc.AddTrack(p.track)
 	}
@@ -123,6 +141,16 @@ func Answer(ctx context.Context, c Config, offer string) (*Peer, string, error) 
 		return nil, "", ErrRejected
 	}
 	go drainRTCP(func() error { b := make([]byte, 1500); _, _, e := p.sender.Read(b); return e })
+	// Set preferences through Pion, before CreateAnswer. Editing the generated
+	// answer before SetLocalDescription violates its signaling state machine.
+	for _, transceiver := range pc.GetTransceivers() {
+		if transceiver.Kind() == webrtc.RTPCodecTypeAudio {
+			if e = transceiver.SetCodecPreferences(codecs.parameters()); e != nil {
+				p.Close()
+				return nil, "", ErrRejected
+			}
+		}
+	}
 	answer, e := pc.CreateAnswer(nil)
 	if e != nil {
 		p.Close()
@@ -190,13 +218,16 @@ func (p *Peer) Connected() <-chan struct{} { return p.connected }
 func (p *Peer) Failed() <-chan struct{} { return p.failed }
 
 // Remote is the App's audio track.
-type Remote struct{ t *webrtc.TrackRemote }
+type Remote struct {
+	t      *webrtc.TrackRemote
+	codecs audioCodecs
+}
 
 // Track waits for the App's audio track.
 func (p *Peer) Track(ctx context.Context) (*Remote, error) {
 	select {
 	case t := <-p.remote:
-		return &Remote{t}, nil
+		return &Remote{t: t, codecs: p.codecs}, nil
 	case <-p.failed:
 		return nil, ErrFailed
 	case <-ctx.Done():
@@ -204,9 +235,38 @@ func (p *Peer) Track(ctx context.Context) (*Remote, error) {
 	}
 }
 
-// WriteOpus sends one 20 ms Opus packet.
-func (p *Peer) WriteOpus(packet []byte) error {
-	return p.track.WriteSample(media.Sample{Data: packet, Duration: FrameDuration})
+// WriteOpus preserves the capture timeline across locally dropped frames.
+// A skipped source frame advances the RTP timestamp, not the packet counter; it must
+// not be hidden by squeezing the following audio into its old time slot.
+func (p *Peer) WriteOpus(packet []byte, skipped uint64) error {
+	if !opus20ms(packet) {
+		return ErrAudioPacket
+	}
+	p.sendMu.Lock()
+	defer p.sendMu.Unlock()
+	p.timestamp += uint32(skipped) * OpusFrameTicks
+	if skipped != 0 {
+		p.history = nil
+	}
+	f := AudioPacket{Sequence: p.sequence, Timestamp: p.timestamp, Payload: packet}
+	payload := packet
+	if p.codecs.hasRED {
+		payload = encodeRED(f, p.history, p.codecs.opus)
+	}
+	err := p.track.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: p.sequence, Timestamp: p.timestamp}, Payload: payload})
+	if err != nil {
+		return err
+	}
+	if p.codecs.hasRED {
+		f.Payload = append([]byte(nil), packet...)
+		p.history = append(p.history, f)
+		if len(p.history) > redDepth {
+			p.history = p.history[len(p.history)-redDepth:]
+		}
+	}
+	p.sequence++
+	p.timestamp += OpusFrameTicks
+	return nil
 }
 
 // Candidate reports the local candidate type of the selected pair.
@@ -226,19 +286,25 @@ func (p *Peer) Close() {
 	_ = p.pc.Close()
 }
 
-// ReadPacket reads the next RTP packet into buf and returns its sequence
-// number and payload, which aliases buf.
-func (r *Remote) ReadPacket(buf []byte, deadline time.Time) (uint16, []byte, error) {
+// ReadPacket preserves RTP media timestamps and extracts exact RED copies.
+// Returned payloads alias buf and are consumed before the next network read.
+func (r *Remote) ReadPacket(buf []byte, deadline time.Time) ([]AudioPacket, error) {
 	if e := r.t.SetReadDeadline(deadline); e != nil {
-		return 0, nil, e
+		return nil, e
 	}
 	n, _, e := r.t.Read(buf)
 	if e != nil {
-		return 0, nil, e
+		return nil, e
 	}
 	var packet rtp.Packet
 	if e = packet.Unmarshal(buf[:n]); e != nil {
-		return 0, nil, e
+		return nil, ErrAudioPacket
 	}
-	return packet.SequenceNumber, packet.Payload, nil
+	if r.codecs.hasRED && packet.PayloadType == r.codecs.red {
+		return decodeRED(packet.SequenceNumber, packet.Timestamp, packet.Payload, r.codecs.opus)
+	}
+	if packet.PayloadType != r.codecs.opus || !opus20ms(packet.Payload) {
+		return nil, ErrAudioPacket
+	}
+	return []AudioPacket{{Sequence: packet.SequenceNumber, Timestamp: packet.Timestamp, Payload: packet.Payload}}, nil
 }

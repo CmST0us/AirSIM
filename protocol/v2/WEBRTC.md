@@ -1,5 +1,7 @@
 # v2 WebRTC 通话媒体
 
+2026-11-05 下述媒体与播放规则已在离线候选源码实现，尚未部署。验证及兼容边界见 [重构记录](../../docs/CLOUD_AUDIO_REBUILD_20261105.md)。
+
 通话媒体使用 WebRTC：iPad／iPhone 与模块之间建立一条 DTLS-SRTP 音频连接，ECS 转交 SDP 并提供 TURN 中继，USB 本地经模块 USB 地址直连。App、ECS control／media、Agent 与 helper 必须配套更新。
 
 2026-11-03 源码将双向 Opus 目标码率提高到 96 kbps；这是兼容现有 WebRTC 的参数调整。模块须同时更新 Agent（SDP 应答）和 helper（采集编码器）。现有 App 的 libwebrtc 按应答设置上行目标，ECS 仍透明转发。2026-11-04 已通过 Workbench 发布两平台网页 Engine 包，模块须更新 Engine 后生效；本轮未安装真机。
@@ -9,8 +11,8 @@
 | 项目 | 配置 |
 | --- | --- |
 | 编解码 | Opus，RTP 时钟 48 kHz，单声道编码 |
-| 帧长 | 20 ms，每个 RTP 包一帧 |
-| 模块编码 | 16 kHz 输入，96 kbps VBR 目标码率，宽带上限，VOIP 应用，复杂度 3，带内 FEC 开启（按 10% 丢包率），DTX 关闭 |
+| 帧长 | 20 ms 主帧；协商 RED 后附带最多两帧先前的原始 Opus 包 |
+| 模块编码 | 16 kHz 输入，96 kbps VBR 目标码率，宽带上限，AUDIO 应用（保留已解码蜂窝音频，避免 VOIP 输入整形），复杂度 3，带内 FEC 开启（按 10% 丢包率），DTX 关闭 |
 | 模块应答偏好 | `a=fmtp:<pt> minptime=10;useinbandfec=1;maxplaybackrate=16000;sprop-maxcapturerate=16000;maxaveragebitrate=96000` 与 `a=ptime:20` |
 | 安全 | DTLS-SRTP；证书指纹随已认证信令交换 |
 | 传输 | 一条 `sendrecv` 音频轨道，BUNDLE 与 RTCP-mux；不使用数据通道或视频 |
@@ -46,7 +48,7 @@ USB 本地使用模块本机 HTTPS 的同一路径与字段，响应中 `ice_ser
 | control | 会话创建后30秒未提交 offer、提交后10秒无应答、所有权或代次变化 | 关闭会话，向在线 Agent 发 `media_stop` |
 | control | 模块控制连接断开或被新连接取代 | 关闭该连接下的会话记录；Agent 侧媒体不受影响 |
 | Agent | 从 `media_start` 起20秒内未完成应答、helper 启动与 ICE 连接 | `media_setup_timeout` |
-| Agent | 5秒没有收到 RTP，或 ICE 断开后未在5秒内恢复 | `rtp_timeout`／`ice_failed` |
+| Agent | 5秒没有收到有效音频 RTP，或 ICE 断开后未在5秒内恢复 | `rtp_timeout`／`ice_failed` |
 | App | 提交应答后10秒未连接、断开超过3秒、3秒没有入站包 | 关闭连接，为同一通话自动建立新会话 |
 | App | 新鲜快照显示通话结束或不再 active、所有权转移、模块启动或后端代次变化 | 关闭连接，不再恢复 |
 
@@ -67,8 +69,12 @@ USB 本地使用模块本机 HTTPS 的同一路径与字段，响应中 `ice_ser
 
 Agent 与 helper 之间沿用 Unix 媒体通道，帧格式为 ASMP v3：40 字节头（`ASMP`、版本 3、方向、头长 40、会话 UUID、64 位序号、载荷长度、标志）后接一个 Opus 包，载荷最长1275字节。标志 0 为普通 Opus 包；1 为丢失帧，载荷为空，解码端执行 PLC；2 为 FEC，载荷是下一包，解码端用其带内冗余恢复丢失帧。helper ready 声明 `codec:"opus"`、`codec_frame_us:20000`、16 kHz、320 样本。
 
-helper 就绪起 Agent 每20 ms向 helper 送出一帧；连接建立前送丢失帧，期间采集的包直接丢弃，连接后不补发。RTP 按序号排队，首包到达80 ms后起播：有下一包则送出；下一包缺失而更后的包已到时视为丢包，能取到后一包则送 FEC 帧，否则送丢失帧；队列为空时送丢失帧但不推进，晚到包仍可播放。超过12帧时裁剪至最新4帧，持续1秒超过6帧时丢弃一帧以回落延迟。helper 播放队列为四帧，空队列最多等待15 ms 新帧后补偿。模块采集的 Opus 包编码后立即发送。helper 的采集、播放与收包线程以 SCHED_FIFO 优先级10运行，模块上的其他进程占满 CPU 时也按时读写声卡。
+helper 就绪起 Agent 每 20 ms 向 helper 送出一帧；连接建立前送丢失帧，期间采集包丢弃。协商 `audio/red` 时，双方以 RFC 2198 发送主 Opus 包与此前最多两包的逐字节副本；未提供可匹配 RED 的对端保持纯 Opus。RED 内层类型使用实际协商的 Opus PT，时间戳偏移使用 48 kHz 时钟；RED 只存在于网络端，ASMP 仍是一个 20 ms Opus 包。业务 API 的 `codec:"opus"` 不变，ECS 不需要解析 RED。
+
+模块按 RTP 时间戳而非到达顺序安排播放，起播等待 60 ms；每个截止时间消费一格，缺失时也推进：优先原包／RED 精确副本，其次用下一包尝试带内 FEC，最后 PLC。64 格有界缓存拒绝异常时间戳与过期帧；时间戳按 32 位回绕处理。调度晚醒跳过过期音频，不以 5 ms 间隔补发。连续缺失并确认三包持续晚到，或三包持续领先超过 160 ms，重建 60 ms 起播时间线并统计 `playout_resyncs`，避免永久欠载或无界延迟。这是有界重同步，不是无损时钟漂移补偿。
+
+模块采集编码后立即发送；ASMP 缺口同步推进 RTP 时间戳；RTP 序号只随实际发送包递增，缺口后清空 RED 历史。helper 的采集 xrun 至少暴露一个帧缺口。helper 四帧队列和空队列最多 15 ms 等待保留，播放前增加硬件 DELAY 反馈：排队高于 40 ms／硬件起播阈值时等待，单次最多 10 ms；EG25 16 kHz 下写入后目标不超过约 60 ms，物理 buffer 仍为 256×8。DELAY 不可用时回退既有写入路径，硬件排队不前进则按两秒预算结束。实际驱动支持仍待验收。实时调度优先级降低调度干扰，不能保证没有内核阻塞或资源停顿。
 
 ## 诊断
 
-模块本机 `/v2/local/cloud/media-stats` 与 App Debug 记录只保存计数：收发包、丢包、晚到、FEC 恢复、PLC、队列裁剪、停顿次数与最长停顿、会话期间 Agent 的垃圾回收次数与存活堆、抖动缓冲时延、往返时间与选中的候选类型。不保存音频、SDP 原文、凭据或号码。
+模块本机 `/v2/local/cloud/media-stats` 与 App Debug 记录只保存计数：收发包、缺失帧、晚到、RED 精确恢复、FEC 尝试、PLC、过期帧、无效包、重复包与重同步、停顿次数与最长停顿、会话期间 Agent 的垃圾回收次数与存活堆、抖动缓冲时延、往返时间与选中的候选类型。不保存音频、SDP 原文、凭据或号码。

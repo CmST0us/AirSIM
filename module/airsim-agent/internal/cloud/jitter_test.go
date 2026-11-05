@@ -2,130 +2,111 @@ package cloud
 
 import (
 	"airsim.local/airsim-agent/internal/media"
+	"airsim.local/airsim-agent/internal/rtc"
 	"context"
 	"testing"
 	"time"
 )
 
-func packet(seq uint16) []byte { return []byte{byte(seq >> 8), byte(seq)} }
+var jitterEpoch = time.Unix(1000, 0)
 
-type expect struct {
-	flags uint32
-	seq   uint16
+func audioPacket(i int) rtc.AudioPacket {
+	return rtc.AudioPacket{Sequence: uint16(i), Timestamp: uint32(i) * rtc.OpusFrameTicks, Payload: []byte{0x78, byte(i)}}
 }
-
-// playing is far enough after any test packet for playout to have started.
-var playing = time.Now().Add(time.Hour)
-
-func playOut(t *testing.T, j *jitter, want ...expect) {
+func pushAt(j *jitter, i int, at time.Time) { j.push(audioPacket(i), at) }
+func expectPacket(t *testing.T, j *jitter, slot int, flag uint32, payload int) {
 	t.Helper()
-	for i, w := range want {
-		f := j.pop(playing)
-		if f.Flags != w.flags || (w.flags != media.FlagErasure && string(f.Payload) != string(packet(w.seq))) {
-			t.Fatalf("pop %d: flags %d payload %v want %+v", i, f.Flags, f.Payload, w)
-		}
+	f := j.pop(jitterEpoch.Add(jitterStart + time.Duration(slot)*playoutPeriod))
+	if f.Flags != flag || (flag != media.FlagErasure && (len(f.Payload) != 2 || f.Payload[1] != byte(payload))) {
+		t.Fatalf("slot %d: %+v want flag %d packet %d", slot, f, flag, payload)
 	}
 }
-func opusFrame(seq uint16) expect { return expect{media.FlagOpus, seq} }
-func fecFrame(seq uint16) expect  { return expect{media.FlagFEC, seq} }
-
-var erasure = expect{flags: media.FlagErasure}
-
-func fill(j *jitter, seqs ...uint16) {
-	for _, s := range seqs {
-		j.push(s, packet(s), time.Now())
-	}
-}
-
 func TestJitterOrdersAndRecoversLoss(t *testing.T) {
 	c := &bridgeCounters{}
 	j := newJitter(c)
-	fill(j, 1, 3, 2, 4, 6, 9)
-	// 5 is lost and 6 carries its FEC; 7 and 8 are lost with only 8 recoverable from 9.
-	playOut(t, j, opusFrame(1), opusFrame(2), opusFrame(3), opusFrame(4), fecFrame(6), opusFrame(6), erasure, fecFrame(9), opusFrame(9))
-	if c.received.Load() != 6 || c.lost.Load() != 3 || c.fec.Load() != 2 || c.plc.Load() != 1 || c.late.Load() != 0 {
-		t.Fatalf("counts %+v", countersInto(BridgeStats{}, c))
+	for _, i := range []int{0, 2, 1, 3, 5, 8} {
+		pushAt(j, i, jitterEpoch)
+	}
+	flags := []uint32{0, 0, 0, 0, media.FlagFEC, 0, media.FlagErasure, media.FlagFEC, 0}
+	ids := []int{0, 1, 2, 3, 5, 5, 0, 8, 8}
+	for i, flag := range flags {
+		expectPacket(t, j, i, flag, ids[i])
+	}
+	if c.received.Load() != 6 || c.lost.Load() != 3 || c.fec.Load() != 2 || c.plc.Load() != 1 {
+		t.Fatal(countersInto(BridgeStats{}, c))
 	}
 }
-
-func TestJitterUnderrunWaitsForLatePacket(t *testing.T) {
+func TestJitterUnderrunAdvancesAndNeverReplaysLateSpeech(t *testing.T) {
 	c := &bridgeCounters{}
 	j := newJitter(c)
-	fill(j, 10)
-	playOut(t, j, opusFrame(10), erasure, erasure)
-	fill(j, 11)
-	playOut(t, j, opusFrame(11))
-	// Once 13 shows 12 is lost, a late 12 is discarded.
-	fill(j, 13)
-	playOut(t, j, fecFrame(13))
-	fill(j, 12)
-	playOut(t, j, opusFrame(13))
-	if c.late.Load() != 1 || c.lost.Load() != 1 || c.plc.Load() != 2 {
-		t.Fatalf("counts %+v", countersInto(BridgeStats{}, c))
+	pushAt(j, 0, jitterEpoch)
+	expectPacket(t, j, 0, 0, 0)
+	expectPacket(t, j, 1, media.FlagErasure, 0)
+	expectPacket(t, j, 2, media.FlagErasure, 0)
+	pushAt(j, 1, jitterEpoch.Add(jitterStart+2*playoutPeriod))
+	pushAt(j, 3, jitterEpoch.Add(jitterStart+2*playoutPeriod))
+	expectPacket(t, j, 3, 0, 3)
+	if c.late.Load() != 1 || c.plc.Load() != 2 {
+		t.Fatal(countersInto(BridgeStats{}, c))
 	}
 }
-
-func TestJitterBoundsLatency(t *testing.T) {
+func TestJitterExactREDRecoveryAndPrimaryDeduplication(t *testing.T) {
 	c := &bridgeCounters{}
 	j := newJitter(c)
-	for s := uint16(1); s <= jitterMax+1; s++ {
-		fill(j, s)
+	pushAt(j, 0, jitterEpoch)
+	pushAt(j, 3, jitterEpoch.Add(3*playoutPeriod))
+	for _, i := range []int{1, 2} {
+		f := audioPacket(i)
+		f.Redundant = true
+		j.push(f, jitterEpoch.Add(3*playoutPeriod))
 	}
-	// One frame beyond jitterMax trims the queue to the newest jitterTarget.
-	playOut(t, j, opusFrame(10), opusFrame(11), opusFrame(12), opusFrame(13))
-	if c.drops.Load() != 9 {
-		t.Fatalf("drops %d", c.drops.Load())
+	pushAt(j, 2, jitterEpoch.Add(3*playoutPeriod))
+	for i := 0; i < 4; i++ {
+		expectPacket(t, j, i, 0, i)
 	}
-	// A burst after a long stall restarts close to the newest packet.
-	fill(j, 300)
-	if j.next != j.highest-jitterTarget+1 || j.highest&0xffff != 300 {
-		t.Fatalf("next %d", j.next)
-	}
-}
-
-func TestJitterDrainsPersistentDepth(t *testing.T) {
-	c := &bridgeCounters{}
-	j := newJitter(c)
-	seq := uint16(1)
-	for ; seq <= jitterDrain+2; seq++ {
-		fill(j, seq)
-	}
-	// One packet arrives per pop, so the depth stays above jitterDrain until one frame is dropped.
-	for i := 0; i < jitterDrainTicks; i++ {
-		if f := j.pop(playing); f.Flags != media.FlagOpus {
-			t.Fatal("unexpected concealment")
-		}
-		fill(j, seq)
-		seq++
-	}
-	if c.drops.Load() != 1 {
-		t.Fatalf("drops %d", c.drops.Load())
+	if c.red.Load() != 1 || c.plc.Load() != 0 || c.fec.Load() != 0 {
+		t.Fatal(countersInto(BridgeStats{}, c))
 	}
 }
-
-func TestJitterStartsAfterFirstPacket(t *testing.T) {
-	c := &bridgeCounters{}
-	j := newJitter(c)
-	start := time.Now()
-	if f := j.pop(start); f.Flags != media.FlagErasure {
-		t.Fatal("playout before any packet")
-	}
-	j.push(1, packet(1), start)
-	if f := j.pop(start.Add(jitterStart - time.Millisecond)); f.Flags != media.FlagErasure {
-		t.Fatal("playout before jitterStart")
-	}
-	if f := j.pop(start.Add(jitterStart)); f.Flags != media.FlagOpus || c.plc.Load() != 0 {
-		t.Fatalf("first frame %+v plc %d", f, c.plc.Load())
-	}
-}
-
-func TestJitterSequenceWrap(t *testing.T) {
+func TestJitterTimestampWrapAndSequenceIndependence(t *testing.T) {
 	j := newJitter(&bridgeCounters{})
-	fill(j, 65534, 65535, 1, 0)
-	playOut(t, j, opusFrame(65534), opusFrame(65535), opusFrame(0), opusFrame(1))
-	fill(j, 65535)
-	if j.counts.late.Load() != 1 {
-		t.Fatal("old packet across wrap not late")
+	for i := 0; i < 5; i++ {
+		f := audioPacket(i)
+		f.Sequence = 42
+		f.Timestamp = 0xfffffc00 + uint32(i)*rtc.OpusFrameTicks
+		j.push(f, jitterEpoch)
+	}
+	for i := 0; i < 5; i++ {
+		expectPacket(t, j, i, 0, i)
+	}
+}
+func TestJitterStartsAtBoundedDeadlineAndRejectsWrongTimeline(t *testing.T) {
+	c := &bridgeCounters{}
+	j := newJitter(c)
+	pushAt(j, 0, jitterEpoch)
+	if j.pop(jitterEpoch.Add(jitterStart-time.Millisecond)).Flags != media.FlagErasure {
+		t.Fatal("started early")
+	}
+	bad := audioPacket(1)
+	bad.Timestamp++
+	j.push(bad, jitterEpoch)
+	pushAt(j, 10000, jitterEpoch)
+	expectPacket(t, j, 0, 0, 0)
+	if c.invalid.Load() != 2 {
+		t.Fatal(countersInto(BridgeStats{}, c))
+	}
+}
+func TestJitterSchedulerPauseDiscardsExpiredAudio(t *testing.T) {
+	c := &bridgeCounters{}
+	j := newJitter(c)
+	for i := 0; i < 12; i++ {
+		pushAt(j, i, jitterEpoch)
+	}
+	expectPacket(t, j, 0, 0, 0)
+	expectPacket(t, j, 10, 0, 10)
+	expectPacket(t, j, 11, 0, 11)
+	if c.drops.Load() != 9 {
+		t.Fatal(countersInto(BridgeStats{}, c))
 	}
 }
 
@@ -139,35 +120,43 @@ func (c *stepClock) Wait(ctx context.Context, target time.Time) bool {
 	if ctx.Err() != nil {
 		return false
 	}
-	late := time.Duration(0)
-	if len(c.steps) > 0 {
-		late, c.steps = c.steps[0], c.steps[1:]
-	}
 	if target.After(c.now) {
 		c.now = target
 	}
-	c.now = c.now.Add(late)
+	if len(c.steps) > 0 {
+		c.now = c.now.Add(c.steps[0])
+		c.steps = c.steps[1:]
+	}
 	return true
 }
-
-func TestPacedCatchesUpThenResynchronizes(t *testing.T) {
-	base := time.Unix(1000, 0)
-	// The third wakeup is 70 ms late; the fifth is far beyond the lag bound.
-	clock := &stepClock{now: base, steps: []time.Duration{0, 0, 70 * time.Millisecond, 0, 0, 0, 0, 300 * time.Millisecond}}
+func TestPacedNeverBurstsAfterSchedulerPause(t *testing.T) {
+	base := jitterEpoch
+	clock := &stepClock{now: base, steps: []time.Duration{0, 0, 70 * time.Millisecond, 0, 300 * time.Millisecond}}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var at []time.Duration
 	paced(ctx, clock, base, func() error {
 		at = append(at, clock.Now().Sub(base))
-		if len(at) == 8 {
+		if len(at) == 6 {
 			cancel()
 		}
 		return nil
 	})
-	ms := time.Millisecond
-	want := []time.Duration{0, 20 * ms, 110 * ms, 115 * ms, 120 * ms, 125 * ms, 130 * ms, 460 * ms}
-	for i := range want {
-		if at[i] != want[i] {
-			t.Fatalf("emit %d at %v want %v (all %v)", i, at[i], want[i], at)
+	want := []time.Duration{0, 20 * time.Millisecond, 110 * time.Millisecond, 120 * time.Millisecond, 440 * time.Millisecond, 460 * time.Millisecond}
+	for i, w := range want {
+		if at[i] != w {
+			t.Fatalf("got %v want %v", at, want)
 		}
+	}
+}
+
+func TestJitterFarAheadPacketCannotOverwriteCurrentSlot(t *testing.T) {
+	c := &bridgeCounters{}
+	j := newJitter(c)
+	pushAt(j, 0, jitterEpoch)
+	pushAt(j, jitterSlots, jitterEpoch.Add(jitterStart))
+	expectPacket(t, j, 0, media.FlagOpus, 0)
+	if c.invalid.Load() != 1 {
+		t.Fatal("out-of-window packet accepted")
 	}
 }

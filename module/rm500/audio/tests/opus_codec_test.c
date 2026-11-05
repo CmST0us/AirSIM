@@ -1,4 +1,5 @@
 #include "opus_codec.h"
+#include "opus.h"
 #include <assert.h>
 #include <math.h>
 #include <pthread.h>
@@ -52,6 +53,9 @@ static void *run(void *unused) {
   synthesize();
   airsim_opus_encoder *enc = airsim_opus_encoder_create();
   assert(enc);
+  int application = 0;
+  assert(opus_encoder_ctl(enc, OPUS_GET_APPLICATION(&application)) == OPUS_OK);
+  assert(application == OPUS_APPLICATION_AUDIO);
   long total = 0;
   for (int f = 0; f < FRAMES; f++) {
     to_pcm(source + f * AIRSIM_OPUS_FRAME_SAMPLES, pcm);
@@ -91,7 +95,9 @@ static void *run(void *unused) {
     signal += (double)source[i - delay] * source[i - delay];
   double snr = 10 * log10(signal / (to - from) / error(from, to, delay));
   printf("opus wideband: %.1f bytes/frame, delay %d, correlation %.3f, SNR %.1f dB\n", average, delay, best, snr);
-  assert(best > 0.75 && snr > 3);
+  /* This synthetic phase-continuous signal detects unintended input shaping.
+   * It is not a speech MOS or a claim about real cellular audio quality. */
+  assert(best > 0.99 && snr > 25);
 
   /* Lose frame 50: FEC from frame 51 rebuilds it closer than concealment. */
   int lost = 50 * AIRSIM_OPUS_FRAME_SAMPLES;

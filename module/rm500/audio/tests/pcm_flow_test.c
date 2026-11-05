@@ -2,9 +2,12 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdint.h>
+#include <poll.h>
 #include <sys/socket.h>
 static int fake_write(int, const void *, size_t, int);
 static int fake_shutdown(int, int);
+static int fake_poll(struct pollfd *, nfds_t, int);
+#define poll fake_poll
 #define asmp_write fake_write
 #define shutdown fake_shutdown
 #ifndef ESTRPIPE
@@ -19,9 +22,22 @@ static uint64_t fake_clock(void) { return fake_now; }
 #undef asmp_now_ms
 #undef asmp_write
 #undef shutdown
+#undef poll
 
 static char events[64];
 static unsigned event_count;
+static int scripted_capture;
+static unsigned capture_ios;
+static uint64_t capture_sequence;
+static long simulated_delay;
+static int delay_frozen;
+static int fake_poll(struct pollfd *fds, nfds_t n, int timeout) {
+  assert(!fds && n == 0 && timeout > 0 && timeout <= 10);
+  fake_now += (unsigned)timeout;
+  if (!delay_frozen) simulated_delay -= playback_rate * timeout / 1000;
+  return 0;
+}
+long pcm_get_delay(struct pcm *p) { (void)p; return simulated_delay; }
 static int prepare_error, start_error, transfer_errno, transfer_limit;
 static unsigned prepare_calls, prepare_fail_call;
 static struct pcm *prepared[2], *started_pcm;
@@ -30,6 +46,14 @@ static void event(char c) {
   events[event_count++] = c;
 }
 static int fake_write(int fd, const void *data, size_t n, int timeout) {
+  if (fd == 4 && scripted_capture) {
+    assert(n > ASMP_HEADER && timeout == 100);
+    const uint8_t *frame = data;
+    capture_sequence = 0;
+    for (unsigned i = 0; i < 8; i++) capture_sequence |= (uint64_t)frame[24 + i] << (8 * i);
+    atomic_store(&stopping, 1);
+    return 0;
+  }
   assert(fd == 3 && n > 4 && timeout == 100);
   char json[2049];
   assert(n - 4 < sizeof(json));
@@ -62,6 +86,10 @@ int pcm_start(struct pcm *p) {
 }
 static int io(unsigned n, char direction) {
   event(direction);
+  if (scripted_capture && direction == 'R' && ++capture_ios == 1) {
+    errno = EPIPE;
+    return -1;
+  }
   if (transfer_errno) {
     errno = transfer_errno;
     return -1;
@@ -71,7 +99,7 @@ static int io(unsigned n, char direction) {
 }
 int pcm_readi(struct pcm *p, void *b, unsigned n) {
   (void)p;
-  (void)b;
+  if (scripted_capture) memset(b, 0, n * 2);
   return io(n, 'R');
 }
 int pcm_writei(struct pcm *p, const void *b, unsigned n) {
@@ -121,6 +149,11 @@ static void reset(void) {
   event_count = 0;
   prepare_calls = prepare_fail_call = 0;
   prepare_error = start_error = transfer_errno = transfer_limit = 0;
+  simulated_delay = 0;
+  delay_frozen = 0;
+  scripted_capture = 0;
+  capture_ios = 0;
+  capture_sequence = 0;
   started = fake_now = 1000;
   playback_rate = 8000;
   playback_previous = 0;
@@ -163,6 +196,31 @@ int main(void) {
   unlink(path);
 
   reset();
+  playback_rate = 16000;
+  assert(playback_wait_ms(-1, 16000, 512, 2048) == 0);
+  assert(playback_wait_ms(2049, 16000, 512, 2048) == 0);
+  assert(playback_wait_ms(512, 16000, 512, 2048) == 0);
+  /* EG25: capacity 128 ms, startup 32 ms. Hardware-clock feedback bounds
+   * steady-state occupancy to 60 ms without changing the driver contract. */
+  long eg25_delay = 0;
+  for (unsigned i = 0; i < 1000; i++) {
+    unsigned wait;
+    while ((wait = playback_wait_ms(eg25_delay, 16000, 512, 2048))) eg25_delay -= (long)wait * 16;
+    eg25_delay += 320;
+    assert(eg25_delay <= 960);
+  }
+  assert(playback_wait_ms(800, 16000, 512, 2048) == 10);
+  assert(playback_wait_ms(640, 16000, 512, 2048) == 0);
+  simulated_delay = 2048;
+  assert(wait_playback_headroom(16000, 512, 2048) == 0);
+  assert(simulated_delay <= 640 && fake_now - started >= 88);
+  simulated_delay = -1; /* Firmware without DELAY keeps the write fallback. */
+  assert(wait_playback_headroom(16000, 512, 2048) == 0);
+  simulated_delay = 2048;
+  delay_frozen = 1;
+  assert(wait_playback_headroom(16000, 512, 2048) == -1);
+  assert(atomic_load(&failure) == 5); /* A stopped hardware clock is bounded. */
+  reset();
   uint8_t packet[ASMP_MAX_PAYLOAD];
   int size = -1;
   qhead = 0; qcount = 2;
@@ -204,6 +262,11 @@ int main(void) {
   transfer_errno = EIO;
   playback_worker(NULL);
   order("W");
+  reset();
+  scripted_capture = 1;
+  capture_worker(NULL);
+  assert(capture_sequence == 2); /* The xrun's lost frame is not hidden. */
+  assert(atomic_load(&capture_stats.xruns) == 1);
   reset();
   fail(6);
   finish_media(1);

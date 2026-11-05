@@ -1,5 +1,7 @@
 # AirSIM AVF Linux Agent 安装与无损排障
 
+2026-11-05：EG25／RM500 v2 云端音频已有[离线重构候选版](CLOUD_AUDIO_REBUILD_20261105.md)，未发布；不使用本指南的旧 AVF 安装脚本。候选版需配对更新 Agent/helper，App 更新用于双包冗余，云端信令与 TURN 协议兼容。
+
 2026-11-04：SkySIM 已修复旧挂断回执丢失或 Engine 重启后永久阻塞拨号/接听的恢复逻辑；用已验证的新鲜模块状态解除旧挂断 pending，不重发通话或短信。`0.9.6 (83)` 已完成 Release 构建及 Apple 处理，19:30 确认进入现有 TestFlight 内部测试，可安装更新；实际设备恢复效果待验收。本轮测试及 TestFlight 交付状态见 [挂断恢复](IOS_HANGUP_RECOVERY_20261104.md)。 此项仅涉及 v2 Apple App，不使用下文 AVF 安装流程。
 
 2026-11-04 15:19：用户重试后仍空间不足，并授权删除旧版。网页已加入 EG25 低空间重装：完整下载校验后暂停 Agent/helper、删除旧程序再写入，保留身份/配对/状态，中断后重新选择继续安装，完成后恢复自启动。Workbench 已发布 `installer-reclaim-20261104`（源码 `492daa6`），85 项测试通过；96 kbps Engine 包不变，未做本轮真机验收。详见 [低空间重装](ENGINE_RECLAIM_UPDATE_20261104.md)。 此项不使用下文 AVF Debian 安装流程。

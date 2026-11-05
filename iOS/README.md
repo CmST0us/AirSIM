@@ -1,5 +1,7 @@
 # AirSIM iOS 与 watchOS
 
+2026-11-05：当前源码包含[云端音频重构候选版](../docs/CLOUD_AUDIO_REBUILD_20261105.md)，仅完成离线验证，尚未发布或安装真机。生产发布事实仍以此前记录为准。
+
 ## SkySIM 与独立 TestFlight 应用
 
 2026-11-01 起，v2 Apple 客户端显示名称为 **SkySIM**，主 Bundle ID 保持 `com.eric3u.airsim2`，使用独立的 [App Store Connect 应用记录](https://appstoreconnect.apple.com/apps/6829440499/distribution)。旧 AirSIM (`com.eric3u.airsim`) 与 v2 不兼容，不能把 v2 构建上传到旧应用记录；项目、协议和持久化命名继续使用 AirSIM。发布流程与验证结果见 [SkySIM TestFlight](../docs/IOS_TESTFLIGHT.md)。

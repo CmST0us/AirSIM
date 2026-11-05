@@ -1,5 +1,7 @@
 # v2 WebRTC 音频
 
+2026-11-05：当前源码已完成[云端音频重构的离线验证](CLOUD_AUDIO_REBUILD_20261105.md)，尚未发布或安装真机；下方参数表描述候选源码，历史生产与实测记录保留原日期。
+
 v2 云端与 USB 本地通话媒体为 App 与模块之间的 WebRTC 音频连接。App 的 libwebrtc 负责采集、回声消除、Opus 编解码与 NetEQ 抖动缓冲；模块 Agent 内嵌 Pion 终结 ICE、DTLS-SRTP 与 RTP，原生 `airsim-audiod` 用定点 libopus 编解码并读写 PCM 硬件；ECS 只转交 SDP，并以 TURN 中继蜂窝 NAT 后的模块。字段、期限与帧格式见 [WebRTC 协议](../protocol/v2/WEBRTC.md)。
 
 2026-11-03：源码双向目标由 32 kbps 提高为 96 kbps，保持 16 kHz 单声道、20 ms、复杂度 3、FEC、PLC 与 DTX 设置；2026-11-04 已通过 Workbench 发布两平台网页 Engine 包（main `7f5e8d9`），模块须更新 Engine 后生效；本轮未安装真机或进行真实通话验收。发布记录见 [96 kbps 网页 Engine](OPUS96_WEB_ENGINE_DEPLOYMENT_20261104.md)。只需成对发布模块 Agent 与 helper；当前 SkySIM 82 可按 SDP 应答协商，ECS control／media 不需要为本次参数调整更新。
@@ -8,15 +10,17 @@ v2 云端与 USB 本地通话媒体为 App 与模块之间的 WebRTC 音频连�
 
 | 环节 | 配置 |
 | --- | --- |
-| 编码 | Opus，20 ms 包；模块 16 kHz 输入、96 kbps VBR 目标码率、宽带上限、复杂度 3、带内 FEC 开启、DTX 关闭；模块应答以 `maxaveragebitrate=96000` 设置 App 的上行目标 |
+| 编码 | Opus，20 ms 包；模块 16 kHz 输入、96 kbps VBR 目标码率、AUDIO 保真应用、宽带上限、复杂度 3、带内 FEC 开启、DTX 关闭；模块应答以 `maxaveragebitrate=96000` 设置 App 的上行目标 |
 | App | stasel/WebRTC 155.0.0；`RTCAudioSession` 手动音频，随 CallKit 激活启停；连接失败后为同一通话自动建立新会话，保留静音与音频输出 |
-| 模块 Agent | Pion WebRTC v4；云端只收集 relay 候选，USB 只收集 USB 地址的 host 候选；RTP 抖动缓冲 80 ms 起播，超过 12 帧裁剪至 4 帧，持续超过 6 帧时逐帧回落；媒体不随控制连接结束，同一通话的新会话替换旧会话 |
-| 模块 helper | libopus 1.5.2 定点构建；工作线程栈 256 KB，采集、播放与收包线程为 SCHED_FIFO 优先级 10；播放队列四帧，空队列最多等 15 ms；丢包先用后一包的 FEC 恢复，再退回 PLC |
+| 模块 Agent | Pion WebRTC v4；云端只收集 relay 候选，USB 只收集 USB 地址的 host 候选；RTP 时间戳播放，60 ms 起播，RED 两包精确冗余；晚醒跳过过期帧，持续偏移做有界重同步；媒体不随控制连接结束，同一通话的新会话替换旧会话 |
+| 模块 helper | libopus 1.5.2 定点构建；工作线程栈 256 KB，采集、播放与收包线程为 SCHED_FIFO 优先级 10；播放队列四帧，空队列最多等 15 ms；按硬件 DELAY 限制预填，EG25 16 kHz 下写入后目标不超过约 60 ms；网络先用 RED 原包恢复，再尝试 FEC／PLC |
 | ECS 中继 | airsim-media 内嵌 Pion TURN，主机网络；UDP／TCP 3478，中继 UDP 49160–49359 |
 
 EG25 的 VoLTE 前端与 AFE 代理端口直接以 16 kHz 采集和播放；RM500 采集为 8 kHz，由 helper 插值到 16 kHz，播放按声卡实际速率直出或经 [1 2 1]/4 低通后降至 8 kHz。
 
-每方向 Opus 目标为 96 kbps，20 ms 对应平均 240 字节的载荷预算。VBR 的实际码率随内容变化，不保证每包 240 字节或每秒恒定 96 kbps。按目标码率计入 RTP、SRTP 认证标签、TURN ChannelData、UDP 与 IPv4 头，每方向约 14.7 KB/s，双向约 0.24 Mbps；该数字用于容量估计，不是计费报价或吞吐实测。
+未协商 RED 时，每方向 Opus 目标为 96 kbps，20 ms 对应平均 240 字节的载荷预算。VBR 的实际码率随内容变化，不保证每包 240 字节或每秒恒定 96 kbps。按目标码率计入 RTP、SRTP 认证标签、TURN ChannelData、UDP 与 IPv4 头，每方向约 14.7 KB/s，双向约 0.24 Mbps；该数字用于容量估计，不是计费报价或吞吐实测。
+
+协商双包 RED 后，一包包含当前帧与至多两包副本；按每个 Opus 包 240 字节估算，RED 载荷为 729 字节，每方向约 0.32 Mbps（含 RTP/SRTP、TURN、UDP/IPv4），双向约 0.64 Mbps；这是预算估计，VBR、SRTP 配置、TCP 回退和底层开销会改变实际数值。冗余部分按 1200 字节预算限制，过大时先移除较旧副本，主包不截断。固定冗余仍可能放大拥塞，不能替代带宽测量及后续自适应控制。
 
 ## 资源
 
@@ -26,7 +30,7 @@ WebRTC 版 Agent 为 11.3 MB（ARMv7，Go 1.24.13），在 EG25 的 UBIFS 用户
 
 空闲 Agent 实测约占 6.8% CPU。控制连接每秒同步一次快照：连接截止时间已覆盖证书到期，不再逐秒重验证书链（本机基准中一次重验约为整次快照同步的 15 倍，含 4 次 Ed25519 验签）；短信收件箱直接比较结构，不再逐秒整箱序列化 JSON（40 条约 12 KB 临时分配）。
 
-单核模块上任何占满 CPU 的进程都会推迟 Agent 与 helper。adb shell 会话异常结束后，adbd 可能残留一个持续运行的线程，占用约 90% CPU 且不会自行退出；遇到时重新插拔 USB 或重启模块即可清除。helper 的音频线程以实时优先级运行，不受此类进程影响。
+单核模块上任何占满 CPU 的进程都会推迟 Agent 与 helper。adb shell 会话异常结束后，adbd 可能残留一个持续运行的线程，占用约 90% CPU 且不会自行退出；遇到时重新插拔 USB 或重启模块即可清除。helper 的实时优先级可降低调度干扰；不能据此排除驱动、内存、IPC 或调度停顿。
 
 ## 构建与更新
 
@@ -40,7 +44,7 @@ ECS 需要：安全组放行 UDP／TCP 3478 与 UDP 49160–49359；部署配置
 
 ## 诊断
 
-模块 `control.sock` 的 `/v2/local/cloud/media-stats` 提供当前或上一次会话的候选类型、收发包、丢包、晚到、FEC、PLC、裁剪、本地输入缺口，以及四类停顿的次数与最长毫秒数：等待 helper 采集帧、RTP 发送、App RTP 到达间隔与送往 helper 的播放节拍，并给出会话期间 Agent 的垃圾回收次数与存活堆；`/v2/local/audio` 提供 helper 的采集、播放、xrun 与静音计数。两者在 Agent 重启后清空。iPad Debug 构建的 `airsim.v2.last-media-stats` 记录收发包、丢包、隐藏样本、抖动缓冲时延、往返时间、候选类型与失败阶段。ECS media 日志只记录中继分配与释放的会话 ID、角色和协议。统计只含计数，不含音频、SDP、凭据或号码。
+模块 `control.sock` 的 `/v2/local/cloud/media-stats` 提供当前或上一次会话的候选类型、收发包、缺失帧、晚到、RED 精确恢复、FEC 尝试、PLC、过期帧、本地输入缺口、异常包、重复包与重同步，以及四类停顿的次数与最长毫秒数：等待 helper 采集帧、RTP 发送、App RTP 到达间隔与送往 helper 的播放节拍，并给出会话期间 Agent 的垃圾回收次数与存活堆；`/v2/local/audio` 提供 helper 的采集、播放、xrun 与静音计数。两者在 Agent 重启后清空。iPad Debug 构建的 `airsim.v2.last-media-stats` 记录收发包、丢包、隐藏样本、抖动缓冲时延、往返时间、候选类型与失败阶段。ECS media 日志只记录中继分配与释放的会话 ID、角色和协议。统计只含计数，不含音频、SDP、凭据或号码。
 
 ## 验证
 

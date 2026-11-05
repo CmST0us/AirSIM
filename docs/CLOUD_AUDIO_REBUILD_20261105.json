@@ -1,0 +1,351 @@
+{
+  "date": "2026-11-05",
+  "status": "offline_candidate_not_deployed",
+  "branch": "codex/cloud-audio-rebuild",
+  "base_commit": "444f011f981b83e004a4b20f56cb7bee5caabe3f",
+  "versions": {
+    "agent": "2.0.0-dev.audio1",
+    "helper": "0.6.1-opus",
+    "app": "source only; no new TestFlight build"
+  },
+  "source_sha256": {
+    "iOS/AirSIM/CloudV2/V2WebRTC.swift": "141423818f1219b1d8fa00f64f09a05700bba750d2d0a5dbcd296bb773341062",
+    "module/airsim-agent/cmd/airsim-agent/main.go": "b96c46da97e784a5ce2bba1c60a08bafb4d40c5a95abdd317b053e24fffb375a",
+    "module/airsim-agent/internal/rtc/peer.go": "deefe7a3e05c38cbbb868bed54217c3a516893fd1f06562151dfbac3c862a093",
+    "module/airsim-agent/internal/rtc/red.go": "f4bfcaa22b0224279431d4b0288310a522870aaccf5847560ed8bbf7bf78767c",
+    "module/airsim-agent/internal/cloud/bridge.go": "dc75dd4505f185883fc7e548cbae539fc6693512707058d3008a0897a783b3db",
+    "module/airsim-agent/internal/cloud/jitter.go": "3bd6d64fdf743442fa6a3b4e6c427a641a518e317470f2827d9b91b2542b47c3",
+    "module/rm500/audio/src/audiod.c": "b7af1439503c5efc93c2c31c258a15a4e84c6a961e712cfc7fe2656f9ecf8eb2",
+    "module/rm500/audio/src/opus_codec.c": "61203eadcf067ef422a5a1d0f2407e112d672fb4b56f45e83066e4f3ead9c52e"
+  },
+  "checks": {
+    "go_all_packages_race": "passed",
+    "go_final_changed_packages_race": "passed",
+    "go_vet": "passed",
+    "red_decoder_fuzz": {
+      "seconds": 20,
+      "executions": 1161063,
+      "result": "passed"
+    },
+    "ios_cloud_v2": {
+      "tests": 108,
+      "failures": 0,
+      "keychain_hardware_case": "excluded"
+    },
+    "ios_actual_libwebrtc_interop": {
+      "result": "passed",
+      "rtp_received": 160,
+      "rtp_primary_sent": 109,
+      "packets_with_two_redundant_blocks": 107,
+      "microphone": "never opened; synthetic in-memory device"
+    },
+    "turn_local": {
+      "udp_bare_opus": "passed",
+      "tcp_bare_opus": "passed",
+      "udp_red": "passed",
+      "tcp_red": "passed"
+    },
+    "native_asan_ubsan": "passed",
+    "eg25_armv7_static_build": "passed",
+    "rm500_arm64_static_build": "passed",
+    "artifact_manifest_validation": "all 21 files passed"
+  },
+  "synthetic_codec_signal": {
+    "old_voip": {
+      "correlation": 0.819,
+      "aligned_snr_db": 4.5
+    },
+    "new_audio": {
+      "average_payload_bytes": 182.4,
+      "correlation_rounded": 1.0,
+      "aligned_snr_db": 31.1,
+      "delay_samples_at_16k": 104
+    },
+    "scope": "One phase-continuous harmonic test, not speech MOS, real call quality or a general noise-reduction gain."
+  },
+  "impairment_simulations": [
+    {
+      "profile": "clean",
+      "red": false,
+      "network_packets_lost": 0,
+      "exact_frames_played": 3000,
+      "concealment_attempts": 0,
+      "exact_red_recoveries": 0,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "clean",
+      "red": true,
+      "network_packets_lost": 0,
+      "exact_frames_played": 3000,
+      "concealment_attempts": 0,
+      "exact_red_recoveries": 0,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "random_3pct_jitter_15ms",
+      "red": false,
+      "network_packets_lost": 93,
+      "exact_frames_played": 2907,
+      "concealment_attempts": 93,
+      "exact_red_recoveries": 0,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "random_3pct_jitter_15ms",
+      "red": true,
+      "network_packets_lost": 93,
+      "exact_frames_played": 3000,
+      "concealment_attempts": 0,
+      "exact_red_recoveries": 93,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "random_10pct_jitter_15ms",
+      "red": false,
+      "network_packets_lost": 311,
+      "exact_frames_played": 2689,
+      "concealment_attempts": 311,
+      "exact_red_recoveries": 0,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "random_10pct_jitter_15ms",
+      "red": true,
+      "network_packets_lost": 311,
+      "exact_frames_played": 2997,
+      "concealment_attempts": 3,
+      "exact_red_recoveries": 308,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "two_packet_bursts",
+      "red": false,
+      "network_packets_lost": 120,
+      "exact_frames_played": 2880,
+      "concealment_attempts": 120,
+      "exact_red_recoveries": 0,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "two_packet_bursts",
+      "red": true,
+      "network_packets_lost": 120,
+      "exact_frames_played": 3000,
+      "concealment_attempts": 0,
+      "exact_red_recoveries": 120,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "reordering_55ms",
+      "red": false,
+      "network_packets_lost": 0,
+      "exact_frames_played": 3000,
+      "concealment_attempts": 0,
+      "exact_red_recoveries": 0,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "reordering_55ms",
+      "red": true,
+      "network_packets_lost": 0,
+      "exact_frames_played": 3000,
+      "concealment_attempts": 0,
+      "exact_red_recoveries": 0,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "jitter_120ms",
+      "red": false,
+      "network_packets_lost": 0,
+      "exact_frames_played": 2975,
+      "concealment_attempts": 27,
+      "exact_red_recoveries": 0,
+      "resyncs": 1,
+      "source_to_bridge_playout_p95_ms": 190,
+      "source_to_bridge_playout_max_ms": 190
+    },
+    {
+      "profile": "jitter_120ms",
+      "red": true,
+      "network_packets_lost": 0,
+      "exact_frames_played": 2987,
+      "concealment_attempts": 15,
+      "exact_red_recoveries": 12,
+      "resyncs": 1,
+      "source_to_bridge_playout_p95_ms": 190,
+      "source_to_bridge_playout_max_ms": 190
+    },
+    {
+      "profile": "outage_200ms",
+      "red": false,
+      "network_packets_lost": 10,
+      "exact_frames_played": 2990,
+      "concealment_attempts": 10,
+      "exact_red_recoveries": 0,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "outage_200ms",
+      "red": true,
+      "network_packets_lost": 10,
+      "exact_frames_played": 2992,
+      "concealment_attempts": 8,
+      "exact_red_recoveries": 2,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "scheduler_pause_120ms",
+      "red": false,
+      "network_packets_lost": 0,
+      "exact_frames_played": 2994,
+      "concealment_attempts": 0,
+      "exact_red_recoveries": 0,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "scheduler_pause_120ms",
+      "red": true,
+      "network_packets_lost": 0,
+      "exact_frames_played": 2994,
+      "concealment_attempts": 0,
+      "exact_red_recoveries": 0,
+      "resyncs": 0,
+      "source_to_bridge_playout_p95_ms": 90,
+      "source_to_bridge_playout_max_ms": 90
+    },
+    {
+      "profile": "permanent_delay_step_120ms",
+      "red": false,
+      "network_packets_lost": 0,
+      "exact_frames_played": 2998,
+      "concealment_attempts": 5,
+      "exact_red_recoveries": 0,
+      "resyncs": 1,
+      "source_to_bridge_playout_p95_ms": 210,
+      "source_to_bridge_playout_max_ms": 210
+    },
+    {
+      "profile": "permanent_delay_step_120ms",
+      "red": true,
+      "network_packets_lost": 0,
+      "exact_frames_played": 2998,
+      "concealment_attempts": 5,
+      "exact_red_recoveries": 0,
+      "resyncs": 1,
+      "source_to_bridge_playout_p95_ms": 210,
+      "source_to_bridge_playout_max_ms": 210
+    },
+    {
+      "profile": "clock_slow_150ppm_30min",
+      "red": false,
+      "network_packets_lost": 0,
+      "exact_frames_played": 89988,
+      "concealment_attempts": 15,
+      "exact_red_recoveries": 0,
+      "resyncs": 3,
+      "source_to_bridge_playout_p95_ms": 105,
+      "source_to_bridge_playout_max_ms": 109
+    },
+    {
+      "profile": "clock_slow_150ppm_30min",
+      "red": true,
+      "network_packets_lost": 0,
+      "exact_frames_played": 89988,
+      "concealment_attempts": 15,
+      "exact_red_recoveries": 0,
+      "resyncs": 3,
+      "source_to_bridge_playout_p95_ms": 105,
+      "source_to_bridge_playout_max_ms": 109
+    },
+    {
+      "profile": "clock_fast_150ppm_30min",
+      "red": false,
+      "network_packets_lost": 0,
+      "exact_frames_played": 89984,
+      "concealment_attempts": 0,
+      "exact_red_recoveries": 0,
+      "resyncs": 2,
+      "source_to_bridge_playout_p95_ms": 183,
+      "source_to_bridge_playout_max_ms": 189
+    },
+    {
+      "profile": "clock_fast_150ppm_30min",
+      "red": true,
+      "network_packets_lost": 0,
+      "exact_frames_played": 89984,
+      "concealment_attempts": 0,
+      "exact_red_recoveries": 0,
+      "resyncs": 2,
+      "source_to_bridge_playout_p95_ms": 183,
+      "source_to_bridge_playout_max_ms": 189
+    }
+  ],
+  "artifacts": [
+    {
+      "profile": "eg25-qdc507",
+      "version": "2.0.0-dev.audio1",
+      "path": "/tmp/airsim-cloud-audio-20261105/engine/eg25-qdc507",
+      "manifest_sha256": "b0ef8f99b95a9ce6fa2be8356ada9ca7366affcc821950522915037ea8ebf076",
+      "agent": {
+        "path": "airsim-agent",
+        "size": 11141304,
+        "sha256": "96b61b879bed7d9409bada3faa9a5204d0b1de51821163535267fab31d4266de"
+      },
+      "helper": {
+        "path": "airsim-audiod",
+        "size": 332200,
+        "sha256": "1125a597bf18fefa52a859607646f787f6a69109cba35c3124a4afcb367512ec"
+      }
+    },
+    {
+      "profile": "rm500u-embedded",
+      "version": "2.0.0-dev.audio1",
+      "path": "/tmp/airsim-cloud-audio-20261105/engine/rm500u-embedded",
+      "manifest_sha256": "c0de7f157557acf9022bb315f7a769b2f3831f5bbb339f40446a5b25040fb4c9",
+      "agent": {
+        "path": "airsim-agent",
+        "size": 11272376,
+        "sha256": "ecfca395972394051e6ae6b81ead64f4ed6eab9e7397f88448b80c9fb8852a32"
+      },
+      "helper": {
+        "path": "airsim-audiod",
+        "size": 396456,
+        "sha256": "257b9c2cf04c4f25b9bd7b3fe4ab610ad67abf8f3260df28289c4c0b08ef489c"
+      }
+    }
+  ],
+  "limitations": [
+    "No physical EG25/iOS call, deployment or TestFlight publication in this task.",
+    "Simulation playout latency excludes native PCM, App audio processing, codec framing and cellular/PSTN latency.",
+    "RED increases bandwidth; no new adaptive congestion/bitrate controller.",
+    "Clock skew uses counted bounded resynchronization, not seamless sample-rate matching.",
+    "ALSA DELAY firmware behavior, AFE clipping, sustained CPU/RAM, acoustics and battery remain unverified."
+  ]
+}

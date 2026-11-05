@@ -261,6 +261,13 @@ static void *capture_worker(void *unused) {
     return NULL;
   }
   while (!stopped()) {
+    /* A recovered capture xrun consumed a media slot too. Expose that gap to
+     * the Agent/RTP timestamp instead of compressing the following audio into
+     * the missing slot. The exact duration of a driver reset is unknowable. */
+    if (++seq == 0) {
+      fail(7);
+      break;
+    }
     int r = transfer(capture, pcm, 1, &capture_stats, 0, recovery,
                      &recoveries);
     if (r < 0)
@@ -273,10 +280,6 @@ static void *capture_worker(void *unused) {
     /* The external format is 16 kHz; an 8 kHz capture is interpolated. */
     audio_expand(pcm, 16000, &capture_previous);
 #endif
-    if (++seq == 0) {
-      fail(7);
-      break;
-    }
     int size = airsim_opus_encode(encoder, pcm, frame + ASMP_HEADER);
     if (size < 0) {
       fail(7);
@@ -324,6 +327,29 @@ static int take_packet(uint8_t payload[ASMP_MAX_PAYLOAD], int *size) {
   pthread_mutex_unlock(&qlock);
   return kind;
 }
+/* Keep the hardware queue near 40 ms (or its required start threshold),
+ * rather than filling its entire capacity: EG25 needs a 128 ms mmap buffer,
+ * but capacity is not a reason to add 128 ms of steady-state latency.
+ * Consult the PCM hardware clock, never an independent 20 ms software clock.
+ * Unsupported delay ioctls fall back to the existing bounded write path. */
+static unsigned playback_wait_ms(long delay, unsigned rate, unsigned start, unsigned capacity) {
+  unsigned target = rate * 40 / 1000;
+  if (target < start) target = start;
+  if (delay < 0 || (unsigned long)delay > capacity || (unsigned long)delay <= target)
+    return 0;
+  unsigned wait = (unsigned)((delay - target) * 1000 / rate);
+  return wait > 10 ? 10 : wait;
+}
+static int wait_playback_headroom(unsigned rate, unsigned start, unsigned capacity) {
+  uint64_t since = asmp_now_ms();
+  while (!stopped()) {
+    unsigned wait = playback_wait_ms(pcm_get_delay(playback), rate, start, capacity);
+    if (!wait) return 0;
+    if (asmp_now_ms() - since > 2000) { fail(5); return -1; }
+    if (poll(NULL, 0, (int)wait) < 0 && errno != EINTR) { fail(4); return -1; }
+  }
+  return -1;
+}
 static void *playback_worker(void *unused) {
   (void)unused;
   realtime();
@@ -336,6 +362,7 @@ static void *playback_worker(void *unused) {
     return NULL;
   }
   while (!stopped()) {
+    if (wait_playback_headroom(playback_rate, PLAYBACK_START, BUFFER_FRAMES)) break;
     int size;
     int kind = take_packet(payload, &size);
     if (airsim_opus_decode(decoder, payload, size, kind, data) < 0) {
@@ -472,7 +499,7 @@ int main(int argc, char **argv) {
     return eg25_audio_reset() ? 1 : 0;
 #endif
   if (argc == 2 && !strcmp(argv[1], "--version")) {
-    puts("airsim-audiod 0.6.0-opus libopus-1.5.2 "
+    puts("airsim-audiod 0.6.1-opus libopus-1.5.2 "
          "tinyalsa-1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d");
     return 0;
   }

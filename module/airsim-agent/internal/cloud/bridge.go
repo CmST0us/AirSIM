@@ -37,18 +37,22 @@ type mediaStart struct {
 	Servers    []json.RawMessage `json:"ice_servers"`
 }
 type BridgeStats struct {
-	SessionID string `json:"session_id"`
-	State     string `json:"state"`
-	Reason    string `json:"reason"`
-	Candidate string `json:"candidate"`
-	Received  uint64 `json:"packets_received"`
-	Sent      uint64 `json:"packets_sent"`
-	Lost      uint64 `json:"packets_lost"`
-	Late      uint64 `json:"packets_late"`
-	FEC       uint64 `json:"fec_frames"`
-	PLC       uint64 `json:"plc_frames"`
-	Drops     uint64 `json:"queue_drops"`
-	LocalGaps uint64 `json:"local_input_gaps"`
+	SessionID      string `json:"session_id"`
+	State          string `json:"state"`
+	Reason         string `json:"reason"`
+	Candidate      string `json:"candidate"`
+	Received       uint64 `json:"packets_received"`
+	Sent           uint64 `json:"packets_sent"`
+	Lost           uint64 `json:"packets_lost"`
+	Late           uint64 `json:"packets_late"`
+	FEC            uint64 `json:"fec_frames"`
+	PLC            uint64 `json:"plc_frames"`
+	Drops          uint64 `json:"queue_drops"`
+	LocalGaps      uint64 `json:"local_input_gaps"`
+	REDRecovered   uint64 `json:"red_recovered_frames"`
+	InvalidPackets uint64 `json:"invalid_audio_packets"`
+	Duplicates     uint64 `json:"duplicate_audio_packets"`
+	Resyncs        uint64 `json:"playout_resyncs"`
 	// Stalls count waits well beyond the 20 ms frame period: for the next
 	// helper frame, between RTP packets from the App, and between frames paced
 	// to the helper. Send stalls are RTP writes that took longer than a frame.
@@ -66,6 +70,7 @@ type BridgeStats struct {
 }
 type bridgeCounters struct {
 	received, sent, lost, late, fec, plc, drops, local atomic.Uint64
+	red, invalid, duplicates, resync                   atomic.Uint64
 	localStall, sendStall, rtpStall, playoutStall      stall
 	candidate                                          atomic.Value
 	gcStart                                            uint64
@@ -343,12 +348,12 @@ func setupReason(ctx context.Context) string {
 
 // mediaPeer and rtcTrack are the parts of the WebRTC connection streamMedia uses.
 type mediaPeer interface {
-	WriteOpus([]byte) error
+	WriteOpus([]byte, uint64) error
 	Failed() <-chan struct{}
 	Close()
 }
 type rtcTrack interface {
-	ReadPacket([]byte, time.Time) (uint16, []byte, error)
+	ReadPacket([]byte, time.Time) ([]rtc.AudioPacket, error)
 }
 
 // streamMedia moves packets until either side fails. The helper is served from
@@ -380,17 +385,22 @@ func streamMedia(ctx context.Context, cancel context.CancelFunc, peer mediaPeer,
 		live.Store(true)
 		buf := make([]byte, 1500)
 		var last time.Time
+		deadline := time.Now().Add(rtpTimeout)
 		for {
-			seq, payload, e := track.ReadPacket(buf, time.Now().Add(rtpTimeout))
+			packets, e := track.ReadPacket(buf, deadline)
+			if errors.Is(e, rtc.ErrAudioPacket) {
+				counts.invalid.Add(1)
+				continue
+			}
 			if e != nil {
 				fail(rtpReason(e))
 				return
 			}
+			deadline = time.Now().Add(rtpTimeout)
 			counts.rtpStall.observe(&last, time.Now(), rtpStall)
-			if len(payload) == 0 || len(payload) > media.MaxPayload {
-				continue
+			for _, packet := range packets {
+				jitter.push(packet, clock.Now())
 			}
-			jitter.push(seq, append([]byte(nil), payload...), clock.Now())
 		}
 	}()
 	go func() {
@@ -438,7 +448,7 @@ func streamMedia(ctx context.Context, cancel context.CancelFunc, peer mediaPeer,
 				continue
 			}
 			sending := time.Now()
-			if e = peer.WriteOpus(f.Payload); e != nil {
+			if e = peer.WriteOpus(f.Payload, gap); e != nil {
 				fail("rtp_write")
 				return
 			}
@@ -482,6 +492,10 @@ func countersInto(s BridgeStats, c *bridgeCounters) BridgeStats {
 		s.PLC = c.plc.Load()
 		s.Drops = c.drops.Load()
 		s.LocalGaps = c.local.Load()
+		s.REDRecovered = c.red.Load()
+		s.InvalidPackets = c.invalid.Load()
+		s.Duplicates = c.duplicates.Load()
+		s.Resyncs = c.resync.Load()
 		s.LocalStalls, s.LocalStallMax = c.localStall.count.Load(), c.localStall.max.Load()
 		s.SendStalls, s.SendStallMax = c.sendStall.count.Load(), c.sendStall.max.Load()
 		s.RTPStalls, s.RTPStallMax = c.rtpStall.count.Load(), c.rtpStall.max.Load()

@@ -12,10 +12,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pion/ice/v4"
+	"github.com/pion/rtp"
 	"github.com/pion/turn/v4"
 	"github.com/pion/webrtc/v4"
 	pionmedia "github.com/pion/webrtc/v4/pkg/media"
@@ -29,17 +31,25 @@ var (
 // testApp is an offering peer on loopback that behaves like the App:
 // one sendrecv Opus track and a complete, non-trickle offer.
 type testApp struct {
-	pc       *webrtc.PeerConnection
-	track    *webrtc.TrackLocalStaticSample
-	received chan []byte
-	offer    string
+	pc          *webrtc.PeerConnection
+	track       *webrtc.TrackLocalStaticSample
+	redTrack    *webrtc.TrackLocalStaticRTP
+	redReceived atomic.Uint64
+	received    chan []byte
+	offer       string
 }
 
-func newTestApp(t *testing.T) *testApp {
+func newTestApp(t *testing.T, useRED ...bool) *testApp {
+	red := len(useRED) > 0 && useRED[0]
 	t.Helper()
 	m := &webrtc.MediaEngine{}
 	if e := m.RegisterCodec(webrtc.RTPCodecParameters{RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2, SDPFmtpLine: "minptime=10;useinbandfec=1"}, PayloadType: 111}, webrtc.RTPCodecTypeAudio); e != nil {
 		t.Fatal(e)
+	}
+	if red {
+		if e := m.RegisterCodec(webrtc.RTPCodecParameters{RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: "audio/red", ClockRate: 48000, Channels: 2, SDPFmtpLine: "111/111"}, PayloadType: 63}, webrtc.RTPCodecTypeAudio); e != nil {
+			t.Fatal(e)
+		}
 	}
 	s := webrtc.SettingEngine{}
 	s.SetIncludeLoopbackCandidate(true)
@@ -52,8 +62,14 @@ func newTestApp(t *testing.T) *testApp {
 	}
 	t.Cleanup(func() { pc.Close() })
 	a := &testApp{pc: pc, received: make(chan []byte, 64)}
-	a.track, _ = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}, "audio", "app")
-	if _, e = pc.AddTrack(a.track); e != nil {
+	if red {
+		a.redTrack, _ = webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: "audio/red", ClockRate: 48000, Channels: 2, SDPFmtpLine: "111/111"}, "audio", "app")
+		_, e = pc.AddTrack(a.redTrack)
+	} else {
+		a.track, _ = webrtc.NewTrackLocalStaticSample(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}, "audio", "app")
+		_, e = pc.AddTrack(a.track)
+	}
+	if e != nil {
 		t.Fatal(e)
 	}
 	pc.OnTrack(func(t *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
@@ -62,8 +78,14 @@ func newTestApp(t *testing.T) *testApp {
 			if e != nil {
 				return
 			}
+			payload := p.Payload
+			if p.PayloadType == 63 && len(payload) >= 3 {
+				a.redReceived.Add(1)
+				// The fixed helper fixture emits one two-byte primary packet.
+				payload = payload[len(payload)-2:]
+			}
 			select {
-			case a.received <- p.Payload:
+			case a.received <- payload:
 			default:
 			}
 		}
@@ -86,8 +108,25 @@ func (a *testApp) accept(t *testing.T, ctx context.Context, answer string) {
 		t.Fatal(e)
 	}
 	go func() {
-		for ctx.Err() == nil {
-			_ = a.track.WriteSample(pionmedia.Sample{Data: appPacket, Duration: rtc.FrameDuration})
+		for i := uint32(0); ctx.Err() == nil; i++ {
+			if a.redTrack != nil {
+				// Independent RFC 2198 fixture: at steady state the previous
+				// two 20 ms timestamps and the current primary share one packet.
+				payload := []byte{111}
+				if i == 1 {
+					payload = []byte{239, 15, 0, 2, 111}
+					payload = append(payload, appPacket...)
+				}
+				if i >= 2 {
+					payload = []byte{239, 30, 0, 2, 239, 15, 0, 2, 111}
+					payload = append(payload, appPacket...)
+					payload = append(payload, appPacket...)
+				}
+				payload = append(payload, appPacket...)
+				_ = a.redTrack.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: uint16(i), Timestamp: i * rtc.OpusFrameTicks}, Payload: payload})
+			} else {
+				_ = a.track.WriteSample(pionmedia.Sample{Data: appPacket, Duration: rtc.FrameDuration})
+			}
 			time.Sleep(rtc.FrameDuration)
 		}
 	}()
@@ -272,8 +311,12 @@ func relay(t *testing.T, username, password string) (udp, tcp string) {
 }
 
 func TestRunMediaThroughRelay(t *testing.T) {
-	for _, transport := range []string{"udp", "tcp"} {
-		t.Run(transport, func(t *testing.T) {
+	for _, profile := range []struct {
+		transport string
+		red       bool
+	}{{"udp", false}, {"tcp", false}, {"udp", true}, {"tcp", true}} {
+		transport := profile.transport
+		t.Run(fmt.Sprintf("%s/red=%t", transport, profile.red), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			fm := &fakeMedia{}
@@ -282,7 +325,7 @@ func TestRunMediaThroughRelay(t *testing.T) {
 			udp, tcp := relay(t, username, "secret")
 			address := map[string]string{"udp": udp, "tcp": tcp}[transport]
 			a := &Agent{Media: fm}
-			app := newTestApp(t)
+			app := newTestApp(t, profile.red)
 			answers := make(chan string, 1)
 			streaming := make(chan struct{})
 			done := make(chan string, 1)
@@ -310,6 +353,9 @@ func TestRunMediaThroughRelay(t *testing.T) {
 				t.Fatal("media ended before streaming:", reason)
 			}
 			expectDuplex(t, ctx, app, played)
+			if profile.red && app.redReceived.Load() == 0 {
+				t.Fatal("TURN did not carry RED")
+			}
 			stats := a.LastBridgeStats()
 			if stats.Candidate != "relay" || stats.State != "streaming" || stats.Received == 0 || stats.Sent == 0 {
 				t.Fatal("stats", stats)

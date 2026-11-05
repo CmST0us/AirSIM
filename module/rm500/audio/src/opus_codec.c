@@ -2,11 +2,12 @@
 #include "opus.h"
 #include <stddef.h>
 
-/* Wideband voice at a 96 kbps VBR target with in-band FEC. Keep the existing
- * fixed-point complexity 3 setting for the module's CPU budget. */
+/* Relay decoded cellular audio faithfully. AUDIO avoids the additional VOIP
+ * input high-pass/voice shaping; the phone microphone retains its own AEC.
+ * Keep 96 kbps VBR, wideband, FEC and fixed-point complexity 3. */
 airsim_opus_encoder *airsim_opus_encoder_create(void) {
   int error = 0;
-  OpusEncoder *e = opus_encoder_create(AIRSIM_OPUS_SAMPLE_RATE, 1, OPUS_APPLICATION_VOIP, &error);
+  OpusEncoder *e = opus_encoder_create(AIRSIM_OPUS_SAMPLE_RATE, 1, OPUS_APPLICATION_AUDIO, &error);
   if (!e || error != OPUS_OK)
     return NULL;
   if (opus_encoder_ctl(e, OPUS_SET_BITRATE(96000)) != OPUS_OK ||
