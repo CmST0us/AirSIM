@@ -880,8 +880,9 @@ impl Provisioner {
         )
     }
 
-    /// Build a `rustls::ClientConfig` (pure-Rust `rustls_rustcrypto` provider) trusting either
-    /// `cfg.request.server_ca_pem` or (`SSL_CERT_DIR` + `webpki-roots`), optionally with Ed25519 mTLS.
+    /// Build a `rustls::ClientConfig` (`aws-lc-rs` default provider with standard TLS 1.3
+    /// `X25519MLKEM768`, matching Go 1.24 / iOS / Caddy) trusting either `cfg.request.server_ca_pem`
+    /// or (`SSL_CERT_DIR` + `webpki-roots`), optionally with Ed25519 mTLS.
     pub fn build_tls_client_config(
         &self,
         cfg: &SavedCloud,
@@ -919,7 +920,7 @@ impl Provisioner {
             }
         }
 
-        let provider = Arc::new(rustls_rustcrypto::provider());
+        let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
         let builder = ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
             .map_err(|e| format!("tls_proto: {e}"))?

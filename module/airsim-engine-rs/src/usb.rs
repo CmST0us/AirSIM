@@ -179,7 +179,7 @@ fn load_or_generate_usb_tls(
         .map_err(|e| format!("usb_key_parse: {e}"))?
         .ok_or_else(|| "usb_key_missing".to_string())?;
 
-    let provider = Arc::new(rustls_rustcrypto::provider());
+    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
     let server_cfg = ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(|e| format!("usb_tls_proto: {e}"))?
