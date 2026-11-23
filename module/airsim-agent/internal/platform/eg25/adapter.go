@@ -53,11 +53,28 @@ func (a *Adapter) Verify(ctx context.Context) error {
 		return err
 	}
 	for _, line := range lines {
-		if line == "QDC507GLEFM21" {
+		if line == "QDC507GLEFM21" || supportedFirmwareRevision(line) {
 			return nil
 		}
 	}
 	return errors.New("profile_mismatch")
+}
+
+func supportedFirmwareRevision(rev string) bool {
+	const prefix = "QDC507GLEFM21_"
+	if !strings.HasPrefix(rev, prefix) {
+		return false
+	}
+	rest := rev[len(prefix):]
+	if len(rest) != 9 || rest[2] != '.' || rest[6] != '.' {
+		return false
+	}
+	for _, i := range []int{0, 1, 3, 4, 5, 7, 8} {
+		if rest[i] < '0' || rest[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func firmwareMatches(text string) bool {
@@ -74,7 +91,7 @@ func firmwareMatches(text string) bool {
 			revision = strings.TrimSpace(value)
 		}
 	}
-	return project == "EG25G_QDC507" && revision == Firmware
+	return project == "EG25G_QDC507" && supportedFirmwareRevision(revision)
 }
 
 func (a *Adapter) IMS() hal.Field { return hal.Unavailable("at", "not_supported") }

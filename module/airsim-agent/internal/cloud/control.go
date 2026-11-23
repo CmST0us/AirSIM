@@ -46,6 +46,9 @@ type Agent struct {
 	media          sync.WaitGroup
 	owners         map[string]owner
 	bindings       map[string]string
+	// RenewWindow overrides when automatic online certificate renewal starts.
+	// Zero defaults to defaultCertRenewWindow (7 days).
+	RenewWindow time.Duration
 }
 type envelope struct {
 	Type     string          `json:"type"`
@@ -81,6 +84,7 @@ type connection struct {
 	pending map[string]*pendingReceipt
 	owners  map[string]owner
 	wg      sync.WaitGroup
+	renewed bool
 }
 
 // Each connection attempt is short: after a cellular outage the next attempt
@@ -88,6 +92,8 @@ type connection struct {
 const (
 	discoveryTimeout        = 10 * time.Second
 	controlHandshakeTimeout = 10 * time.Second
+	defaultCertRenewWindow  = 7 * 24 * time.Hour
+	certRenewCheckInterval  = time.Hour
 )
 
 func (a *Agent) status(connected bool, epoch, code string) {
@@ -124,9 +130,15 @@ func (a *Agent) Run(ctx context.Context) {
 			}
 			continue
 		}
-		code := a.connect(ctx, cfg)
+		code, established := a.connectSession(ctx, cfg)
 		a.status(false, "", code)
 		log.Printf("cloud connection ended: %s", code)
+		if established || code == "certificate_renewed" {
+			attempt = 0
+		}
+		if code == "certificate_renewed" {
+			continue
+		}
 		var j [1]byte
 		_, _ = rand.Read(j[:])
 		wait := delays[attempt] + time.Duration(j[0])*delays[attempt]/1275
@@ -205,17 +217,21 @@ func (a *Agent) controlView(ctx context.Context) (control.Status, error) {
 	}
 	return s, nil
 }
-func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
+func (a *Agent) connect(parent context.Context, s *saved) string {
+	reason, _ := a.connectSession(parent, s)
+	return reason
+}
+func (a *Agent) connectSession(parent context.Context, s *saved) (reason string, established bool) {
 	cert, err := a.P.validate(s, true)
 	if err != nil {
-		return "certificate_invalid"
+		return "certificate_invalid", false
 	}
 	// TLS only checks validity at handshake. The authenticated connection and
 	// every media child must also end at this exact leaf certificate deadline.
 	ctx, cancel := context.WithDeadline(parent, cert.NotAfter)
 	defer func() {
 		cancel()
-		if !time.Now().Before(cert.NotAfter) {
+		if reason != "certificate_renewed" && !time.Now().Before(cert.NotAfter) {
 			reason = "certificate_expired"
 		}
 		a.status(false, "", reason)
@@ -225,11 +241,11 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 	discoveryCancel()
 	if err != nil {
 		log.Printf("cloud discovery failed: %v", err)
-		return "discovery_failed"
+		return "discovery_failed", false
 	}
 	client, e := a.P.client(s, true)
 	if e != nil {
-		return "certificate_invalid"
+		return "certificate_invalid", false
 	}
 	defer client.CloseIdleConnections()
 	handshake, hcancel := context.WithTimeout(ctx, controlHandshakeTimeout)
@@ -240,11 +256,12 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 		if resp != nil && resp.Body != nil {
 			resp.Body.Close()
 		}
-		return "control_connect"
+		return "control_connect", false
 	}
+	canRenew := resp != nil && resp.Header.Get("X-AirSIM-Cert-Renewal") == "1"
 	defer ws.CloseNow()
 	if ws.Subprotocol() != "airsim.control.v2" {
-		return "control_protocol"
+		return "control_protocol", false
 	}
 	ws.SetReadLimit(131072)
 	c := &connection{agent: a, config: s, life: parent, ctx: ctx, cancel: cancel, ws: ws, queue: make(chan outgoing, 32), pending: map[string]*pendingReceipt{}, owners: a.owners}
@@ -254,31 +271,32 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 	}()
 	status, e := a.controlView(handshake)
 	if e != nil {
-		return "control_unavailable"
+		return "control_unavailable", false
 	}
 	hello := envelope{Type: "hello", Protocol: 2, Module: a.P.id.ModuleID, Sequence: 1}
 	hello.Payload, _ = json.Marshal(map[string]any{"agent_boot_id": a.Boot, "backend_epoch": status.Epoch, "agent_version": a.Version, "platform": a.P.profile, "usb_local": a.USB != nil, "media_codec": "opus"})
 	b, _ := json.Marshal(hello)
 	if ws.Write(handshake, websocket.MessageText, b) != nil {
-		return "control_write"
+		return "control_write", false
 	}
 	typ, b, e := ws.Read(handshake)
 	if e != nil || typ != websocket.MessageText {
-		return "control_welcome"
+		return "control_welcome", false
 	}
 	frame, e := parseEnvelope(b, a.P.id.ModuleID, "", 1, true)
 	if e != nil || frame.Type != "welcome" {
-		return "control_welcome"
+		return "control_welcome", false
 	}
 	var welcome struct {
 		Server    string `json:"server_id"`
 		Heartbeat int    `json:"heartbeat_seconds"`
 	}
 	if exact(frame.Payload, "server_id,heartbeat_seconds", &welcome) != nil || welcome.Server != s.Request.ServerID || welcome.Heartbeat != 5 {
-		return "control_welcome"
+		return "control_welcome", false
 	}
 	c.epoch = frame.Epoch
 	c.seq = 1
+	established = true
 	a.status(true, c.epoch, "")
 	log.Printf("cloud connected")
 	c.wg.Add(1)
@@ -310,36 +328,91 @@ func (a *Agent) connect(parent context.Context, s *saved) (reason string) {
 	}()
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
-	receipts := time.NewTicker(250 * time.Millisecond)
-	defer receipts.Stop()
+	// Only run the 250 ms receipt poller while commands are pending; avoid 4 Hz idle wakeups.
+	var receipts *time.Ticker
+	var receiptsCh <-chan time.Time
+	defer func() {
+		if receipts != nil {
+			receipts.Stop()
+		}
+	}()
+	armReceipts := func() {
+		if len(c.pending) > 0 && receipts == nil {
+			receipts = time.NewTicker(250 * time.Millisecond)
+			receiptsCh = receipts.C
+		} else if len(c.pending) == 0 && receipts != nil {
+			receipts.Stop()
+			receipts = nil
+			receiptsCh = nil
+		}
+	}
 	heart := time.NewTicker(5 * time.Second)
 	defer heart.Stop()
+	renewWindow := a.RenewWindow
+	if renewWindow <= 0 {
+		renewWindow = defaultCertRenewWindow
+	}
+	renewRequested := false
+	tryRenew := func() bool {
+		if !canRenew || renewRequested || time.Until(cert.NotAfter) > renewWindow {
+			return true
+		}
+		reqID, nonce, csrPEM, ok := a.P.RenewalRequest()
+		if !ok {
+			return true
+		}
+		renewRequested = true
+		log.Printf("cloud requesting certificate renewal (expires %s)", cert.NotAfter.UTC().Format(time.RFC3339))
+		return c.send("cert_renew", map[string]string{"request_id": reqID, "nonce": nonce, "csr_pem": csrPEM})
+	}
+	var renewTick *time.Ticker
+	var renewCh <-chan time.Time
+	if canRenew {
+		renewTick = time.NewTicker(certRenewCheckInterval)
+		renewCh = renewTick.C
+		defer renewTick.Stop()
+	}
 	var last synced
 	if !c.sync(&last) {
-		return "snapshot_failed"
+		return "snapshot_failed", true
+	}
+	if !tryRenew() {
+		return "control_queue", true
 	}
 	for {
 		select {
 		case <-ctx.Done():
-			return "control_disconnected"
+			if c.renewed {
+				return "certificate_renewed", true
+			}
+			return "control_disconnected", true
 		case f := <-frames:
 			if !c.handle(f) {
-				return "control_protocol"
+				return "control_protocol", true
 			}
+			if c.renewed {
+				return "certificate_renewed", true
+			}
+			armReceipts()
 		case <-tick.C:
 			if !c.sync(&last) {
-				return "snapshot_failed"
+				return "snapshot_failed", true
 			}
-		case <-receipts.C:
+		case <-receiptsCh:
 			for id, p := range c.pending {
 				v, code := a.view(ctx, "command", id)
 				if !c.receipt(p, v, code) {
-					return "control_queue"
+					return "control_queue", true
 				}
+			}
+			armReceipts()
+		case <-renewCh:
+			if !tryRenew() {
+				return "control_queue", true
 			}
 		case <-heart.C:
 			if !c.send("heartbeat", struct{}{}) {
-				return "control_queue"
+				return "control_queue", true
 			}
 		}
 	}
@@ -423,8 +496,28 @@ func (c *connection) writer() {
 // synced is what the connection last sent.
 type synced struct {
 	snapshot string
+	control  control.Status
+	calls    control.CallsView
+	signal   state.SignalView
+	haveBase bool
 	messages *control.MessagesView
 	sent     time.Time
+}
+
+func equalSignalView(a, b state.SignalView) bool {
+	if a.Available != b.Available {
+		return false
+	}
+	if (a.ObservedAt == nil) != (b.ObservedAt == nil) || (a.ObservedAt != nil && !a.ObservedAt.Equal(*b.ObservedAt)) {
+		return false
+	}
+	if (a.RSSI == nil) != (b.RSSI == nil) || (a.RSSI != nil && *a.RSSI != *b.RSSI) {
+		return false
+	}
+	if (a.DBM == nil) != (b.DBM == nil) || (a.DBM != nil && *a.DBM != *b.DBM) {
+		return false
+	}
+	return true
 }
 
 func (c *connection) sync(last *synced) bool {
@@ -438,55 +531,78 @@ func (c *connection) sync(last *synced) bool {
 	if code != 200 || !ok {
 		return false
 	}
-	second, e := a.controlView(c.ctx)
-	if e != nil {
-		return false
-	}
-	raw, code = a.view(c.ctx, "calls", "")
-	calls2, ok := raw.(control.CallsView)
-	if code != 200 || !ok {
-		return false
-	}
-	if first.Boot != second.Boot || first.Epoch != second.Epoch || calls.Boot != second.Boot || calls.Epoch != second.Epoch || calls2.Boot != second.Boot || calls2.Epoch != second.Epoch {
-		return true
-	}
-	payload := map[string]any{"agent_boot_id": second.Boot, "backend_epoch": second.Epoch, "observed_at": "", "control": second, "calls": calls2, "audio": a.Media.View(), "signal": a.signalView()}
-	b, _ := json.Marshal(payload)
 	interval := 5 * time.Second
-	for _, call := range calls2.Calls {
+	for _, call := range calls.Calls {
 		if call.State != "disconnected" {
 			interval = time.Second
 			break
 		}
 	}
-	if string(b) != last.snapshot || time.Since(last.sent) >= interval {
-		payload["observed_at"] = time.Now().UTC().Format(time.RFC3339Nano)
-		if !c.send("snapshot", payload) {
+	sig := a.signalView()
+	// Fast path: when control/calls/signal match the last published state and
+	// the periodic heartbeat snapshot interval has not elapsed, skip the
+	// redundant second consistency read and full JSON marshal on EG25.
+	unchanged := last.haveBase && first == last.control && equalSignalView(sig, last.signal) && calls.Boot == last.calls.Boot && calls.Epoch == last.calls.Epoch && calls.Available == last.calls.Available && slices.Equal(calls.Calls, last.calls.Calls)
+	if unchanged && time.Since(last.sent) < interval && a.Media.View().Session == nil {
+		goto syncMessages
+	}
+	{
+		second, e := a.controlView(c.ctx)
+		if e != nil {
 			return false
 		}
-		last.snapshot = string(b)
-		last.sent = time.Now()
-	}
-	// Ownership expires on observed disconnect or boot/backend replacement.
-	a.ownerMu.Lock()
-	for id, o := range c.owners {
-		valid := false
+		raw, code = a.view(c.ctx, "calls", "")
+		calls2, ok := raw.(control.CallsView)
+		if code != 200 || !ok {
+			return false
+		}
+		if first.Boot != second.Boot || first.Epoch != second.Epoch || calls.Boot != second.Boot || calls.Epoch != second.Epoch || calls2.Boot != second.Boot || calls2.Epoch != second.Epoch {
+			return true
+		}
+		sig = a.signalView()
+		payload := map[string]any{"agent_boot_id": second.Boot, "backend_epoch": second.Epoch, "observed_at": "", "control": second, "calls": calls2, "audio": a.Media.View(), "signal": sig}
+		b, _ := json.Marshal(payload)
+		interval = 5 * time.Second
 		for _, call := range calls2.Calls {
-			if call.ID == id && call.State != "disconnected" && o.boot == second.Boot && o.epoch == second.Epoch {
-				valid = true
+			if call.State != "disconnected" {
+				interval = time.Second
+				break
 			}
 		}
-		if !valid {
-			delete(c.owners, id)
+		if string(b) != last.snapshot || time.Since(last.sent) >= interval {
+			payload["observed_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+			if !c.send("snapshot", payload) {
+				return false
+			}
+			last.snapshot = string(b)
+			last.sent = time.Now()
 		}
+		last.control = second
+		last.calls = calls2
+		last.signal = sig
+		last.haveBase = true
+		// Ownership expires on observed disconnect or boot/backend replacement.
+		a.ownerMu.Lock()
+		for id, o := range c.owners {
+			valid := false
+			for _, call := range calls2.Calls {
+				if call.ID == id && call.State != "disconnected" && o.boot == second.Boot && o.epoch == second.Epoch {
+					valid = true
+				}
+			}
+			if !valid {
+				delete(c.owners, id)
+			}
+		}
+		a.ownerMu.Unlock()
 	}
-	a.ownerMu.Unlock()
+syncMessages:
 	raw, code = a.view(c.ctx, "cloud_messages", "")
 	messages, ok := raw.(control.MessagesView)
 	if code != 200 || !ok {
 		return false
 	}
-	if messages.Boot != second.Boot || messages.Epoch != second.Epoch {
+	if messages.Boot != last.control.Boot || messages.Epoch != last.control.Epoch {
 		return true
 	}
 	if p := last.messages; p != nil && p.Boot == messages.Boot && p.Epoch == messages.Epoch && p.Available == messages.Available && p.Gap == messages.Gap && p.Dropped == messages.Dropped && slices.Equal(p.Messages, messages.Messages) {
@@ -559,6 +675,20 @@ func (c *connection) handle(f envelope) bool {
 	case "heartbeat":
 		var v struct{}
 		return exact(f.Payload, "", &v) == nil
+	case "cert_renewed":
+		var b Bundle
+		if exact(f.Payload, "request_id,server_id,module_id,certificate_pem,receipt_base64", &b) != nil {
+			return false
+		}
+		cert, err := c.agent.P.Renew(b)
+		if err != nil {
+			log.Printf("cloud certificate renewal rejected: %v", err)
+			return true
+		}
+		log.Printf("cloud certificate renewed (new expiry %s)", cert.NotAfter.UTC().Format(time.RFC3339))
+		c.renewed = true
+		c.cancel()
+		return true
 	case "usb_revoke":
 		var v struct {
 			Client string `json:"client_installation_id"`

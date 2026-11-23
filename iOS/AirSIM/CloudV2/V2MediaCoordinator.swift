@@ -311,9 +311,10 @@ struct V2MediaTiming {
     /// From submitting the answer until ICE and DTLS connect.
     var connect: Duration = .seconds(10)
     /// A disconnected transport that does not recover in time is replaced.
-    var disconnected: Duration = .seconds(3)
-    /// The module sends audio every 20 ms; this long without packets replaces the session.
-    var silence: Duration = .seconds(3)
+    var disconnected: Duration = .seconds(5)
+    /// Tolerate brief 3–4 s LTE handovers/blips without tearing down WebRTC
+    /// and restarting the module audio helper.
+    var silence: Duration = .seconds(6)
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
     var sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 }

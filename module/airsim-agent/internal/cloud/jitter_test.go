@@ -160,3 +160,103 @@ func TestJitterFarAheadPacketCannotOverwriteCurrentSlot(t *testing.T) {
 		t.Fatal("out-of-window packet accepted")
 	}
 }
+
+func TestJitterPhaseAliasingZeroDestruction(t *testing.T) {
+	// Sweep all 40 phases [0..19.5ms] with realistic EG25 single-core wakeup
+	// jitter [0.5..5.0ms] on a 0%-loss link: every single frame must play cleanly.
+	for phaseTenths := 0; phaseTenths < 200; phaseTenths += 5 {
+		c := &bridgeCounters{}
+		j := newJitter(c)
+		phase := time.Duration(phaseTenths) * 100 * time.Microsecond
+		originArr := jitterEpoch.Add(30*time.Millisecond + phase)
+		const frames = 200
+		base := jitterEpoch
+		target := base
+		cursor := 0
+		played := 0
+		var seed uint32 = 20261123 + uint32(phaseTenths)
+		end := originArr.Add(frames*playoutPeriod + 200*time.Millisecond)
+		for target.Before(end) {
+			seed = seed*1664525 + 1013904223
+			jit := time.Duration(500+(seed%4500)) * time.Microsecond
+			wake := target.Add(jit)
+			for cursor < frames {
+				arr := originArr.Add(time.Duration(cursor) * playoutPeriod)
+				if arr.After(wake) {
+					break
+				}
+				j.push(audioPacket(cursor), arr)
+				cursor++
+			}
+			f := j.pop(wake)
+			if f.Flags == media.FlagOpus {
+				played++
+			}
+			target = target.Add(playoutPeriod)
+		}
+		if played != frames || c.drops.Load() != 0 {
+			t.Fatalf("phase %v: played %d/%d drops=%d", phase, played, frames, c.drops.Load())
+		}
+	}
+}
+
+func TestJitterTimestampDiscontinuityResyncs(t *testing.T) {
+	cases := []struct {
+		name string
+		ts   func(i int) uint32
+	}{
+		{"forward_jump_1.5s", func(i int) uint32 {
+			if i < 20 {
+				return uint32(i) * rtc.OpusFrameTicks
+			}
+			return uint32(i+75) * rtc.OpusFrameTicks
+		}},
+		{"non_960_shift_480", func(i int) uint32 {
+			if i < 20 {
+				return uint32(i) * rtc.OpusFrameTicks
+			}
+			return uint32(i)*rtc.OpusFrameTicks + 480
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &bridgeCounters{}
+			j := newJitter(c)
+			const frames = 100
+			cursor := 0
+			played := 0
+			now := jitterEpoch.Add(90 * time.Millisecond)
+			end := jitterEpoch.Add(30*time.Millisecond + frames*playoutPeriod + 200*time.Millisecond)
+			for now.Before(end) {
+				for cursor < frames {
+					arr := jitterEpoch.Add(30*time.Millisecond + time.Duration(cursor)*playoutPeriod)
+					if arr.After(now) {
+						break
+					}
+					j.push(rtc.AudioPacket{Sequence: uint16(cursor), Timestamp: tc.ts(cursor), Payload: []byte{0x78, byte(cursor)}}, arr)
+					cursor++
+				}
+				if j.pop(now).Flags == media.FlagOpus {
+					played++
+				}
+				now = now.Add(playoutPeriod)
+			}
+			if played < frames-5 || c.resync.Load() != 1 {
+				t.Fatalf("%s: played=%d resync=%d invalid=%d", tc.name, played, c.resync.Load(), c.invalid.Load())
+			}
+		})
+	}
+}
+
+func TestJitterSkipsFECForCELTPackets(t *testing.T) {
+	c := &bridgeCounters{}
+	j := newJitter(c)
+	// Config 28 (0xE0 >> 3 = 28 >= 16) is CELT-only and never carries LBRR FEC.
+	j.push(rtc.AudioPacket{Sequence: 0, Timestamp: 0, Payload: []byte{0xE0, 0}}, jitterEpoch)
+	j.push(rtc.AudioPacket{Sequence: 2, Timestamp: 2 * rtc.OpusFrameTicks, Payload: []byte{0xE0, 2}}, jitterEpoch)
+	expectPacket(t, j, 0, media.FlagOpus, 0)
+	f := j.pop(jitterEpoch.Add(jitterStart + playoutPeriod))
+	if f.Flags != media.FlagErasure || c.fec.Load() != 0 || c.plc.Load() != 1 {
+		t.Fatalf("CELT packet falsely triggered FEC: flags=%d fec=%d plc=%d", f.Flags, c.fec.Load(), c.plc.Load())
+	}
+}

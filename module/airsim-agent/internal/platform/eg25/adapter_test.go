@@ -28,7 +28,13 @@ func TestQDC507IdentityAndDataCalls(t *testing.T) {
 	if Validate(Profile, Device, "linux", "arm64") == nil || Validate(Profile, "/dev/smd7", "linux", "arm") == nil {
 		t.Fatal("accepted incompatible platform")
 	}
+	if !firmwareMatches("Project Name: EG25G_QDC507\nProject Sub Rev : QDC507GLEFM21_01.009.01\n") {
+		t.Fatal("rejected verified 01.009.01 firmware")
+	}
 	if firmwareMatches("Project Name: EG25G_QDC507\nProject Sub Rev: " + Firmware + "extra") {
 		t.Fatal("accepted another firmware")
+	}
+	if firmwareMatches("Project Name: EG25G_QDC507\nProject Sub Rev: QDC507GLEFM22_01.009.01") {
+		t.Fatal("accepted another firmware family")
 	}
 }

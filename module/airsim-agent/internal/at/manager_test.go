@@ -279,3 +279,21 @@ func TestExactLineLimitAllowsFollowingDelimiter(t *testing.T) {
 		t.Fatal("rejected exact 4096-byte line", e)
 	}
 }
+
+func TestCellularURCsDoNotDesynchronize(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	m := New(a, filepath.Join(t.TempDir(), "fence"))
+	defer m.Close()
+	go func() {
+		io.WriteString(b, "+CCWA: \"10086\",129,1\r\n+CTZV: +32,0\r\n+CSSI: 1\r\n+CMT: ,20\r\nBUSY\r\nNO ANSWER\r\n")
+		buf := make([]byte, 40)
+		b.Read(buf)
+		io.WriteString(b, "+CSQ: 22,0\r\nOK\r\n")
+	}()
+	time.Sleep(30 * time.Millisecond)
+	ls, e := m.Query(context.Background(), "AT+CSQ")
+	if e != nil || len(ls) != 1 || ls[0] != "+CSQ: 22,0" {
+		t.Fatalf("cellular URCs desynchronized AT manager: err=%v lines=%v", e, ls)
+	}
+}

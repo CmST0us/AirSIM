@@ -64,16 +64,36 @@ func open(dir string) (*Store, error) {
 		return s, ErrInvalid
 	}
 	left, e := filepath.Glob(filepath.Join(dir, ".commands-*"))
-	if e != nil || len(left) != 0 {
+	if e != nil {
 		return s, ErrInvalid
 	}
 	path := filepath.Join(dir, "commands.json")
 	info, e = os.Lstat(path)
 	if os.IsNotExist(e) {
+		if len(left) != 0 {
+			return s, ErrInvalid
+		}
 		return s, nil
 	}
 	if e != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 2<<20 {
 		return s, ErrInvalid
+	}
+	// If commands.json exists and is intact, clean orphaned regular temp files
+	// left by an interrupted write or sudden power loss instead of bricking.
+	for _, orphan := range left {
+		oi, oe := os.Lstat(orphan)
+		if oe != nil || !oi.Mode().IsRegular() {
+			return s, ErrInvalid
+		}
+		if os.Remove(orphan) != nil {
+			return s, ErrInvalid
+		}
+	}
+	if len(left) != 0 {
+		if d, de := os.Open(dir); de == nil {
+			_ = d.Sync()
+			_ = d.Close()
+		}
 	}
 	f, e := os.Open(path)
 	if e != nil {
@@ -169,26 +189,52 @@ func (s *Store) Remaining() uint64 {
 	}
 	return uint64(Capacity - len(s.records))
 }
+func terminalState(state string) bool {
+	switch state {
+	case "accepted", "observed", "failed", "outcome_unknown", "expired":
+		return true
+	default:
+		return false
+	}
+}
 func (s *Store) Put(r Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.failed || !valid(r) {
 		return ErrInvalid
 	}
+	evictID := ""
 	if old, ok := s.records[r.CommandID]; ok {
 		if old.Digest != r.Digest {
 			return ErrConflict
 		}
 	} else if len(s.records) >= Capacity {
-		return ErrFull
+		// Evict the oldest completed/terminal record so long-lived devices never
+		// hit a permanent 1024-command wall; in-flight prepared/dispatched
+		// records are never evicted.
+		var oldest time.Time
+		for id, rec := range s.records {
+			if !terminalState(rec.State) {
+				continue
+			}
+			if evictID == "" || rec.UpdatedAt.Before(oldest) || (rec.UpdatedAt.Equal(oldest) && id < evictID) {
+				evictID = id
+				oldest = rec.UpdatedAt
+			}
+		}
+		if evictID == "" {
+			return ErrFull
+		}
 	}
 	next := make(map[string]Record, len(s.records)+1)
 	for k, v := range s.records {
+		if k == evictID {
+			continue
+		}
 		next[k] = v
 	}
 	next[r.CommandID] = r
 	if e := s.persist(next); e != nil {
-		s.failed = true
 		return ErrInvalid
 	}
 	s.records = next
@@ -210,6 +256,13 @@ func (s *Store) atomicWrite(b []byte) error {
 	if e != nil {
 		return e
 	}
+	name := f.Name()
+	renamed := false
+	defer func() {
+		if !renamed {
+			_ = os.Remove(name)
+		}
+	}()
 	defer f.Close()
 	if e = f.Chmod(0600); e != nil {
 		return e
@@ -223,9 +276,10 @@ func (s *Store) atomicWrite(b []byte) error {
 	if e = f.Close(); e != nil {
 		return e
 	}
-	if e = os.Rename(f.Name(), filepath.Join(s.dir, "commands.json")); e != nil {
+	if e = os.Rename(name, filepath.Join(s.dir, "commands.json")); e != nil {
 		return e
 	}
+	renamed = true
 	d, e := os.Open(s.dir)
 	if e != nil {
 		return e

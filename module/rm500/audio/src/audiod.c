@@ -73,6 +73,17 @@ static atomic_uint_fast64_t drops, capture_drops, playback_drops, gaps, silence,
     peak;
 static pthread_mutex_t qlock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t qready = PTHREAD_COND_INITIALIZER;
+static pthread_once_t qready_once = PTHREAD_ONCE_INIT;
+static void init_qready_cond(void) {
+#ifdef __linux__
+  pthread_condattr_t cattr;
+  if (pthread_condattr_init(&cattr) == 0) {
+    if (pthread_condattr_setclock(&cattr, CLOCK_MONOTONIC) == 0)
+      (void)pthread_cond_init(&qready, &cattr);
+    pthread_condattr_destroy(&cattr);
+  }
+#endif
+}
 static uint8_t queue[QUEUE][ASMP_MAX_PAYLOAD];
 static uint64_t queued_at[QUEUE];
 static uint8_t queue_kind[QUEUE];
@@ -203,8 +214,14 @@ static int transfer(struct pcm *p, uint8_t *data, int input,
       if (zero_fill)
         atomic_fetch_add(&silence, (unsigned)n);
       last = asmp_now_ms();
-      atomic_store(&stats->progress, last - started);
-      if (total > (uint64_t)rate * (last - started) / 1000 + 2 * BUFFER_FRAMES) {
+      uint64_t elapsed_ms = last - started;
+      atomic_store(&stats->progress, elapsed_ms);
+      /* Permit realistic hardware crystal skew (up to +1000 ppm) over 30-minute
+       * calls while still rejecting runaway non-blocking PCM spins. */
+      uint64_t allowed = (uint64_t)rate * elapsed_ms / 1000 +
+                         (uint64_t)rate * elapsed_ms / 1000000 +
+                         2 * BUFFER_FRAMES;
+      if (total > allowed) {
         fail(4);
         return -1;
       }
@@ -307,9 +324,16 @@ static int take_packet(uint8_t payload[ASMP_MAX_PAYLOAD], int *size) {
   }
   if (!qcount && !stopped()) {
     /* The PCM buffer still holds several periods; a packet arriving a few
-     * milliseconds behind this pull is played instead of concealed. */
+     * milliseconds behind this pull is played instead of concealed.
+     * On Linux, wait on CLOCK_MONOTONIC so backward time_daemon steps never
+     * hang playback. */
+    pthread_once(&qready_once, init_qready_cond);
     struct timespec until;
+#ifdef __linux__
+    clock_gettime(CLOCK_MONOTONIC, &until);
+#else
     clock_gettime(CLOCK_REALTIME, &until);
+#endif
     until.tv_nsec += PACKET_WAIT_NS;
     if (until.tv_nsec >= 1000000000L) {
       until.tv_sec++;
@@ -338,6 +362,7 @@ static unsigned playback_wait_ms(long delay, unsigned rate, unsigned start, unsi
   if (delay < 0 || (unsigned long)delay > capacity || (unsigned long)delay <= target)
     return 0;
   unsigned wait = (unsigned)((delay - target) * 1000 / rate);
+  if (wait < 4) wait = 4;
   return wait > 10 ? 10 : wait;
 }
 static int wait_playback_headroom(unsigned rate, unsigned start, unsigned capacity) {
@@ -499,7 +524,7 @@ int main(int argc, char **argv) {
     return eg25_audio_reset() ? 1 : 0;
 #endif
   if (argc == 2 && !strcmp(argv[1], "--version")) {
-    puts("airsim-audiod 0.6.1-opus libopus-1.5.2 "
+    puts("airsim-audiod 0.6.2-opus48 libopus-1.5.2 "
          "tinyalsa-1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d");
     return 0;
   }

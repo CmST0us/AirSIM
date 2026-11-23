@@ -203,6 +203,9 @@ func uniqueSAN(cert *x509.Certificate, uri string) bool {
 	return found == 1
 }
 func (p *Provisioner) validate(s *saved, activated bool) (*x509.Certificate, error) {
+	return p.validateAt(s, activated, time.Time{})
+}
+func (p *Provisioner) validateAt(s *saved, activated bool, currentTime time.Time) (*x509.Certificate, error) {
 	if s.Schema != 1 || validPrepare(s.Request, false) != nil || s.Response.RequestID != s.Request.RequestID || s.Response.ModuleID != p.id.ModuleID {
 		return nil, errConfig
 	}
@@ -248,7 +251,7 @@ func (p *Provisioner) validate(s *saved, activated bool) (*x509.Certificate, err
 	}
 	pool := x509.NewCertPool()
 	pool.AddCert(ca)
-	if _, e = cert.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); e != nil {
+	if _, e = cert.Verify(x509.VerifyOptions{Roots: pool, CurrentTime: currentTime, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); e != nil {
 		return nil, errConfig
 	}
 	key, ok := cert.PublicKey.(ed25519.PublicKey)
@@ -348,7 +351,17 @@ func NewProvisioner(id identity.Identity, path, profile string) *Provisioner {
 	p.config, e = readSaved(path)
 	if e == nil && p.config != nil {
 		var c *x509.Certificate
-		c, e = p.validate(p.config, true)
+		if p.config.Activation == nil {
+			e = errConfig
+		} else if parsed, parseErr := certificate(p.config.Activation.Certificate); parseErr != nil {
+			e = errConfig
+		} else {
+			// Verify cryptographic chain, SAN, EKU and CA commit receipt at cert.NotBefore
+			// so a cold-booting module whose RTC starts at 1980 (before cellular NITZ sync)
+			// or whose offline cert expired still loads its config; live wall-clock checks
+			// remain enforced at connectSession, Activate, and pairingCertificate.
+			c, e = p.validateAt(p.config, true, parsed.NotBefore)
+		}
 		if e == nil {
 			p.status.Configured = true
 			p.status.ServerID = p.config.Request.ServerID
@@ -362,7 +375,11 @@ func NewProvisioner(id identity.Identity, path, profile string) *Provisioner {
 	}
 	p.pending, e = readSaved(path + ".pending")
 	if e == nil && p.pending != nil {
-		_, e = p.validate(p.pending, false)
+		if p.config != nil && p.pending.Request.RequestID == p.config.Request.RequestID {
+			p.pending = nil
+		} else {
+			_, e = p.validate(p.pending, false)
+		}
 	}
 	if e != nil {
 		p.pending = nil
@@ -381,13 +398,22 @@ func (p *Provisioner) Prepare(r Prepare) (Prepared, int) {
 		if p.config.Request == r {
 			return p.config.Response, 200
 		}
-		return Prepared{}, 409
+		// Allow re-provisioning an already-expired offline module certificate
+		// via web one-shot without deleting module identity.
+		if p.status.CertificateExpiry == nil || time.Now().Before(*p.status.CertificateExpiry) {
+			return Prepared{}, 409
+		}
 	}
 	if p.pending != nil {
 		if p.pending.Request == r {
 			return p.pending.Response, 200
 		}
-		return Prepared{}, 409
+		if exp, err := utc(p.pending.Request.Expires); err != nil || !time.Now().Before(exp) {
+			p.pending = nil
+			_ = os.Remove(p.path + ".pending")
+		} else {
+			return Prepared{}, 409
+		}
 	}
 	if validPrepare(r, true) != nil {
 		return Prepared{}, 400
@@ -419,7 +445,9 @@ func (p *Provisioner) Activate(b Bundle) int {
 		if *p.config.Activation == b {
 			return 200
 		}
-		return 409
+		if p.pending == nil || p.status.CertificateExpiry == nil || time.Now().Before(*p.status.CertificateExpiry) {
+			return 409
+		}
 	}
 	if p.pending == nil {
 		return 409
@@ -450,6 +478,51 @@ func (p *Provisioner) Activate(b Bundle) int {
 	default:
 	}
 	return 200
+}
+
+// RenewalRequest constructs a fresh CSR signed by the module's Ed25519 key
+// along with the existing request_id and nonce so the server can issue a
+// renewed leaf certificate and commit receipt without changing cloud.json schema.
+func (p *Provisioner) RenewalRequest() (requestID, nonce, csrPEM string, ok bool) {
+	p.mu.Lock()
+	cfg := p.config
+	p.mu.Unlock()
+	if cfg == nil {
+		return "", "", "", false
+	}
+	uri, e := url.Parse("urn:airsim:" + cfg.Request.ServerID + ":module:" + p.id.ModuleID)
+	if e != nil {
+		return "", "", "", false
+	}
+	der, e := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{Subject: pkix.Name{CommonName: p.id.ModuleID}, URIs: []*url.URL{uri}}, p.id.Signer())
+	if e != nil {
+		return "", "", "", false
+	}
+	return cfg.Request.RequestID, cfg.Request.Nonce, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: der})), true
+}
+
+// Renew validates a server-issued replacement leaf certificate + CA commit
+// receipt against the pinned DeviceCA and module key, then atomically persists
+// it to cloud.json so future connections and reboots use the fresh certificate.
+func (p *Provisioner) Renew(b Bundle) (*x509.Certificate, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.config == nil || p.status.LastError == "cloud_config" {
+		return nil, errConfig
+	}
+	next := *p.config
+	next.Activation = &b
+	cert, e := p.validate(&next, true)
+	if e != nil {
+		return nil, e
+	}
+	if persist(p.path, &next) != nil {
+		return nil, errConfig
+	}
+	p.config = &next
+	p.status.CertificateExpiry = &cert.NotAfter
+	p.status.LastError = ""
+	return cert, nil
 }
 func (p *Provisioner) client(s *saved, mtls bool) (*http.Client, error) {
 	pool, e := roots(s.Request.ServerCA)

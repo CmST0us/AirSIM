@@ -278,3 +278,123 @@ func TestCertificateBindingsAndFailClosed(t *testing.T) {
 		t.Fatal("redirect allowed")
 	}
 }
+
+func TestProvisionerOnlineCertificateRenewalPersistsAndReloads(t *testing.T) {
+	f := newFixture(t)
+	f.prepare(t)
+	f.issue(t)
+	if f.p.Activate(f.bundle) != 200 {
+		t.Fatal("initial activate failed")
+	}
+	origExpiry := *f.p.View().CertificateExpiry
+	reqID, nonce, csrPEM, ok := f.p.RenewalRequest()
+	if !ok || reqID != f.req.RequestID || nonce != f.req.Nonce {
+		t.Fatal("renewal request failed")
+	}
+	block, _ := pem.Decode([]byte(csrPEM))
+	if block == nil || block.Type != "CERTIFICATE REQUEST" {
+		t.Fatal("invalid CSR PEM")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil || csr.CheckSignature() != nil {
+		t.Fatalf("CSR verify failed: %v", err)
+	}
+	newExpiry := time.Now().UTC().Add(90 * 24 * time.Hour).Truncate(time.Second)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(999),
+		Subject:      csr.Subject,
+		NotBefore:    time.Now().Add(-time.Minute),
+		NotAfter:     newExpiry,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		URIs:         csr.URIs,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, f.ca, csr.PublicKey, f.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed := Bundle{
+		RequestID:   reqID,
+		ServerID:    f.req.ServerID,
+		ModuleID:    f.p.id.ModuleID,
+		Certificate: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+	}
+	sig, err := f.key.Sign(rand.Reader, receiptBytes(f.req, renewed, der), crypto.Hash(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed.Receipt = base64.StdEncoding.EncodeToString(sig)
+	// Wrong receipt must be rejected without mutating stored config.
+	bad := renewed
+	bad.Receipt = base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
+	if _, err := f.p.Renew(bad); err == nil {
+		t.Fatal("forged renewal accepted")
+	}
+	cert, err := f.p.Renew(renewed)
+	if err != nil {
+		t.Fatalf("valid renewal rejected: %v", err)
+	}
+	if !cert.NotAfter.After(origExpiry) {
+		t.Fatalf("expiry did not extend: orig=%v new=%v", origExpiry, cert.NotAfter)
+	}
+	reloaded := NewProvisioner(f.p.id, f.p.path, "eg25-qdc507")
+	if !reloaded.View().Configured || !reloaded.View().CertificateExpiry.Equal(cert.NotAfter) {
+		t.Fatalf("reloaded provisioner lost renewed certificate: %+v", reloaded.View())
+	}
+}
+
+func TestNewProvisionerLoadsExpiredOrPreNITZCertWithoutBricking(t *testing.T) {
+	f := newFixture(t)
+	f.prepare(t)
+	// Mint a certificate whose validity window is in the past (simulating either an
+	// expired offline cert or a module cold-booting with RTC in 1980 before NITZ).
+	block, _ := pem.Decode([]byte(f.prepared.CSR))
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse("urn:airsim:" + f.req.ServerID + ":module:" + f.p.id.ModuleID)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(777),
+		Subject:      csr.Subject,
+		URIs:         []*url.URL{u},
+		NotBefore:    time.Now().Add(-30 * time.Minute),
+		NotAfter:     time.Now().Add(-10 * time.Minute),
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, f.ca, csr.PublicKey, f.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := Bundle{f.req.RequestID, f.req.ServerID, f.p.id.ModuleID, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})), ""}
+	sig, err := f.key.Sign(rand.Reader, receiptBytes(f.req, b, der), crypto.Hash(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.Receipt = base64.StdEncoding.EncodeToString(sig)
+	savedCfg := &saved{Schema: 1, Request: f.req, Response: f.prepared, Activation: &b}
+	if err := persist(f.p.path, savedCfg); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(f.p.path + ".pending")
+	reloaded := NewProvisioner(f.p.id, f.p.path, "eg25-qdc507")
+	if reloaded.View().LastError != "" || !reloaded.View().Configured {
+		t.Fatalf("expected structural load without cloud_config error, got %+v", reloaded.View())
+	}
+	// Live wall-clock validation still rejects connecting with the expired cert.
+	if _, err := reloaded.validate(reloaded.config, true); err == nil {
+		t.Fatal("expected live validate to reject expired certificate")
+	}
+	// Pairing view reports 410 expired (triggering web one-shot re-provisioning).
+	if _, code := reloaded.pairingView(time.Now()); code != 410 {
+		t.Fatalf("expected 410 from pairingView for expired cert, got %d", code)
+	}
+	// Re-provisioning is allowed when the existing leaf cert has expired.
+	nextReq := f.req
+	nextReq.RequestID = uid()
+	nextReq.Expires = time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339Nano)
+	if _, code := reloaded.Prepare(nextReq); code != 200 {
+		t.Fatalf("expected expired cert to allow re-provisioning, got %d", code)
+	}
+}

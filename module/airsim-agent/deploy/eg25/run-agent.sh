@@ -7,7 +7,7 @@ platform="$base/platform"
 test "$(uname -m)" = armv7l
 test "$(uname -r)" = 3.18.44
 grep -q '^Project Name: EG25G_QDC507$' /etc/quectel-project-subversion
-grep -q '^Project Sub Rev : QDC507GLEFM21_02.004.03$' /etc/quectel-project-subversion
+grep -q '^Project Sub Rev : QDC507GLEFM21_[0-9][0-9]\.[0-9][0-9][0-9]\.[0-9][0-9]$' /etc/quectel-project-subversion
 mkdir -p "$run" /run/lock
 chmod 700 "$run"
 mkdir -p "$run/certs"
@@ -27,15 +27,20 @@ chmod 600 /dev/airsim_data11
 
 g=/sys/class/android_usb/android0
 functions=$(cat "$g/functions")
+next_functions=""
 case "$functions" in
-  diag,serial,ecm,ffs)
-    printf '%s\n' "$functions" > "$run/usb-functions"
-    echo 0 > "$g/enable"
-    echo diag,ecm,ffs > "$g/functions"
-    ;;
-  diag,ecm,ffs) ;;
-  *) echo 'airsim: unsupported USB composition' >&2; exit 1 ;;
+  diag,serial,ecm,ffs) next_functions=diag,ecm,ffs ;;
+  diag,serial,rmnet,ffs) next_functions=diag,rmnet,ffs ;;
+  diag,serial,rndis,ffs) next_functions=diag,rndis,ffs ;;
+  diag,serial,mbim,ffs) next_functions=diag,mbim,ffs ;;
+  diag,ecm,ffs|diag,rmnet,ffs|diag,rndis,ffs|diag,mbim,ffs) ;;
+  *) echo "airsim: unsupported USB composition: $functions" >&2; exit 1 ;;
 esac
+if [ -n "$next_functions" ]; then
+  printf '%s\n' "$functions" > "$run/usb-functions"
+  echo 0 > "$g/enable"
+  echo "$next_functions" > "$g/functions"
+fi
 driver=/sys/bus/platform/drivers/DATA11
 if [ -L "$driver/DATA11.0" ]; then
   echo DATA11.0 > "$driver/unbind"
@@ -51,16 +56,20 @@ dhcp_watch="$run/usb-dhcp-watch.pid"
 if [ ! -s "$dhcp_watch" ] || ! kill -0 "$(cat "$dhcp_watch")" 2>/dev/null; then
   (
     while :; do
-      if ip -o -4 addr show dev bridge0 2>/dev/null | grep -qF 'inet 192.168.225.1/24'; then
+      interval=30
+      if [ -e /sys/class/net/bridge0 ] && ip -o -4 addr show dev bridge0 2>/dev/null | grep -qF 'inet 192.168.225.1/24'; then
         if ! netstat -uln | awk '$4 ~ /:67$/ { found=1 } END { exit !found }'; then
           /usr/bin/dnsmasq --conf-file=/dev/null --keep-in-foreground \
             --port=0 --interface=bridge0 --bind-interfaces \
             --dhcp-range=192.168.225.10,192.168.225.30,255.255.255.0,12h \
             --dhcp-option=3 --dhcp-option=6 --user=root \
             --pid-file="$run/usb-dhcp.pid" --dhcp-leasefile="$run/usb-dhcp.leases" || :
+          interval=5
         fi
+      else
+        interval=10
       fi
-      sleep 5
+      sleep "$interval"
     done
   ) >>"$run/usb-dhcp.log" 2>&1 &
   echo "$!" > "$dhcp_watch"
@@ -85,6 +94,7 @@ if ! grep -qF 'ACDB -> Sent VocProc Cal!' "$log" 2>/dev/null; then
   done
 fi
 
+"$base/current/airsim-agent" --wait-random
 exec "$base/current/airsim-agent" --profile eg25-qdc507 \
   --at-device /dev/airsim_data11 --data-dir "$base" --runtime-dir "$run" \
   --usb-listen 192.168.225.1:8577 \

@@ -253,7 +253,22 @@ func (m *Manager) run() {
 	}
 }
 func urc(s string) bool {
-	return s == "RING" || s == "NO CARRIER" || strings.HasPrefix(s, "+CMTI:") || strings.HasPrefix(s, "+CLIP:") || strings.HasPrefix(s, "+QIND:") || strings.HasPrefix(s, "+CGEV:") || strings.HasPrefix(s, "+CREG:") || strings.HasPrefix(s, "+CGREG:") || strings.HasPrefix(s, "+CEREG:") || strings.HasPrefix(s, "+CIREG:")
+	switch s {
+	case "RING", "NO CARRIER", "BUSY", "NO ANSWER", "NO DIALTONE", "RDY", "POWERED DOWN":
+		return true
+	}
+	for _, prefix := range []string{
+		"+CMTI:", "+CMT:", "+CDSI:", "+CBM:",
+		"+CLIP:", "+CLCC:", "+CCWA:", "+CRING:",
+		"+CSSI:", "+CSSU:", "+CTZV:", "+CTZE:", "+CIEV:",
+		"+QIND:", "+CGEV:", "+CREG:", "+CGREG:", "+CEREG:", "+CIREG:",
+		"+CPIN:", "+CFUN:", "+QUSIM:", "+QIURC:",
+	} {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
 }
 func (m *Manager) execute(r request) (result, bool) {
 	// This tmpfs fence intentionally survives a failed transaction or process death.

@@ -64,10 +64,10 @@ static void *run(void *unused) {
     total += sizes[f];
   }
   airsim_opus_encoder_destroy(enc);
-  /* A 96 kbps target budgets 240 bytes per 20 ms; VBR spends less on this
-   * synthetic voice. Catch a regression to the former 32/64 kbps targets. */
+  /* A 48 kbps target budgets 120 bytes per 20 ms without LBRR overhead; VBR
+   * spends slightly less on this synthetic harmonic speech while keeping >25 dB SNR. */
   double average = (double)total / FRAMES;
-  assert(average > 150 && average < 260);
+  assert(average > 60 && average < 140);
 
   airsim_opus_decoder *dec = airsim_opus_decoder_create();
   assert(dec);
@@ -99,20 +99,37 @@ static void *run(void *unused) {
    * It is not a speech MOS or a claim about real cellular audio quality. */
   assert(best > 0.99 && snr > 25);
 
-  /* Lose frame 50: FEC from frame 51 rebuilds it closer than concealment. */
+  /* Decoder FEC path must still recover LBRR packets from non-RED peers. */
+  int fec_err = 0;
+  OpusEncoder *fec_enc = opus_encoder_create(AIRSIM_OPUS_SAMPLE_RATE, 1, OPUS_APPLICATION_AUDIO, &fec_err);
+  assert(fec_enc && fec_err == OPUS_OK);
+  assert(opus_encoder_ctl(fec_enc, OPUS_SET_BITRATE(48000)) == OPUS_OK);
+  assert(opus_encoder_ctl(fec_enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE)) == OPUS_OK);
+  assert(opus_encoder_ctl(fec_enc, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND)) == OPUS_OK);
+  assert(opus_encoder_ctl(fec_enc, OPUS_SET_INBAND_FEC(1)) == OPUS_OK);
+  assert(opus_encoder_ctl(fec_enc, OPUS_SET_PACKET_LOSS_PERC(10)) == OPUS_OK);
+  static uint8_t fec_packets[FRAMES][AIRSIM_OPUS_MAX_PACKET];
+  int fec_sizes[FRAMES];
+  for (int f = 0; f < FRAMES; f++) {
+    to_pcm(source + f * AIRSIM_OPUS_FRAME_SAMPLES, pcm);
+    fec_sizes[f] = airsim_opus_encode(fec_enc, pcm, fec_packets[f]);
+    assert(fec_sizes[f] > 0 && fec_sizes[f] < 400);
+  }
+  opus_encoder_destroy(fec_enc);
+
   int lost = 50 * AIRSIM_OPUS_FRAME_SAMPLES;
   double rebuilt[2];
   for (int mode = 0; mode < 2; mode++) {
     dec = airsim_opus_decoder_create();
     for (int f = 0; f < 50; f++)
-      assert(airsim_opus_decode(dec, packets[f], sizes[f], AIRSIM_OPUS_PACKET, pcm) == 0);
+      assert(airsim_opus_decode(dec, fec_packets[f], fec_sizes[f], AIRSIM_OPUS_PACKET, pcm) == 0);
     if (mode == 0)
-      assert(airsim_opus_decode(dec, packets[51], sizes[51], AIRSIM_OPUS_FEC, pcm) == 1);
+      assert(airsim_opus_decode(dec, fec_packets[51], fec_sizes[51], AIRSIM_OPUS_FEC, pcm) == 1);
     else
       assert(airsim_opus_decode(dec, NULL, 0, AIRSIM_OPUS_ERASURE, pcm) == 1);
     from_pcm(pcm, decoded + lost);
     rebuilt[mode] = error(lost, lost + AIRSIM_OPUS_FRAME_SAMPLES, delay);
-    assert(airsim_opus_decode(dec, packets[51], sizes[51], AIRSIM_OPUS_PACKET, pcm) == 0);
+    assert(airsim_opus_decode(dec, fec_packets[51], fec_sizes[51], AIRSIM_OPUS_PACKET, pcm) == 0);
     airsim_opus_decoder_destroy(dec);
   }
   printf("lost frame error: fec %.0f, plc %.0f\n", rebuilt[0], rebuilt[1]);

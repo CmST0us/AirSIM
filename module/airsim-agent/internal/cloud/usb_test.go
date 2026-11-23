@@ -3,11 +3,19 @@ package cloud
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -172,5 +180,46 @@ func TestUSBBodySignatureIncludesContent(t *testing.T) {
 	r.Body = io.NopCloser(strings.NewReader("{\"changed\":true}"))
 	if a.USB.client(r) != "" {
 		t.Fatal("modified body accepted")
+	}
+}
+
+func TestUSBRegenerates1990ExpiredCertificate(t *testing.T) {
+	f := newFixture(t)
+	dir := t.TempDir()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: f.p.id.ModuleID},
+		NotBefore:    time.Date(1980, 1, 5, 23, 55, 0, 0, time.UTC),
+		NotAfter:     time.Date(1990, 1, 6, 0, 0, 0, 0, time.UTC),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:  []net.IP{net.ParseIP("192.168.225.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPEM := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})...)
+	if err := os.WriteFile(filepath.Join(dir, "usb-tls.pem"), oldPEM, 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{P: f.p, Control: &fakeControl{boot: uid(), epoch: uid(), call: uid(), commands: map[string]control.Request{}}, Media: &fakeMedia{}, owners: map[string]owner{}}
+	if err := a.ConfigureUSB("192.168.225.1:8577", dir); err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(a.USB.certificate.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !time.Now().Before(leaf.NotAfter) {
+		t.Fatalf("expected expired 1990 usb-tls.pem to be regenerated, still expires %v", leaf.NotAfter)
 	}
 }

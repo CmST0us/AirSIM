@@ -100,8 +100,49 @@ func TestCapacityAndWriteFailure(t *testing.T) {
 	if _, ok := s.Get(record(1, "").CommandID); ok {
 		t.Fatal("failed write published")
 	}
-	if s.Remaining() != 0 {
-		t.Fatal("failed store not closed")
+	// Transient write failure must not permanently brick once storage recovers.
+	s.write = s.atomicWrite
+	if e = s.Put(record(1, "dispatched")); e != nil {
+		t.Fatalf("transient write failure permanently bricked store: %v", e)
+	}
+}
+
+func TestOpenCleansOrphanTempAndEvictsTerminalAtCapacity(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	s, e := Open(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.Put(record(0, "accepted")); e != nil {
+		t.Fatal(e)
+	}
+	orphan := filepath.Join(dir, ".commands-powerloss")
+	if e = os.WriteFile(orphan, []byte("partial"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	s, e = Open(dir)
+	if e != nil {
+		t.Fatalf("valid journal bricked by orphan temp file: %v", e)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Fatal("orphan temp file not cleaned on open")
+	}
+	// Filling with terminal records must evict the oldest instead of bricking.
+	s.write = func([]byte) error { return nil }
+	base := time.Now().UTC().Add(-time.Hour)
+	for i := 1; i < Capacity; i++ {
+		r := record(i, "accepted")
+		r.UpdatedAt = base.Add(time.Duration(i) * time.Second)
+		if e = s.Put(r); e != nil {
+			t.Fatal(e)
+		}
+	}
+	extra := record(Capacity+1, "prepared")
+	if e = s.Put(extra); e != nil {
+		t.Fatalf("terminal eviction failed at capacity: %v", e)
+	}
+	if _, ok := s.Get(extra.CommandID); !ok {
+		t.Fatal("new record missing after terminal eviction")
 	}
 }
 func TestConcurrentPersistenceAndDigestConflict(t *testing.T) {

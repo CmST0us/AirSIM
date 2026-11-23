@@ -171,7 +171,7 @@ final class V2WebRTCPeer: V2MediaPeer {
         config.sdpSemantics = .unifiedPlan
         config.bundlePolicy = .maxBundle
         config.rtcpMuxPolicy = .require
-        config.continualGatheringPolicy = .gatherOnce
+        config.continualGatheringPolicy = .gatherContinually
         config.tcpCandidatePolicy = .disabled
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         guard let connection = factory.peerConnection(with: config, constraints: constraints, delegate: observer) else { throw V2PeerError.offer }

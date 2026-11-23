@@ -18,16 +18,18 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
 
-const version = "2.0.0-dev.audio1"
+const version = "2.0.0-dev.audio3"
 
 func directory(path string) error {
 	if e := os.MkdirAll(path, 0700); e != nil {
@@ -141,7 +143,10 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 			}
 		}
 	}
-	child, cancel := context.WithCancel(ctx)
+	runCtx, runCancel := context.WithCancel(ctx)
+	defer runCancel()
+	var atFaultRestart atomic.Bool
+	child, cancel := context.WithCancel(runCtx)
 	defer cancel()
 	pollDone := make(chan struct{})
 	go func() {
@@ -164,6 +169,14 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 			case <-broken:
 				store.Invalidate("at_desynchronized")
 				broken = nil
+				// If the AT session died without leaving an inflight side-effect
+				// fence (e.g. serial glitch/idle fault), exit non-zero so init
+				// respawn recovers automatically instead of staying zombie.
+				if !at.FencePresent(marker) && ctx.Err() == nil {
+					log.Printf("airsim-agent: AT session closed without inflight fence; restarting")
+					atFaultRestart.Store(true)
+					runCancel()
+				}
 			case <-ticker.C:
 				if manager == nil {
 					continue
@@ -224,7 +237,7 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 	}
 	cloudDone := make(chan struct{})
 	go func() { defer close(cloudDone); cloudAgent.Run(child) }()
-	e = local.Serve(ctx, filepath.Join(runDir, "control.sock"), cloud.WithLocal(local.WithSMSDiagnostics(local.WithAudio(local.Handler(store, version, boot, coordinator), audio), smsDiagnosticView), provisioner, cloudAgent))
+	e = local.Serve(runCtx, filepath.Join(runDir, "control.sock"), cloud.WithLocal(local.WithSMSDiagnostics(local.WithAudio(local.Handler(store, version, boot, coordinator), audio), smsDiagnosticView), provisioner, cloudAgent))
 	cancel()
 	if manager != nil {
 		manager.GracefulClose()
@@ -233,6 +246,9 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 	<-coordinator.Done()
 	audio.Close()
 	<-cloudDone
+	if atFaultRestart.Load() {
+		return errors.New("at_desynchronized")
+	}
 	return e
 }
 func errorCode(e error) string {
@@ -243,15 +259,6 @@ func errorCode(e error) string {
 		return "profile_mismatch"
 	}
 	return "query_failed"
-}
-
-func useEarlyLinuxRandom() (*os.File, error) {
-	f, e := os.Open("/dev/urandom")
-	if e != nil {
-		return nil, e
-	}
-	rand.Reader = f
-	return f, nil
 }
 
 func main() {
@@ -272,12 +279,6 @@ func main() {
 		}
 		return
 	}
-	randomDevice, e := useEarlyLinuxRandom()
-	if e != nil {
-		fmt.Fprintln(os.Stderr, "airsim-agent:", e)
-		os.Exit(1)
-	}
-	defer randomDevice.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	go func() {

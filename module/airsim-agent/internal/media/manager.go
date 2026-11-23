@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -81,20 +82,44 @@ type Status struct {
 	Session        *SessionStatus `json:"session,omitempty"`
 }
 type session struct {
-	expires     time.Time
-	connectBy   time.Time
-	handshakeBy time.Time
-	req         Request
-	result      Created
-	generation  uint64
-	status      SessionStatus
-	ctx         context.Context
-	cancel      context.CancelFunc
-	bound       bool
-	connection  chan net.Conn
-	done        chan struct{}
-	reason      string
+	expires        time.Time
+	connectBy      time.Time
+	handshakeBy    time.Time
+	req            Request
+	result         Created
+	generation     uint64
+	status         SessionStatus
+	uplinkFrames   atomic.Uint64
+	downlinkFrames atomic.Uint64
+	uplinkGaps     atomic.Uint64
+	downlinkGaps   atomic.Uint64
+	lastUplinkNS   atomic.Int64
+	lastDownlinkNS atomic.Int64
+	ctx            context.Context
+	cancel         context.CancelFunc
+	bound          bool
+	connection     chan net.Conn
+	done           chan struct{}
+	reason         string
 }
+
+func (s *session) snapshotStatus() SessionStatus {
+	x := s.status
+	x.UplinkFrames = s.uplinkFrames.Load()
+	x.DownlinkFrames = s.downlinkFrames.Load()
+	x.UplinkGaps = s.uplinkGaps.Load()
+	x.DownlinkGaps = s.downlinkGaps.Load()
+	if ns := s.lastUplinkNS.Load(); ns > 0 {
+		t := time.Unix(0, ns).UTC()
+		x.LastUplink = &t
+	}
+	if ns := s.lastDownlinkNS.Load(); ns > 0 {
+		t := time.Unix(0, ns).UTC()
+		x.LastDownlink = &t
+	}
+	return x
+}
+
 type closedRequest struct{ requestID, sessionID string }
 type Manager struct {
 	mu           sync.Mutex
@@ -106,6 +131,7 @@ type Manager struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	done         chan struct{}
+	wake         chan struct{}
 	wg           sync.WaitGroup
 	start        func(context.Context, string, string) (helper, error)
 	listening    bool
@@ -114,7 +140,7 @@ type Manager struct {
 
 func New(q Qualifier, path, socket, profile string) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{q: q, path: path, socket: socket, ctx: ctx, cancel: cancel, done: make(chan struct{}), start: func(ctx context.Context, path, id string) (helper, error) { return startChild(ctx, path, id, profile) }}
+	m := &Manager{q: q, path: path, socket: socket, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), start: func(ctx context.Context, path, id string) (helper, error) { return startChild(ctx, path, id, profile) }}
 	if e := checkHelper(path); e != nil {
 		m.err = e.Error()
 	}
@@ -177,6 +203,10 @@ func (m *Manager) Create(ctx context.Context, r Request) (Created, int) {
 	s := &session{expires: time.Now().Add(30 * time.Minute), connectBy: time.Now().Add(5 * time.Second), req: r, result: Created{id, hex.EncodeToString(token[:]), r.Boot, r.Epoch, r.CallID, format, m.socket}, generation: q.Generation, ctx: child, cancel: cancel, connection: make(chan net.Conn, 1), done: make(chan struct{})}
 	s.status = SessionStatus{ID: id, CallID: r.CallID, Boot: r.Boot, Epoch: r.Epoch, State: "awaiting_connection", Created: time.Now().UTC()}
 	m.active = s
+	select {
+	case m.wake <- struct{}{}:
+	default:
+	}
 	m.wg.Add(1)
 	go m.run(s)
 	return s.result, 201
@@ -186,7 +216,7 @@ func (m *Manager) View() Status {
 	defer m.mu.Unlock()
 	v := Status{Available: m.err == "" && m.listening && m.ctx.Err() == nil, Implementation: "implemented", Verification: "unverified", Reason: m.err}
 	if m.active != nil {
-		x := m.active.status
+		x := m.active.snapshotStatus()
 		v.Session = &x
 	} else if m.last != nil {
 		x := *m.last
@@ -228,8 +258,13 @@ func (m *Manager) fail(s *session, reason string) {
 }
 func (m *Manager) Close() { m.cancel(); <-m.done }
 func (m *Manager) watch() {
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	var ticker *time.Ticker
+	var tickCh <-chan time.Time
+	defer func() {
+		if ticker != nil {
+			ticker.Stop()
+		}
+	}()
 	events := m.q.AudioEvents()
 	for {
 		select {
@@ -240,13 +275,23 @@ func (m *Manager) watch() {
 				m.cancel()
 				return
 			}
-		case <-ticker.C:
+		case <-m.wake:
+		case <-tickCh:
 		}
 		m.mu.Lock()
 		s := m.active
 		m.mu.Unlock()
 		if s == nil {
+			if ticker != nil {
+				ticker.Stop()
+				ticker = nil
+				tickCh = nil
+			}
 			continue
+		}
+		if ticker == nil {
+			ticker = time.NewTicker(100 * time.Millisecond)
+			tickCh = ticker.C
 		}
 		q, e := m.qualification(m.ctx)
 		if e != nil || !eligible(q, s.req) || q.Generation != s.generation {
@@ -301,13 +346,18 @@ func (m *Manager) run(s *session) {
 			s.reason = "stopped"
 		}
 		s.status.Reason = s.reason
-		m.last = &s.status
+		final := s.snapshotStatus()
+		m.last = &final
 		m.closed = append(m.closed, closedRequest{s.req.RequestID, s.result.ID})
 		if len(m.closed) > 64 {
 			m.closed = m.closed[len(m.closed)-64:]
 		}
 		if m.active == s {
 			m.active = nil
+		}
+		select {
+		case m.wake <- struct{}{}:
+		default:
 		}
 	}()
 	timer := time.NewTimer(time.Until(s.connectBy))
@@ -449,17 +499,19 @@ func (m *Manager) relay(s *session, src, dst net.Conn, direction byte) {
 			m.fail(s, "media_write")
 			return
 		}
-		m.mu.Lock()
-		now := time.Now().UTC()
+		now := time.Now().UnixNano()
 		if direction == 1 {
-			s.status.UplinkFrames++
-			s.status.UplinkGaps += gap
-			s.status.LastUplink = &now
+			s.uplinkFrames.Add(1)
+			if gap != 0 {
+				s.uplinkGaps.Add(gap)
+			}
+			s.lastUplinkNS.Store(now)
 		} else {
-			s.status.DownlinkFrames++
-			s.status.DownlinkGaps += gap
-			s.status.LastDownlink = &now
+			s.downlinkFrames.Add(1)
+			if gap != 0 {
+				s.downlinkGaps.Add(gap)
+			}
+			s.lastDownlinkNS.Store(now)
 		}
-		m.mu.Unlock()
 	}
 }

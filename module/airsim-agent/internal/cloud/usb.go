@@ -86,7 +86,22 @@ func (a *Agent) ConfigureUSB(address, directory string) error {
 	}
 	path := filepath.Join(directory, "usb-tls.pem")
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	needGenerate := os.IsNotExist(err)
+	if err == nil {
+		if existing, pairErr := tls.X509KeyPair(data, data); pairErr == nil && len(existing.Certificate) > 0 {
+			if leaf, parseErr := x509.ParseCertificate(existing.Certificate[0]); parseErr == nil {
+				now := time.Now()
+				// Self-heal certificates minted when module RTC was still at 1970/1980
+				// (NotAfter ~1990) once real UTC time is established.
+				if now.Year() >= 2025 && !now.Before(leaf.NotAfter) {
+					needGenerate = true
+				}
+			}
+		}
+	} else if !needGenerate {
+		return err
+	}
+	if needGenerate {
 		private, e := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if e != nil {
 			return e
@@ -96,7 +111,13 @@ func (a *Agent) ConfigureUSB(address, directory string) error {
 			return e
 		}
 		now := time.Now()
-		template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: a.P.id.ModuleID}, NotBefore: now.Add(-5 * time.Minute), NotAfter: now.AddDate(10, 0, 0), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, IPAddresses: []net.IP{ip}}
+		notAfter := now.AddDate(10, 0, 0)
+		// If the module RTC has not synced yet (1970/1980), span through modern dates
+		// so the self-signed USB TLS cert is not already expired once NITZ sets time.
+		if now.Year() < 2025 {
+			notAfter = time.Date(2040, 1, 1, 0, 0, 0, 0, time.UTC)
+		}
+		template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: a.P.id.ModuleID}, NotBefore: now.Add(-5 * time.Minute), NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, IPAddresses: []net.IP{ip}}
 		der, e := x509.CreateCertificate(rand.Reader, template, template, &private.PublicKey, private)
 		if e != nil {
 			return e
@@ -109,8 +130,6 @@ func (a *Agent) ConfigureUSB(address, directory string) error {
 		if err = usbSave(path, data); err != nil {
 			return err
 		}
-	} else if err != nil {
-		return err
 	}
 	cert, err := tls.X509KeyPair(data, data)
 	if err != nil {

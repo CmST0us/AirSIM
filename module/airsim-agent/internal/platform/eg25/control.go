@@ -176,41 +176,87 @@ func (s *Session) Snapshot(ctx context.Context) (hal.ControlSnapshot, error) {
 	return out, nil
 }
 
-const queryFailureBudget = 15 * time.Second
+const (
+	queryFailureBudget = 15 * time.Second
+	activePollInterval = time.Second
+	idlePollInterval   = 3 * time.Second
+	idleSMSInterval    = 15 * time.Second
+)
+
+type eventNotifier interface {
+	Events() <-chan struct{}
+}
 
 func (s *Session) run(ctx context.Context) {
 	defer close(s.done)
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	count := 0
+	var urcEvents <-chan struct{}
+	if n, ok := s.at.(eventNotifier); ok {
+		urcEvents = n.Events()
+	}
+	// Start with a 1 s initial poll so startup / ringing transients converge fast;
+	// relax to 3 s calls / 15 s SMS when completely idle and healthy, and pause
+	// SMS polling while a voice call is active so AT+CMGL never blocks call audio.
+	timer := time.NewTimer(activePollInterval)
+	defer timer.Stop()
 	var failingSince time.Time
+	var lastSMS time.Time
 	for {
+		urcWake := false
 		select {
 		case <-ctx.Done():
 			return
 		case <-s.at.Done():
 			return
-		case <-ticker.C:
-			s.mu.Lock()
-			err := s.refreshCalls(ctx)
-			if err == nil && count%5 == 0 {
-				err = s.refreshSMS(ctx)
-			}
-			s.mu.Unlock()
-			if err != nil {
-				// QDC507 returns CME 100 for several seconds while ringing.
-				// Keep object identities across a bounded transient query failure.
-				if failingSince.IsZero() {
-					failingSince = time.Now()
+		case <-urcEvents:
+			urcWake = true
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
 				}
-				if !errors.Is(err, at.ErrQuery) || time.Since(failingSince) >= queryFailureBudget {
-					log.Printf("eg25 control poll stopped: query=%t invalid=%t desynchronized=%t", errors.Is(err, at.ErrQuery), errors.Is(err, at.ErrInvalid), errors.Is(err, at.ErrDesynchronized))
-					return
-				}
-				continue
 			}
-			failingSince = time.Time{}
-			count++
+		case <-timer.C:
+		}
+		// Drain coalesced URC notifications before polling.
+		if urcWake {
+		drain:
+			for {
+				select {
+				case <-urcEvents:
+				default:
+					break drain
+				}
+			}
+		}
+		queryCtx := context.WithoutCancel(ctx)
+		s.mu.Lock()
+		err := s.refreshCalls(queryCtx)
+		hasCalls := len(s.calls) > 0
+		if err == nil && !hasCalls && (urcWake || lastSMS.IsZero() || time.Since(lastSMS) >= idleSMSInterval) {
+			err = s.refreshSMS(queryCtx)
+			if err == nil {
+				lastSMS = time.Now()
+			}
+		}
+		s.mu.Unlock()
+		if err != nil {
+			// QDC507 returns CME 100 for several seconds while ringing.
+			// Keep object identities across a bounded transient query failure.
+			if failingSince.IsZero() {
+				failingSince = time.Now()
+			}
+			if !errors.Is(err, at.ErrQuery) || time.Since(failingSince) >= queryFailureBudget {
+				log.Printf("eg25 control poll stopped: query=%t invalid=%t desynchronized=%t", errors.Is(err, at.ErrQuery), errors.Is(err, at.ErrInvalid), errors.Is(err, at.ErrDesynchronized))
+				return
+			}
+			timer.Reset(activePollInterval)
+			continue
+		}
+		failingSince = time.Time{}
+		if hasCalls {
+			timer.Reset(activePollInterval)
+		} else {
+			timer.Reset(idlePollInterval)
 		}
 	}
 }

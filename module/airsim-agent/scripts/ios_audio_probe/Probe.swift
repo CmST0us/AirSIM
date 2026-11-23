@@ -28,7 +28,7 @@ import WebRTC
             let codecs = pc.transceivers.flatMap { $0.sender.parameters.codecs }
             stage = "codec"
             guard let opus = codecs.first(where: { $0.name.lowercased() == "opus" }),
-                  (opus.parameters["maxaveragebitrate"] as? String) == "96000",
+                  (opus.parameters["maxaveragebitrate"] as? String) == "48000",
                   (opus.parameters["maxplaybackrate"] as? String) == "16000",
                   codecs.first?.name.lowercased() == "red" else { throw V2PeerError.answer }
             try await Task.sleep(nanoseconds: 3_000_000_000)
@@ -41,7 +41,7 @@ import WebRTC
                 print("PROBE COUNTERS: rx=\(stats.packetsReceived), primary=\(received["primary", default: 0]), depth_two=\(received["depth_two", default: 0]), invalid=\(received["invalid", default: 0])")
                 throw V2PeerError.answer
             }
-            print("PROBE PASS: iOS libwebrtc <-> module Pion; bidirectional SRTP; RED depth=2; Opus=96000/16000; no invalid packets")
+            print("PROBE PASS: iOS libwebrtc <-> module Pion; bidirectional SRTP; RED depth=2; Opus=48000/16000; no invalid packets")
             print("PROBE COUNTERS: rx=\(stats.packetsReceived), primary=\(received["primary", default: 0]), depth_two=\(received["depth_two", default: 0])")
             peer.close(); _ = audio; exit(0)
         } catch { print("PROBE FAIL: stage=\(stage), error=\(error)"); exit(1) }

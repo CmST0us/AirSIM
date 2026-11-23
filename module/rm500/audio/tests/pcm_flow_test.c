@@ -357,6 +357,20 @@ int main(void) {
   assert(transfer(NULL, data, 0, &playback_stats, 0, recovery, &count) == -1);
   assert(atomic_load(&failure) == 4 &&
          atomic_load(&playback_stats.samples) == 3200);
+  /* Adversarial: 30-minute call with +200 ppm fast hardware crystal must never
+   * trip the runaway-PCM clock guard. */
+  reset();
+  playback_rate = 16000;
+  count = 0;
+  for (int f = 0; f < 90000; f++) {
+    /* +200 ppm fast clock: every 5000 frames (100 s) takes 20 ms less wall time. */
+    event_count = 0;
+    fake_now = started + (uint64_t)((uint64_t)(f + 1) * 20000ULL * 1000000ULL / 1000200ULL / 1000ULL);
+    assert(transfer(NULL, data, 0, &playback_stats, 0, recovery, &count) == 0);
+  }
+  assert(!stopped() && atomic_load(&failure) == 0);
+  /* Floor prevents 1 ms busy-polling when delay is barely above 40 ms target. */
+  assert(playback_wait_ms(656, 16000, 512, 2048) == 4);
   puts("PCM worker startup, recovery, partial transfer and clock guard tests "
        "passed");
 }
