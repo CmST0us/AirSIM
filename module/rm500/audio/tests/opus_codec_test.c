@@ -64,10 +64,10 @@ static void *run(void *unused) {
     total += sizes[f];
   }
   airsim_opus_encoder_destroy(enc);
-  /* A 48 kbps target budgets 120 bytes per 20 ms without LBRR overhead; VBR
-   * spends slightly less on this synthetic harmonic speech while keeping >25 dB SNR. */
+  /* A 64 kbps VBR target with 5% LBRR FEC hint budgets ~160 bytes per 20 ms
+   * while VBR adapts cleanly on voiced speech with >25 dB SNR. */
   double average = (double)total / FRAMES;
-  assert(average > 60 && average < 140);
+  assert(average > 80 && average < 200);
 
   airsim_opus_decoder *dec = airsim_opus_decoder_create();
   assert(dec);

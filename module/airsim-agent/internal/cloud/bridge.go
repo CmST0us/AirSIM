@@ -245,9 +245,10 @@ func (a *Agent) stopBridge(session string) {
 }
 
 type localMedia struct {
-	conn net.Conn
-	id   string
-	err  string
+	conn    net.Conn
+	id      string
+	relayed bool
+	err     string
 }
 
 // openLocal starts the helper session and completes the Unix media handshake.
@@ -283,7 +284,7 @@ func (a *Agent) openLocal(ctx context.Context, r mediaRun) localMedia {
 		return fail("media_local_auth")
 	}
 	conn.SetDeadline(time.Time{})
-	return localMedia{conn: conn, id: local.ID}
+	return localMedia{conn: conn, id: local.ID, relayed: r.config.LocalIP == nil}
 }
 
 // runMedia serves one session until cancel or a failure ends it.
@@ -371,6 +372,10 @@ func streamMedia(ctx context.Context, cancel context.CancelFunc, peer mediaPeer,
 		first.Do(func() { reason = code; cancel() })
 	}
 	jitter := newJitter(counts)
+	if local.relayed {
+		jitter = newRelayJitter(counts)
+	}
+	sid, sidErr := media.ParseSessionID(local.id)
 	clock := realPlayoutClock{}
 	var live atomic.Bool
 	var wg sync.WaitGroup
@@ -405,8 +410,13 @@ func streamMedia(ctx context.Context, cancel context.CancelFunc, peer mediaPeer,
 	}()
 	go func() {
 		defer wg.Done()
+		if sidErr != nil {
+			fail("local_write_closed")
+			return
+		}
 		var seq uint64
 		var last time.Time
+		var wireBuf [media.HeaderSize + media.MaxPayload]byte
 		paced(ctx, clock, clock.Now(), func() error {
 			now := clock.Now()
 			counts.playoutStall.observe(&last, now, frameStall)
@@ -414,7 +424,7 @@ func streamMedia(ctx context.Context, cancel context.CancelFunc, peer mediaPeer,
 			seq++
 			f.Sequence = seq
 			local.conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-			e := media.WriteFrame(local.conn, local.id, 1, f)
+			e := media.WriteFrameBuf(local.conn, sid, 1, f, wireBuf[:])
 			if e != nil {
 				fail(ioReason("local_write", e))
 			}
@@ -423,11 +433,16 @@ func streamMedia(ctx context.Context, cancel context.CancelFunc, peer mediaPeer,
 	}()
 	go func() {
 		defer wg.Done()
+		if sidErr != nil {
+			fail("local_invalid_frame")
+			return
+		}
 		var seq uint64
+		var payloadBuf [media.MaxPayload]byte
 		for {
 			local.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			waiting := time.Now()
-			f, gap, e := media.ReadFrame(local.conn, local.id, 2, &seq)
+			f, gap, e := media.ReadFrameBuf(local.conn, sid, 2, &seq, payloadBuf[:])
 			if e != nil {
 				if errors.Is(e, media.ErrProtocol) {
 					fail("local_invalid_frame")

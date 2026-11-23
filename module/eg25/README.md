@@ -12,7 +12,7 @@ USB 本地 v2 使用 ECM 的 `bridge0=192.168.225.1/24`。启动器在桥地址�
 
 ## 构建
 
-Go 固定使用 1.24.13，`CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7`。进程设置 6 MiB Go 内存软限制；它不等于 RSS 上限。
+Go 固定使用 1.24.13，`CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7`。进程设置 10 MiB Go 内存软限制与 `GOGC=50`（避免单核 Cortex-A7 在 WebRTC 通话期间高频触发 GC 停顿）；它不等于 RSS 上限。
 
 `kmod/airsim_data11.c` 使用 GPL-2.0-only。内核基线为 [quectel_eg25_kernel 82ed009](https://github.com/the-modem-distro/quectel_eg25_kernel/tree/82ed00908b3e8efc3ff0de27d2b5a7c0524ecd7f)，使用设备 `/proc/config.gz` 准备，运行 `make ARCH=arm ... olddefconfig modules_prepare` 后执行 `kmod/build.sh`。目标 vermagic 为 `3.18.44 preempt mod_unload ARMv7 p2v8`，CONFIG_MODVERSIONS 关闭。
 

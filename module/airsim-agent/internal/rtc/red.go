@@ -141,26 +141,37 @@ func opus20ms(p []byte) bool {
 // Older redundancy is removed first to bound the datagram size. No re-encoding
 // or retransmission round trip is needed, and originals remain byte-identical.
 func encodeRED(primary AudioPacket, history []AudioPacket, pt uint8) []byte {
-	selected := make([]AudioPacket, 0, redDepth)
+	return encodeREDInto(nil, primary, history, pt)
+}
+
+func encodeREDInto(dst []byte, primary AudioPacket, history []AudioPacket, pt uint8) []byte {
+	var selected [redDepth]AudioPacket
+	nsel := 0
 	size := 1 + len(primary.Payload)
-	for i := len(history) - 1; i >= 0 && len(selected) < redDepth; i-- {
+	for i := len(history) - 1; i >= 0 && nsel < redDepth; i-- {
 		old := history[i]
 		offset := primary.Timestamp - old.Timestamp
 		if offset == 0 || offset >= 1<<14 || len(old.Payload) > 1023 || size+4+len(old.Payload) > redPayloadBudget {
 			break
 		}
-		selected = append(selected, old)
+		selected[nsel] = old
+		nsel++
 		size += 4 + len(old.Payload)
 	}
-	out := make([]byte, 0, size)
-	for i := len(selected) - 1; i >= 0; i-- {
+	var out []byte
+	if cap(dst) >= size {
+		out = dst[:0]
+	} else {
+		out = make([]byte, 0, size)
+	}
+	for i := nsel - 1; i >= 0; i-- {
 		old := selected[i]
 		delta := primary.Timestamp - old.Timestamp
 		n := len(old.Payload)
 		out = append(out, pt|0x80, byte(delta>>6), byte(delta<<2)|byte(n>>8), byte(n))
 	}
 	out = append(out, pt)
-	for i := len(selected) - 1; i >= 0; i-- {
+	for i := nsel - 1; i >= 0; i-- {
 		out = append(out, selected[i].Payload...)
 	}
 	return append(out, primary.Payload...)
@@ -169,11 +180,16 @@ func encodeRED(primary AudioPacket, history []AudioPacket, pt uint8) []byte {
 // decodeRED validates the entire packet before exposing any block. Primary
 // comes first so startup is anchored to live audio rather than old redundancy.
 func decodeRED(seq uint16, timestamp uint32, payload []byte, pt uint8) ([]AudioPacket, error) {
+	return decodeREDInto(nil, seq, timestamp, payload, pt)
+}
+
+func decodeREDInto(dst []AudioPacket, seq uint16, timestamp uint32, payload []byte, pt uint8) ([]AudioPacket, error) {
 	type block struct {
 		offset uint32
 		size   int
 	}
-	blocks := make([]block, 0, redDepth)
+	var blocks [9]block
+	nblocks := 0
 	pos := 0
 	for {
 		if pos >= len(payload) || payload[pos]&0x7f != pt {
@@ -185,19 +201,20 @@ func decodeRED(seq uint16, timestamp uint32, payload []byte, pt uint8) ([]AudioP
 		}
 		// Accept the maximum negotiated WebRTC redundancy depth, even though we
 		// currently send two. Bound all memory and work for authenticated bad input.
-		if len(blocks) >= 9 || pos+4 > len(payload) {
+		if nblocks >= len(blocks) || pos+4 > len(payload) {
 			return nil, ErrAudioPacket
 		}
 		b := block{uint32(payload[pos+1])<<6 | uint32(payload[pos+2]>>2), int(payload[pos+2]&3)<<8 | int(payload[pos+3])}
 		if b.offset == 0 || b.offset%OpusFrameTicks != 0 || b.size == 0 {
 			return nil, ErrAudioPacket
 		}
-		blocks = append(blocks, b)
+		blocks[nblocks] = b
+		nblocks++
 		pos += 4
 	}
 	start := pos
-	for _, b := range blocks {
-		pos += b.size
+	for i := 0; i < nblocks; i++ {
+		pos += blocks[i].size
 		if pos >= len(payload) {
 			return nil, ErrAudioPacket
 		}
@@ -206,9 +223,16 @@ func decodeRED(seq uint16, timestamp uint32, payload []byte, pt uint8) ([]AudioP
 	if !opus20ms(primary) {
 		return nil, ErrAudioPacket
 	}
-	out := []AudioPacket{{Sequence: seq, Timestamp: timestamp, Payload: primary}}
+	var out []AudioPacket
+	if cap(dst) >= 1+nblocks {
+		out = dst[:0]
+	} else {
+		out = make([]AudioPacket, 0, 1+nblocks)
+	}
+	out = append(out, AudioPacket{Sequence: seq, Timestamp: timestamp, Payload: primary})
 	pos = start
-	for _, b := range blocks {
+	for i := 0; i < nblocks; i++ {
+		b := blocks[i]
 		p := payload[pos : pos+b.size]
 		pos += b.size
 		if !opus20ms(p) {

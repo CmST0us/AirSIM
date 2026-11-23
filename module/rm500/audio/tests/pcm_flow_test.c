@@ -201,19 +201,19 @@ int main(void) {
   assert(playback_wait_ms(2049, 16000, 512, 2048) == 0);
   assert(playback_wait_ms(512, 16000, 512, 2048) == 0);
   /* EG25: capacity 128 ms, startup 32 ms. Hardware-clock feedback bounds
-   * steady-state occupancy to 60 ms without changing the driver contract. */
+   * steady-state occupancy to 52 ms (512 + 320 samples) without changing the driver contract. */
   long eg25_delay = 0;
   for (unsigned i = 0; i < 1000; i++) {
     unsigned wait;
     while ((wait = playback_wait_ms(eg25_delay, 16000, 512, 2048))) eg25_delay -= (long)wait * 16;
     eg25_delay += 320;
-    assert(eg25_delay <= 960);
+    assert(eg25_delay <= 832);
   }
   assert(playback_wait_ms(800, 16000, 512, 2048) == 10);
-  assert(playback_wait_ms(640, 16000, 512, 2048) == 0);
+  assert(playback_wait_ms(512, 16000, 512, 2048) == 0);
   simulated_delay = 2048;
   assert(wait_playback_headroom(16000, 512, 2048) == 0);
-  assert(simulated_delay <= 640 && fake_now - started >= 88);
+  assert(simulated_delay <= 512 && fake_now - started >= 96);
   simulated_delay = -1; /* Firmware without DELAY keeps the write fallback. */
   assert(wait_playback_headroom(16000, 512, 2048) == 0);
   simulated_delay = 2048;
@@ -369,8 +369,8 @@ int main(void) {
     assert(transfer(NULL, data, 0, &playback_stats, 0, recovery, &count) == 0);
   }
   assert(!stopped() && atomic_load(&failure) == 0);
-  /* Floor prevents 1 ms busy-polling when delay is barely above 40 ms target. */
-  assert(playback_wait_ms(656, 16000, 512, 2048) == 4);
+  /* Floor prevents 1 ms busy-polling when delay is barely above 32 ms target. */
+  assert(playback_wait_ms(528, 16000, 512, 2048) == 4);
   puts("PCM worker startup, recovery, partial transfer and clock guard tests "
        "passed");
 }

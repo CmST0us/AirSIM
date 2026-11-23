@@ -100,3 +100,25 @@ unsigned audio_reduce(uint8_t data[640], unsigned rate, int16_t *previous) {
   *previous = last;
   return 160;
 }
+void audio_condition_uplink_pcm(uint8_t *data, unsigned samples) {
+  const int32_t knee = 14481; /* 20480 * 0.7071 (-7.1 dBFS output knee) */
+  const int32_t span = 8690;  /* max scaled excess above knee at full scale */
+  for (unsigned i = 0; i < samples; i++) {
+    int32_t x = get(data + i * 2);
+    if (x == 0)
+      continue;
+    int32_t sign = x < 0 ? -1 : 1;
+    int32_t ax = x < 0 ? -x : x;
+    /* -3.01 dB linear headroom (23170 / 32768) keeps normal speech linear. */
+    int32_t y = (ax * 23170 + 16384) >> 15;
+    if (y > knee) {
+      int32_t excess = y - knee;
+      if (excess > span)
+        excess = span;
+      /* C1-continuous quadratic soft knee: slope 1.0 at knee, 0.0 at 0 dBFS,
+       * asymptotic ceiling ~18826 (-4.8 dBFS) so QDSP6 Tx never saturates. */
+      y = knee + excess - (excess * excess) / (2 * span);
+    }
+    put(data + i * 2, sign * y);
+  }
+}

@@ -137,3 +137,12 @@ Apple 测试员页面已报告用户的 iPhone Duo / iOS 27.2 安装 `0.9.6 (82)
 - 244 个 iOS 文件在归档期间未变；`V2WebRTC.swift` SHA-256 与音频交接证据一致。本轮按用户要求不重复功能或真机测试；交接记录的 108 项 iOS 回归及实际 SDK 双向合成音频互通通过属于此前验证，不等于本轮真实通话验收。
 - 产物保存在 `iOS/build/testflight-20261105-build84/`：`source-manifest.json`、`audio-handoff-verification.json`、`symbols-verification.json`、`verification.json`、`release-status.json`、脱敏日志和已保存的测试说明；在线证据为 `testflight-online-evidence.json`，截图为 `testflight-upload-completed.jpg`、`testflight-build84-details.jpg` 和 `skysim-internal-testing.jpg`。历史登录阻塞截图保留。分发 IPA SHA-256 为 `b2c93cf11dcc50a5543c3bed76729baf600e1322361a35627ba811941d7c9c42`。
 - 本发布会话仅修改 `iOS/AirSIM.xcodeproj/project.pbxproj` 构建号、本文及忽略目录下的发布证据；保留其他会话改动，不自行 commit/push。网页 Engine 发布及统一文档状态由主控会话处理。本轮未安装真实设备或执行通话。
+
+## 2026-11-23：蜂窝 NetEq 与统一 Rust Engine 配套更新（Build 89，已上传待处理）
+
+基于 `V2WebRTC.swift` 蜂窝 NetEq 调优（`WebRTC-Audio-NetEqDelayManagerConfig` 99% 分位与慢遗忘因子、`MinimizeResamplingOnMobile`、`audioJitterBufferMaxPackets = 200`、`audioJitterBufferFastAccelerate = false`、`48 kHz / 20 ms` `AVAudioSession`）递增至 `0.9.6 (89)`，配套统一 Rust Engine `2.0.0-rs.1`。
+
+- 继续使用 SkySIM / `com.eric3u.airsim2` / Team `2VQ94C2355` / App Store Connect `6829440499`。
+- Release 归档、补入 UUID 完全匹配的 WebRTC 155.0.0 iOS arm64 dSYM（`4C4C44F0-5555-3144-A190-21F9C2A35CDA`）、App Store Connect 分发导出及三项 Target 严格签名校验均通过；主 App 与 Watch 为 production APNs（`get-task-allow=false`），`AirSIMV2PairingOrigin=https://airsim.eric3u.cc`，相机说明与三项 `PrivacyInfo.xcprivacy` 保留。
+- 分发产物保存在已忽略目录 `iOS/build/testflight-20261123-build89/`，导出 IPA SHA-256 为 `6fc2714d863d44ec949ed0fa3e686cd54ccfd9b37a49f11153ce8e36a436000c`。
+- 北京时间 21:40:36，`xcodebuild -exportArchive`（`destination=upload`）返回 `Uploaded package is processing`、`Upload succeeded` 与 `** EXPORT SUCCEEDED **`。Apple 处理完成与 TestFlight 内部测试群组分配待在 App Store Connect 在线确认，真实设备通话待验收。详情见 [Rust Engine 发布](RUST_ENGINE_DEPLOYMENT_20261123.md)。

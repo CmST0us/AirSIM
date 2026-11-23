@@ -38,10 +38,12 @@ type Config struct {
 // FrameDuration is the Opus packet time on both directions.
 const FrameDuration = 20 * time.Millisecond
 
-// opusFmtp is what the module asks the App's encoder for: wideband voice with
-// in-band FEC compatibility and a 48 kbps target. Keeping useinbandfec=1
-// matches libwebrtc's offered fmtp while 48 kbps halves RED=2 wire bandwidth.
-const opusFmtp = "minptime=10;useinbandfec=1;maxplaybackrate=16000;sprop-maxcapturerate=16000;maxaveragebitrate=48000"
+// opusFmtp asks the App's encoder for wideband mono voice with in-band FEC and
+// a 64 kbps target. In libwebrtc, maxaveragebitrate bounds the send stream
+// budget including IP/UDP/SRTP overhead (48000 throttled primary Opus to ~29
+// kbps); 64000 yields ~50-60 kbps clean wideband voice before VoLTE AMR-WB/EVS
+// transcoding while keeping RED=2 datagrams compact and well below path MTU.
+const opusFmtp = "minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxplaybackrate=16000;sprop-maxcapturerate=16000;maxaveragebitrate=64000"
 
 var (
 	ErrRejected = errors.New("rtc_offer_rejected")
@@ -50,18 +52,22 @@ var (
 )
 
 type Peer struct {
-	pc        *webrtc.PeerConnection
-	track     *webrtc.TrackLocalStaticRTP
-	codecs    audioCodecs
-	sendMu    sync.Mutex
-	sequence  uint16
-	timestamp uint32
-	history   []AudioPacket
-	sender    *webrtc.RTPSender
-	remote    chan *webrtc.TrackRemote
-	connected chan struct{}
-	failed    chan struct{}
-	up, down  sync.Once
+	pc         *webrtc.PeerConnection
+	track      *webrtc.TrackLocalStaticRTP
+	codecs     audioCodecs
+	sendMu     sync.Mutex
+	sequence   uint16
+	timestamp  uint32
+	historyBuf [redDepth][maxOpusPacket]byte
+	history    [redDepth]AudioPacket
+	historyLen int
+	redScratch [redPayloadBudget + maxOpusPacket]byte
+	rtpScratch rtp.Packet
+	sender     *webrtc.RTPSender
+	remote     chan *webrtc.TrackRemote
+	connected  chan struct{}
+	failed     chan struct{}
+	up, down   sync.Once
 }
 
 func api(c Config, codecs audioCodecs) *webrtc.API {
@@ -246,22 +252,32 @@ func (p *Peer) WriteOpus(packet []byte, skipped uint64) error {
 	defer p.sendMu.Unlock()
 	p.timestamp += uint32(skipped) * OpusFrameTicks
 	if skipped != 0 {
-		p.history = nil
+		p.historyLen = 0
 	}
 	f := AudioPacket{Sequence: p.sequence, Timestamp: p.timestamp, Payload: packet}
 	payload := packet
 	if p.codecs.hasRED {
-		payload = encodeRED(f, p.history, p.codecs.opus)
+		payload = encodeREDInto(p.redScratch[:0], f, p.history[:p.historyLen], p.codecs.opus)
 	}
-	err := p.track.WriteRTP(&rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: p.sequence, Timestamp: p.timestamp}, Payload: payload})
+	p.rtpScratch = rtp.Packet{Header: rtp.Header{Version: 2, SequenceNumber: p.sequence, Timestamp: p.timestamp}, Payload: payload}
+	err := p.track.WriteRTP(&p.rtpScratch)
 	if err != nil {
 		return err
 	}
 	if p.codecs.hasRED {
-		f.Payload = append([]byte(nil), packet...)
-		p.history = append(p.history, f)
-		if len(p.history) > redDepth {
-			p.history = p.history[len(p.history)-redDepth:]
+		if p.historyLen < redDepth {
+			slot := p.historyLen
+			n := copy(p.historyBuf[slot][:], packet)
+			p.history[slot] = AudioPacket{Sequence: f.Sequence, Timestamp: f.Timestamp, Payload: p.historyBuf[slot][:n]}
+			p.historyLen++
+		} else {
+			for i := 0; i < redDepth-1; i++ {
+				n := copy(p.historyBuf[i][:], p.history[i+1].Payload)
+				p.history[i] = AudioPacket{Sequence: p.history[i+1].Sequence, Timestamp: p.history[i+1].Timestamp, Payload: p.historyBuf[i][:n]}
+			}
+			last := redDepth - 1
+			n := copy(p.historyBuf[last][:], packet)
+			p.history[last] = AudioPacket{Sequence: f.Sequence, Timestamp: f.Timestamp, Payload: p.historyBuf[last][:n]}
 		}
 	}
 	p.sequence++

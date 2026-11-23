@@ -97,6 +97,20 @@ int main(void) {
   assert(audio_voice_rate(path, &rate) == -1);
   unlink(path);
   assert(audio_voice_rate(path, &rate) == -1);
+  /* Uplink PCM conditioning preserves exact zero, scales speech linearly below
+   * knee, and smoothly bounds full-scale peaks without hard clipping. */
+  uint8_t cond[12];
+  put(cond + 0, 0);
+  put(cond + 2, 4000);
+  put(cond + 4, -4000);
+  put(cond + 6, 20000);
+  put(cond + 8, 32767);
+  put(cond + 10, -32768);
+  audio_condition_uplink_pcm(cond, 6);
+  assert(get(cond + 0) == 0);
+  assert(get(cond + 2) == 2828 && get(cond + 4) == -2828);
+  assert(get(cond + 6) > 14000 && get(cond + 8) > get(cond + 6));
+  assert(get(cond + 8) < 19000 && get(cond + 10) == -get(cond + 8));
   puts("native interpolation, strict voice clock parsing and change rejection "
        "passed");
 }

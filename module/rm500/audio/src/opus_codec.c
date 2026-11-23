@@ -4,20 +4,21 @@
 
 /* Relay decoded cellular audio faithfully. AUDIO avoids the additional VOIP
  * input high-pass/voice shaping; the phone microphone retains its own AEC.
- * Use 48 kbps VBR wideband with complexity 3 and in-band FEC disabled because
- * RFC 2198 RED depth=2 already carries exact copies of the prior two frames;
- * avoiding redundant LBRR improves clean SNR and cuts ARMv7 CPU by ~60%. */
+ * Use 64 kbps VBR wideband with complexity 4 and in-band LBRR FEC (5% loss
+ * hint) alongside RFC 2198 RED so cellular speech stays transparent before
+ * NetEq playout and bursts exceeding RED history still have LBRR recovery. */
 airsim_opus_encoder *airsim_opus_encoder_create(void) {
   int error = 0;
   OpusEncoder *e = opus_encoder_create(AIRSIM_OPUS_SAMPLE_RATE, 1, OPUS_APPLICATION_AUDIO, &error);
   if (!e || error != OPUS_OK)
     return NULL;
-  if (opus_encoder_ctl(e, OPUS_SET_BITRATE(48000)) != OPUS_OK ||
+  if (opus_encoder_ctl(e, OPUS_SET_BITRATE(64000)) != OPUS_OK ||
       opus_encoder_ctl(e, OPUS_SET_VBR(1)) != OPUS_OK ||
-      opus_encoder_ctl(e, OPUS_SET_COMPLEXITY(3)) != OPUS_OK ||
+      opus_encoder_ctl(e, OPUS_SET_COMPLEXITY(4)) != OPUS_OK ||
       opus_encoder_ctl(e, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE)) != OPUS_OK ||
       opus_encoder_ctl(e, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND)) != OPUS_OK ||
-      opus_encoder_ctl(e, OPUS_SET_INBAND_FEC(0)) != OPUS_OK ||
+      opus_encoder_ctl(e, OPUS_SET_INBAND_FEC(1)) != OPUS_OK ||
+      opus_encoder_ctl(e, OPUS_SET_PACKET_LOSS_PERC(5)) != OPUS_OK ||
       opus_encoder_ctl(e, OPUS_SET_DTX(0)) != OPUS_OK) {
     opus_encoder_destroy(e);
     return NULL;

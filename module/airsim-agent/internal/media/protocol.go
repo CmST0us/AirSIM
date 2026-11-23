@@ -35,7 +35,7 @@ type Frame struct {
 	Payload  []byte
 }
 
-func sessionBytes(id string) ([16]byte, error) {
+func ParseSessionID(id string) ([16]byte, error) {
 	var out [16]byte
 	if !control.ValidID(id) {
 		return out, ErrProtocol
@@ -44,6 +44,7 @@ func sessionBytes(id string) ([16]byte, error) {
 	copy(out[:], b)
 	return out, e
 }
+func sessionBytes(id string) ([16]byte, error) { return ParseSessionID(id) }
 func validFrame(f Frame) bool {
 	switch f.Flags {
 	case FlagErasure:
@@ -54,14 +55,19 @@ func validFrame(f Frame) bool {
 	return false
 }
 
-// Encode returns the wire form of f for session id and direction.
-func (f Frame) Encode(id string, direction byte) []byte {
-	b := make([]byte, HeaderSize+len(f.Payload))
+// EncodeInto writes the wire form of f into dst when large enough, avoiding heap allocation.
+func (f Frame) EncodeInto(dst []byte, sid [16]byte, direction byte) []byte {
+	total := HeaderSize + len(f.Payload)
+	var b []byte
+	if cap(dst) >= total {
+		b = dst[:total]
+	} else {
+		b = make([]byte, total)
+	}
 	copy(b[:4], "ASMP")
 	b[4] = 3
 	b[5] = direction
 	binary.LittleEndian.PutUint16(b[6:8], HeaderSize)
-	sid, _ := sessionBytes(id)
 	copy(b[8:24], sid[:])
 	binary.LittleEndian.PutUint64(b[24:32], f.Sequence)
 	binary.LittleEndian.PutUint32(b[32:36], uint32(len(f.Payload)))
@@ -69,35 +75,64 @@ func (f Frame) Encode(id string, direction byte) []byte {
 	copy(b[HeaderSize:], f.Payload)
 	return b
 }
-func WriteFrame(w io.Writer, id string, direction byte, f Frame) error {
+
+// Encode returns the wire form of f for session id and direction.
+func (f Frame) Encode(id string, direction byte) []byte {
+	sid, _ := sessionBytes(id)
+	return f.EncodeInto(nil, sid, direction)
+}
+func WriteFrameBuf(w io.Writer, sid [16]byte, direction byte, f Frame, scratch []byte) error {
 	if !validFrame(f) {
 		return ErrProtocol
 	}
-	return writeAll(w, f.Encode(id, direction))
+	return writeAll(w, f.EncodeInto(scratch, sid, direction))
 }
-func ReadFrame(r io.Reader, id string, direction byte, last *uint64) (Frame, uint64, error) {
+func WriteFrame(w io.Writer, id string, direction byte, f Frame) error {
+	sid, e := sessionBytes(id)
+	if e != nil {
+		return ErrProtocol
+	}
+	var scratch [HeaderSize + MaxPayload]byte
+	return WriteFrameBuf(w, sid, direction, f, scratch[:])
+}
+func ReadFrameBuf(r io.Reader, sid [16]byte, direction byte, last *uint64, payloadBuf []byte) (Frame, uint64, error) {
 	var h [HeaderSize]byte
 	if _, e := io.ReadFull(r, h[:]); e != nil {
 		return Frame{}, 0, e
 	}
-	sid, e := sessionBytes(id)
 	n := binary.LittleEndian.Uint32(h[32:36])
-	if e != nil || string(h[:4]) != "ASMP" || h[4] != 3 || h[5] != direction || binary.LittleEndian.Uint16(h[6:8]) != HeaderSize || string(h[8:24]) != string(sid[:]) || n > MaxPayload {
+	if h[0] != 'A' || h[1] != 'S' || h[2] != 'M' || h[3] != 'P' || h[4] != 3 || h[5] != direction || binary.LittleEndian.Uint16(h[6:8]) != HeaderSize || [16]byte(h[8:24]) != sid || n > MaxPayload {
 		return Frame{}, 0, ErrProtocol
 	}
-	f := Frame{Sequence: binary.LittleEndian.Uint64(h[24:32]), Flags: binary.LittleEndian.Uint32(h[36:40]), Payload: make([]byte, n)}
-	if _, e = io.ReadFull(r, f.Payload); e != nil {
-		return Frame{}, 0, e
+	var payload []byte
+	if n > 0 {
+		if cap(payloadBuf) >= int(n) {
+			payload = payloadBuf[:n]
+		} else {
+			payload = make([]byte, n)
+		}
+		if _, e := io.ReadFull(r, payload); e != nil {
+			return Frame{}, 0, e
+		}
 	}
-	if n == 0 {
-		f.Payload = nil
-	}
+	f := Frame{Sequence: binary.LittleEndian.Uint64(h[24:32]), Flags: binary.LittleEndian.Uint32(h[36:40]), Payload: payload}
 	if !validFrame(f) || f.Sequence == 0 || f.Sequence <= *last {
 		return Frame{}, 0, ErrProtocol
 	}
 	gap := f.Sequence - *last - 1
 	*last = f.Sequence
 	return f, gap, nil
+}
+func ReadFrame(r io.Reader, id string, direction byte, last *uint64) (Frame, uint64, error) {
+	sid, e := sessionBytes(id)
+	if e != nil {
+		var h [HeaderSize]byte
+		if _, re := io.ReadFull(r, h[:]); re != nil {
+			return Frame{}, 0, re
+		}
+		return Frame{}, 0, ErrProtocol
+	}
+	return ReadFrameBuf(r, sid, direction, last, nil)
 }
 func ReadJSON(r io.Reader, limit uint32) ([]byte, error) {
 	var h [4]byte

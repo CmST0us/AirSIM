@@ -73,8 +73,8 @@ func TestAnswerCarriesVoicePreferencesAndMovesOpus(t *testing.T) {
 	if !strings.Contains(answer, "a=fmtp:111 "+opusFmtp+"\r\na=ptime:20\r\n") || strings.Count(answer, "a=fmtp:111") != 1 || !strings.Contains(answer, "a=candidate:") || !strings.Contains(answer, "a=sendrecv") {
 		t.Fatalf("answer:\n%s", answer)
 	}
-	if !strings.Contains(answer, "maxaveragebitrate=48000") {
-		t.Fatal("App encoder did not receive the 48 kbps preference")
+	if !strings.Contains(answer, "maxaveragebitrate=64000") {
+		t.Fatal("App encoder did not receive the 64 kbps preference")
 	}
 	if e = pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeAnswer, SDP: answer}); e != nil {
 		t.Fatal(e)

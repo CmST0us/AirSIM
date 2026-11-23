@@ -260,3 +260,87 @@ func TestJitterSkipsFECForCELTPackets(t *testing.T) {
 		t.Fatalf("CELT packet falsely triggered FEC: flags=%d fec=%d plc=%d", f.Flags, c.fec.Load(), c.plc.Load())
 	}
 }
+
+func TestJitterLateWakeup10To19msZeroDropsAndZeroFakePLC(t *testing.T) {
+	// Reproduce single-core Cortex-A7 GC wakeup jitter (10.5..19.0 ms late on
+	// alternating ticks, followed by on-time grid ticks <10 ms later). Previously
+	// (elapsed + 10ms)/20ms rounded up to j.last+2, dropping valid speech frames
+	// (queue_drops=64 in 71s) and emitting fake PLC on the following tick.
+	c := &bridgeCounters{}
+	j := newRelayJitter(c)
+	const frames = 500
+	originArr := jitterEpoch.Add(15 * time.Millisecond)
+	target := jitterEpoch
+	cursor := 0
+	played := 0
+	end := originArr.Add(frames*playoutPeriod + 250*time.Millisecond)
+	tick := 0
+	for target.Before(end) {
+		var jit time.Duration
+		if tick > 5 && tick%3 == 1 {
+			jit = time.Duration(11+(tick%8)) * time.Millisecond // 11..18 ms late!
+		} else {
+			jit = time.Millisecond
+		}
+		wake := target.Add(jit)
+		for cursor < frames {
+			arr := originArr.Add(time.Duration(cursor) * playoutPeriod)
+			if arr.After(wake) {
+				break
+			}
+			j.push(audioPacket(cursor), arr)
+			cursor++
+		}
+		f := j.pop(wake)
+		if f.Flags == media.FlagOpus {
+			played++
+		}
+		if played == frames {
+			break
+		}
+		target = target.Add(playoutPeriod)
+		tick++
+	}
+	if played != frames || c.drops.Load() != 0 || c.plc.Load() != 0 || c.late.Load() != 0 {
+		t.Fatalf("played=%d/%d drops=%d plc=%d late=%d", played, frames, c.drops.Load(), c.plc.Load(), c.late.Load())
+	}
+}
+
+func TestJitterRelaySettlesOnceAndAbsorbsRecurringLTEBursts(t *testing.T) {
+	// Simulate recurring 155 ms 4G LTE scheduling stalls (7 packets bunched and
+	// released together every 5 seconds, matching real rtp_stall_max_ms=191ms).
+	// Previously, settling onto burst #1 immediately triggered a rebound excess-lead
+	// resync when normal 20 ms packets resumed (ping-ponging 2 wipes per burst = 12
+	// resyncs). Now it settles at most once on burst #1 and plays bursts #2..#6
+	// with zero further resyncs and zero loss.
+	c := &bridgeCounters{}
+	j := newRelayJitter(c)
+	const frames = 1500
+	type item struct {
+		at  time.Time
+		idx int
+	}
+	var arrivals []item
+	for i := 0; i < frames; i++ {
+		at := jitterEpoch.Add(time.Duration(i)*playoutPeriod + 20*time.Millisecond)
+		if i >= 50 && i%250 >= 50 && i%250 <= 56 {
+			burstEnd := (i/250)*250 + 56
+			at = jitterEpoch.Add(time.Duration(burstEnd)*playoutPeriod + 55*time.Millisecond)
+		}
+		arrivals = append(arrivals, item{at, i})
+	}
+	cursor := 0
+	played := 0
+	for now := jitterEpoch.Add(20 * time.Millisecond); now.Before(jitterEpoch.Add(frames*playoutPeriod + 300*time.Millisecond)); now = now.Add(playoutPeriod) {
+		for cursor < len(arrivals) && !arrivals[cursor].at.After(now) {
+			j.push(audioPacket(arrivals[cursor].idx), arrivals[cursor].at)
+			cursor++
+		}
+		if j.pop(now).Flags == media.FlagOpus {
+			played++
+		}
+	}
+	if c.resync.Load() > 1 || played < frames-10 {
+		t.Fatalf("recurring LTE bursts ping-ponged buffer wipes: resyncs=%d played=%d/%d", c.resync.Load(), played, frames)
+	}
+}

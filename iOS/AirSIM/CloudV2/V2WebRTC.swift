@@ -76,9 +76,14 @@ protocol V2MediaAudio: AnyObject {
 @MainActor
 private enum V2WebRTCRuntime {
     private static let initialized: Void = {
-        // Two exact prior Opus packets protect a two-packet burst. libwebrtc
-        // drops older redundancy first when its packet size budget is reached.
-        RTCInitFieldTrialDictionary(["WebRTC-Audio-Red-For-Opus": "Enabled-2"])
+        // Two exact prior Opus packets protect a two-packet burst, while NetEq
+        // 99th-percentile target delay + slower forget factor prevent cellular
+        // 4G LTE/TURN bursts from collapsing the buffer and cutting out speech.
+        RTCInitFieldTrialDictionary([
+            "WebRTC-Audio-Red-For-Opus": "Enabled-2",
+            "WebRTC-Audio-NetEqDelayManagerConfig": "quantile:0.99,forget_factor:0.996,start_forget_weight:2,resample_interval_ms:500",
+            "WebRTC-Audio-MinimizeResamplingOnMobile": "Enabled",
+        ])
         RTCInitializeSSL()
     }()
     static func initialize() { _ = initialized }
@@ -130,6 +135,8 @@ final class V2WebRTCAudio: V2MediaAudio {
     func activateVoice() throws {
         session.lockForConfiguration(); defer { session.unlockForConfiguration() }
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+        try session.setPreferredSampleRate(48_000)
+        try session.setPreferredIOBufferDuration(0.02)
         try session.setActive(true)
         session.isAudioEnabled = true
     }
@@ -173,6 +180,8 @@ final class V2WebRTCPeer: V2MediaPeer {
         config.rtcpMuxPolicy = .require
         config.continualGatheringPolicy = .gatherContinually
         config.tcpCandidatePolicy = .disabled
+        config.audioJitterBufferMaxPackets = 200
+        config.audioJitterBufferFastAccelerate = false
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         guard let connection = factory.peerConnection(with: config, constraints: constraints, delegate: observer) else { throw V2PeerError.offer }
         self.connection = connection

@@ -481,11 +481,18 @@ loop:
 	wg.Wait()
 }
 func (m *Manager) relay(s *session, src, dst net.Conn, direction byte) {
+	sid, e := ParseSessionID(s.result.ID)
+	if e != nil {
+		m.fail(s, "media_read")
+		return
+	}
 	var seq uint64
+	var payloadBuf [MaxPayload]byte
+	var wireBuf [HeaderSize + MaxPayload]byte
 	lastValid := time.Now()
 	for {
 		src.SetReadDeadline(lastValid.Add(2 * time.Second))
-		frame, gap, e := ReadFrame(src, s.result.ID, direction, &seq)
+		frame, gap, e := ReadFrameBuf(src, sid, direction, &seq, payloadBuf[:])
 		if e != nil {
 			m.fail(s, "media_read")
 			return
@@ -495,7 +502,7 @@ func (m *Manager) relay(s *session, src, dst net.Conn, direction byte) {
 			return
 		}
 		dst.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-		if WriteFrame(dst, s.result.ID, direction, frame) != nil {
+		if WriteFrameBuf(dst, sid, direction, frame, wireBuf[:]) != nil {
 			m.fail(s, "media_write")
 			return
 		}

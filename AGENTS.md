@@ -1,5 +1,7 @@
 # AirSIM 全项目 Codex 部署辅助
 
+2026-11-23 21:40：统一单二进制零 GC 实时 Rust 模块引擎（`module/airsim-engine-rs/`，`2.0.0-rs.1`）已通过 Workbench 原子发布至 `airsim.eric3u.cc`（`rust-engine-20261123`，EG25 `5.0 MB`／RM500U `5.0 MB` + 769 B 兼容垫片，源站 HTTPS 23 项资源哈希校验通过，ECS 容器未重启），并在本机 EG25 实机安装验收（`VmRSS` 由 Go `8.2 MB` 降至 `1.92 MB`，优雅 `SIGTERM` 重启、AT、短信及 USB `8577` 正常；公网 `*.eric3u.cc` 443 端口当前存在外部 SNI TCP RST，真实蜂窝通话待公网恢复或 USB 本地验收）。SkySIM `0.9.6 (89)`（含 `V2WebRTC.swift` 蜂窝 NetEq 调优与匹配 WebRTC 155.0.0 dSYM）已于 21:40 上传 App Store Connect（`Upload succeeded`，等待 Apple 处理与内部测试分配）。详见 [Rust Engine 发布](docs/RUST_ENGINE_DEPLOYMENT_20261123.md)。
+
 2026-11-05 23:31：云端音频重构已合入 main（`f2bb817`），通过 Workbench 发布 EG25／RM500 网页 Engine `2.0.0-dev.audio1` 与 helper `0.6.1-opus`；23 个资源的源站和公网哈希校验通过。SkySIM `0.9.6 (84)` 已于 11 月 6 日 01:10 确认进入原有 TestFlight 内部测试，可安装更新。用户选择直接发布，本轮未安装模块或验收真实通话；发布状态见 [云端音频发布](docs/CLOUD_AUDIO_DEPLOYMENT_20261105.md)。
 
 2026-11-04：SkySIM 已修复旧挂断回执丢失或 Engine 重启后永久阻塞拨号/接听的恢复逻辑；用已验证的新鲜模块状态解除旧挂断 pending，不重发通话或短信。`0.9.6 (83)` 已完成 Release 构建及 Apple 处理，19:30 确认进入现有 TestFlight 内部测试，可安装更新；实际设备恢复效果待验收。本轮测试及 TestFlight 交付状态见 [挂断恢复](docs/IOS_HANGUP_RECOVERY_20261104.md)。

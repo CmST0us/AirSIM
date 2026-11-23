@@ -357,7 +357,7 @@ static int take_packet(uint8_t payload[ASMP_MAX_PAYLOAD], int *size) {
  * Consult the PCM hardware clock, never an independent 20 ms software clock.
  * Unsupported delay ioctls fall back to the existing bounded write path. */
 static unsigned playback_wait_ms(long delay, unsigned rate, unsigned start, unsigned capacity) {
-  unsigned target = rate * 40 / 1000;
+  unsigned target = rate * 32 / 1000;
   if (target < start) target = start;
   if (delay < 0 || (unsigned long)delay > capacity || (unsigned long)delay <= target)
     return 0;
@@ -395,6 +395,9 @@ static void *playback_worker(void *unused) {
       break;
     }
     size_t native_samples = audio_reduce(data, playback_rate, &playback_previous);
+#ifdef AIRSIM_EG25
+    audio_condition_uplink_pcm(data, (unsigned)native_samples);
+#endif
     int zero_fill = 1;
     for (size_t i = 0; i < native_samples * 2; i++) {
       if (data[i]) {
@@ -524,7 +527,7 @@ int main(int argc, char **argv) {
     return eg25_audio_reset() ? 1 : 0;
 #endif
   if (argc == 2 && !strcmp(argv[1], "--version")) {
-    puts("airsim-audiod 0.6.2-opus48 libopus-1.5.2 "
+    puts("airsim-audiod 0.6.3-opus64 libopus-1.5.2 "
          "tinyalsa-1c5fb68ced57d838f2b7ecd0c00bc1fefc9ab60d");
     return 0;
   }

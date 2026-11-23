@@ -29,7 +29,7 @@ import (
 	"time"
 )
 
-const version = "2.0.0-dev.audio3"
+const version = "2.0.0-dev.audio4"
 
 func directory(path string) error {
 	if e := os.MkdirAll(path, 0700); e != nil {
@@ -69,8 +69,11 @@ func run(ctx context.Context, profile, device, data, runDir, audioHelper, cloudC
 		if data == "" {
 			data = "/usrdata/airsim-v2"
 		}
-		debug.SetMemoryLimit(6 << 20)
-		debug.SetGCPercent(25)
+		// Keep soft limit comfortably above steady-state WebRTC+agent runtime
+		// (~5.8 MiB with ~1.25 MiB live heap) so Go does not thrash at 3-4 GCs/s
+		// during calls while still bounding memory on 43 MiB EG25 RAM.
+		debug.SetMemoryLimit(10 << 20)
+		debug.SetGCPercent(50)
 	default:
 		return errors.New("profile_mismatch")
 	}

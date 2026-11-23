@@ -10,10 +10,10 @@ v2 云端与 USB 本地通话媒体为 App 与模块之间的 WebRTC 音频连�
 
 | 环节 | 配置 |
 | --- | --- |
-| 编码 | Opus，20 ms 包；模块 16 kHz 输入、96 kbps VBR 目标码率、AUDIO 保真应用、宽带上限、复杂度 3、带内 FEC 开启、DTX 关闭；模块应答以 `maxaveragebitrate=96000` 设置 App 的上行目标 |
-| App | stasel/WebRTC 155.0.0；`RTCAudioSession` 手动音频，随 CallKit 激活启停；连接失败后为同一通话自动建立新会话，保留静音与音频输出 |
-| 模块 Agent | Pion WebRTC v4；云端只收集 relay 候选，USB 只收集 USB 地址的 host 候选；RTP 时间戳播放，60 ms 起播，RED 两包精确冗余；晚醒跳过过期帧，持续偏移做有界重同步；媒体不随控制连接结束，同一通话的新会话替换旧会话 |
-| 模块 helper | libopus 1.5.2 定点构建；工作线程栈 256 KB，采集、播放与收包线程为 SCHED_FIFO 优先级 10；播放队列四帧，空队列最多等 15 ms；按硬件 DELAY 限制预填，EG25 16 kHz 下写入后目标不超过约 60 ms；网络先用 RED 原包恢复，再尝试 FEC／PLC |
+| 编码 | Opus，20 ms 包；模块 16 kHz 输入、64 kbps VBR 目标码率、AUDIO 保真应用、宽带上限、复杂度 4、带内 LBRR FEC（5% 丢包提示）开启、DTX 关闭；模块应答以 `maxaveragebitrate=64000;stereo=0;sprop-stereo=0` 设置 App 的上行单声道宽带目标（避免 48 kbps 含头部预算把主包压低至 ~30 kbps） |
+| App | stasel/WebRTC 155.0.0；`RTCAudioSession` 手动音频（统一 48 kHz／20 ms 缓冲），随 CallKit 激活启停；启用 `WebRTC-Audio-Red-For-Opus: Enabled-2`、`WebRTC-Audio-NetEqDelayManagerConfig`（99% 分位延迟目标与慢衰减记忆，吸收蜂窝突发抖动避免频繁欠载断续）及 `MinimizeResamplingOnMobile`；连接失败后为同一通话自动建立新会话，保留静音与音频输出 |
+| 模块 Agent | Pion WebRTC v4；云端只收集 relay 候选（80 ms 起播缓冲），USB 只收集 USB 地址的 host 候选（60 ms 起播缓冲）；RTP 时间戳顺序播放（消除 10–19 ms 调度晚醒导致的误删帧与假 PLC），两周期以上停顿跳过过期帧，持续偏移做无乒乓有界重同步；ASMP／RED 热路径复用缓冲，EG25 Go 软内存上限 10 MiB、GOGC 50，避免通话期间高频 GC 停顿；媒体不随控制连接结束，同一通话的新会话替换旧会话 |
+| 模块 helper | `0.6.3-opus64`，libopus 1.5.2 定点构建；工作线程栈 256 KB，采集、播放与收包线程为 SCHED_FIFO 优先级 10；播放队列四帧，空队列最多等 15 ms；EG25 上行写入前做 -3 dB 线性余量与 C1 软膝峰值限幅，防止 iOS VPIO 高电平语音使 QDSP6 Handset Tx 削顶出现颗粒感；按硬件 DELAY 限制预填，EG25 16 kHz 下写入后目标不超过约 52 ms；网络先用 RED 原包恢复，再尝试 FEC／PLC |
 | ECS 中继 | airsim-media 内嵌 Pion TURN，主机网络；UDP／TCP 3478，中继 UDP 49160–49359 |
 
 EG25 的 VoLTE 前端与 AFE 代理端口直接以 16 kHz 采集和播放；RM500 采集为 8 kHz，由 helper 插值到 16 kHz，播放按声卡实际速率直出或经 [1 2 1]/4 低通后降至 8 kHz。
@@ -76,3 +76,11 @@ EG25 经 iPad mini 的真实来电已在新链路上双向通话约一分钟：�
 - RM500 须经网页安装器更新为 WebRTC 版 Engine，更新前没有通话音频。
 - 上述实测通话期间 adbd 残留线程正占用约 90% CPU，期间 helper 送出的采集帧间隔偶有 60–120 ms 的停顿，iPad 的抖动缓冲随之维持在约 200 ms；helper 改为实时优先级后的停顿待下一通实测。每次接通时 Agent 需从压缩分区重新读入约 5 MB 代码，延长建连。
 - 单次媒体会话最长 30 分钟。
+
+## 统一单二进制实时 Rust 引擎（`module/airsim-engine-rs/`）
+
+面向 EG25 QDC507（单核 ARMv7 Cortex-A7，43 MB RAM，15 MB UBIFS）与 RM500U（ARM64）的方案 B 统一实时引擎，将原 Go `airsim-agent` 与 C `airsim-audiod` 合并为单个零 GC 静态 musl 可执行文件（约 4.8 MB，较原 12.1 MB 减少约 60%），保持控制面、ECS 信令、SkySIM iOS v2、USB 本地 HTTPS、网页安装器与 `/usrdata/airsim-v2` 持久化文件完全兼容：
+
+- **零 GC 实时媒体线程（`SCHED_FIFO` 优先级 10）**：独立 `airsim-rtc`（`str0m` + 原生 RFC 2198 RED depth=2 + 纯 Rust UDP/TCP TURN + `poll`/`eventfd`）、`airsim-cap`（TinyALSA mmap -> 定点 `libopus 1.5.2` 64 kbps VBR 宽带 + 5% LBRR FEC -> 无锁 SPSC 环）与 `airsim-pb`（64 槽自适应抖动缓冲 + **16 kHz 基音同步 WSOLA 时域伸缩** + ALSA `pcm_get_delay()` 闭环反馈 + EG25 QDSP6 `-3 dB` / C1 软膝限幅）。
+- **兼容垫片**：随包提供 769 字节 `airsim-audiod` 兼容脚本（响应 `--version` 与 `--cleanup --profile eg25-qdc507`），不破坏现有 `run-agent.sh` 与网页安装器清单校验。
+- 详细设计与构建见 [module/airsim-engine-rs/README.md](../module/airsim-engine-rs/README.md)。当前已完成宿主单测/集成测试（含 11 组网络劣化模型、纯 Rust UDP/TCP TURN 中继端到端 WebRTC、Ed25519 配对/续期与 USB HMAC）、真实 iOS 模拟器 `WebRTC.framework` 155.0.0 互通实测以及 ARMv7/ARM64 静态交叉构建；EG25 Linux 3.18.44 真机运行、RSS 实测与真实蜂窝通话听感待真机验收。
