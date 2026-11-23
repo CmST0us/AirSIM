@@ -93,6 +93,7 @@ function setup(failure: Failure) {
         `hash=${manifest.agent.sha256}`, `running_hash=${manifest.agent.sha256}`, `launcher_hash=${manifest.launcher.sha256}`, `audio_hash=${manifest.audio.sha256}`,
         ...[...manifest.platform, ...manifest.licenses].map(f => `${f.path}=${f.sha256}`)].join('\n'));
     }
+    if (service.includes('date -u -s')) return socket('');
     if (service.includes('mkdir -p')) return socket('');
     throw new Error('Unexpected shell command in installer test');
   });

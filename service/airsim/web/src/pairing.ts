@@ -29,7 +29,7 @@ export type ConnectionResult =
   | { state: 'connected'; online: boolean }
   | { state: 'failed' };
 
-export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'timeout' | 'unsupported' | 'not_ready' | 'paired' | 'install_reconnect' | 'install_failed' | 'release_unavailable' | 'adb_failed' | 'adb_reconnect' | 'failed' | 'unknown';
+export type FailureCode = 'cancelled' | 'busy' | 'disconnected' | 'timeout' | 'unsupported' | 'not_ready' | 'paired' | 'install_reconnect' | 'install_failed' | 'provision_failed' | 'release_unavailable' | 'adb_failed' | 'adb_reconnect' | 'failed' | 'unknown';
 
 export class TransportFailure extends Error {
   constructor(readonly code: FailureCode, readonly detail?: string) { super(code); }

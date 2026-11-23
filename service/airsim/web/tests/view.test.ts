@@ -54,16 +54,17 @@ it('renders adapter text as text rather than markup', async () => {
   expect(root.textContent).toContain('<img src=x onerror=alert(1)>');
 });
 
-it('offers persistent Engine installation before pairing a bare module', async () => {
+it('offers one-shot persistent Engine installation and automatically pairs when ready', async () => {
   const { root, controller, transport } = await setup();
   const missing = { ...device, engine: { state: 'missing' as const, compatible: true } };
   const installed = { ...device, engine: { state: 'ready' as const, compatible: true } };
   transport.inspect.mockResolvedValue(missing);
   transport.install.mockResolvedValue(installed);
+  transport.connect.mockResolvedValue({ state: 'awaiting_phone', code: '12345678', expiresAt: new Date(Date.now() + 300_000).toISOString() });
   await controller.requestDevice();
   expect(root.querySelector('h1')?.textContent).toBe('安装 AirSIM Engine');
   expect(root.textContent).toContain('开机自启');
-  const install = [...root.querySelectorAll('button')].find(button => button.textContent === '安装并启用')!;
+  const install = [...root.querySelectorAll('button')].find(button => button.textContent === '一键安装并配对')!;
   const deployment = deferred<typeof installed>();
   transport.install.mockReturnValueOnce(deployment.promise);
   install.click();
@@ -71,6 +72,9 @@ it('offers persistent Engine installation before pairing a bare module', async (
   expect(transport.connect).not.toHaveBeenCalled();
   deployment.resolve(installed);
   await deployment.promise;
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(transport.connect).toHaveBeenCalledTimes(1);
+  expect(root.querySelector('h1')?.textContent).toBe('输入连接码');
 });
 
 it('explains factory ADB setup and waits for an explicit click before writing', async () => {

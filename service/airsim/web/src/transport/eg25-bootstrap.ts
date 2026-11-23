@@ -102,7 +102,8 @@ async function session(device: USBDevice, signal: AbortSignal) {
 
 async function inspect(command: (value: string) => Promise<string>, device: USBDevice) {
   const identity = (await command('ATI')).split(/[\r\n]+/).map(line => line.trim());
-  if (!identity.includes('QDC507') || !identity.includes('Revision: QDC507GLEFM21')) {
+  if (!identity.includes('QDC507')
+    || !identity.some(line => /^Revision:\s*QDC507GLEFM21(?:_[0-9]{2}\.[0-9]{3}\.[0-9]{2})?$/.test(line))) {
     throw new TransportFailure('unsupported', '此初始化流程只支持 QDC507GLEFM21 固件。');
   }
   return adbConfiguration(await command('AT+QCFG="usbcfg"'), device);

@@ -8,6 +8,8 @@ export function isPlatform(value: string): value is PlatformID {
   return Object.hasOwn(platforms, value);
 }
 
+const eg25FirmwarePattern = /^QDC507GLEFM21_[0-9]{2}\.[0-9]{3}\.[0-9]{2}$/;
+
 export function detectPlatform(values: Map<string, string>): PlatformID | undefined {
   if (values.get('os') !== 'Linux' || values.get('uid') !== '0') return undefined;
   if (['aarch64', 'arm64'].includes(values.get('arch') || '') && values.get('host') === 'udx710-module') {
@@ -15,7 +17,7 @@ export function detectPlatform(values: Map<string, string>): PlatformID | undefi
   }
   if (values.get('arch') === 'armv7l' && values.get('kernel') === '3.18.44'
     && values.get('project') === 'EG25G_QDC507'
-    && values.get('firmware') === 'QDC507GLEFM21_02.004.03') return 'eg25-qdc507';
+    && eg25FirmwarePattern.test(values.get('firmware') || '')) return 'eg25-qdc507';
   return undefined;
 }
 

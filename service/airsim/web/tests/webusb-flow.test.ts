@@ -49,10 +49,10 @@ afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren(); });
 
 describe('real inspection flow with ADB service rejection', () => {
   it.each([
-    ['agent=0\nautostart=0', '安装 AirSIM Engine', '安装并启用'],
+    ['agent=0\nautostart=0', '安装 AirSIM Engine', '一键安装并配对'],
     [installed, 'Engine 正在启动', '重新检查'],
-    [installed.replace('autostart=1', 'autostart=0'), '安装 AirSIM Engine', '更新并启用'],
-    [installed.replace(`hash=${hash}`, `hash=${'b'.repeat(64)}`), '安装 AirSIM Engine', '更新并启用'],
+    [installed.replace('autostart=1', 'autostart=0'), '安装 AirSIM Engine', '一键更新并配对'],
+    [installed.replace(`hash=${hash}`, `hash=${'b'.repeat(64)}`), '安装 AirSIM Engine', '一键更新并配对'],
   ])('keeps USB connected when Agent is unavailable: %s', async (properties, heading, action) => {
     const { root, connect, cleanup } = await setup(properties);
     try {
@@ -86,7 +86,7 @@ describe('real inspection flow with ADB service rejection', () => {
     expect(root.querySelector('h1')?.textContent).toBe('安装 AirSIM Engine');
     expect(root.textContent).toContain('继续安装 Engine');
     expect(root.textContent).toContain('删除旧程序再安装新版');
-    expect([...root.querySelectorAll('button')].some(b => b.textContent === '更新并启用')).toBe(true);
+    expect([...root.querySelectorAll('button')].some(b => b.textContent === '一键更新并配对')).toBe(true);
     cleanup();
   });
 });

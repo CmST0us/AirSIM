@@ -18,10 +18,11 @@ const failures: Record<FailureCode, [string, string]> = {
   not_ready: ['设备未准备', '完成设备准备后重试。'],
   paired: ['设备已连接', '重置当前连接，或选择其他设备。'],
   install_failed: ['Engine 安装失败', '检查数据线和设备权限，然后重新选择设备重试。'],
-  install_reconnect: ['确认安装结果', '请再次选择原设备，完成安装状态确认。'],
+  provision_failed: ['云端自动开通失败', '请保持模块连接并检查网络，然后重新选择设备重试。'],
+  install_reconnect: ['重新选择设备以继续', '模块已完成重启或 USB 切换，再次选择原设备即可自动完成云端开通并生成连接码。'],
   release_unavailable: ['无法获取 Engine 版本', '检查电脑网络后重新选择设备，核对最新安装包。'],
   adb_failed: ['模块初始化未完成', '关闭其他使用模块的程序后重试；若已开启 ADB，请重新选择设备。'],
-  adb_reconnect: ['重新选择模块', '等待模块重启后，再次选择原模块，继续安装 AirSIM Engine。若设备没有重新出现，请拔插模块电源。'],
+  adb_reconnect: ['重新选择模块', '等待模块重启后，再次选择原模块，将自动安装 AirSIM Engine、开通云端并生成连接码。若设备没有重新出现，请拔插模块电源。'],
   failed: ['连接失败', '检查设备电源和连接。选择设备，重试连接。'],
   unknown: ['无法读取设备', '检查设备连接。选择设备重试。'],
 };
@@ -168,12 +169,12 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
         const engineReady = !engine || engine.state === 'ready';
         const engineStarting = engine?.state === 'starting';
         const description = !engine ? '核对设备名称与标识。'
-          : engine.state === 'missing' ? '安装运行程序并启用开机自启。'
-            : engine.state === 'outdated' ? '更新运行程序并保持开机自启。'
-            : engine.state === 'incomplete' ? '继续安装 Engine 并配置开机启动，完成后恢复服务。'
+          : engine.state === 'missing' ? '一键安装运行程序、启用开机自启、自动开通云端并生成连接码。'
+            : engine.state === 'outdated' ? '一键更新运行程序并生成连接码，已有身份与配对保留。'
+            : engine.state === 'incomplete' ? '一键继续安装 Engine、配置开机启动、开通云端并生成连接码。'
               : engine.state === 'unavailable' ? '当前部署包不支持这台设备。'
                 : engineStarting ? '保持模块供电，等待启动完成后重新检查，无需重新安装。'
-                  : '核对设备名称与标识。Engine 已启用开机自启。';
+                  : '核对设备名称与标识。Engine 已启用开机自启，点击连接后如未开通将自动完成云端激活。';
         copy(
           engineStarting ? 'Engine 正在启动' : engineReady ? '确认设备' : '安装 AirSIM Engine',
           description,
@@ -184,16 +185,16 @@ export function mountPairing(root: HTMLElement, controller: PairingController) {
         } else if (!engineReady) {
           const note = element('div', 'install-note');
           note.append(
-            element('strong', '', '持久化安装'),
+            element('strong', '', '一键持久化配置'),
             element('p', '', engine?.state === 'unavailable'
               ? '请用电脑上的 Chrome 或 Edge 连接受支持的 RM500U 或 EG25 QDC507 模块。'
               : engine?.profile === 'eg25-qdc507'
-                ? '安装后自动启动。空间不足时会暂停 Engine，删除旧程序再安装新版；身份和配对保留。若更新中断，重新选择模块继续安装即可。'
-                : 'AirSIM Engine 会保存到模块的持久存储，并写入开机启动配置。模块身份和现有云连接配置不会被覆盖。'),
+                ? '安装后自动启动、自动签发云端设备证书并生成连接码。空间不足时会暂停 Engine，删除旧程序再安装新版；身份和配对保留。'
+                : 'AirSIM Engine 会保存到模块的持久存储，并自动完成云端开通与连接码生成。模块身份和现有云连接配置不会被覆盖。'),
           );
           content.append(note);
           if (engine?.state !== 'unavailable') {
-            actions.append(button(engine?.state === 'missing' ? '安装并启用' : '更新并启用', () => { void controller.installEngine(); }));
+            actions.append(button(engine?.state === 'missing' ? '一键安装并配对' : '一键更新并配对', () => { void controller.oneShot(); }));
           }
           actions.append(button('选择其他设备', choose, true));
         } else {

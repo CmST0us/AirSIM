@@ -33,6 +33,7 @@ export class PairingController {
   private pollTimer?: ReturnType<typeof setTimeout>;
   private statusInFlight = false;
   private heldDevice?: Device;
+  private autoConnectAfterSelect = false;
   private readonly operationId: () => string;
 
   constructor(private readonly options: ControllerOptions) {
@@ -84,6 +85,9 @@ export class PairingController {
     if (this.disposed || !['devices', 'failed', 'paired', 'ready'].includes(this.state.kind)) return;
     const transport = this.options.transport;
     if (!transport) return;
+    const resumingOneShot = this.state.kind === 'failed'
+      && (this.state.code === 'install_reconnect' || this.state.code === 'adb_reconnect');
+    if (!resumingOneShot) this.autoConnectAfterSelect = false;
     const generation = ++this.generation;
     const devices = this.state.kind === 'devices' ? this.state.devices : [];
     this.set({ kind: 'selecting', devices });
@@ -92,6 +96,7 @@ export class PairingController {
       if (!this.current(generation)) { await transport.disconnect(device); return; }
       await this.inspect(device, generation);
     } catch (error) {
+      this.autoConnectAfterSelect = false;
       if (this.current(generation)) this.set({ kind: 'failed', code: this.code(error) });
     }
   }
@@ -110,12 +115,35 @@ export class PairingController {
       if (previous && previous.id !== device.id) await transport.disconnect(previous);
       if (!this.current(generation)) return;
       this.heldDevice = device;
-      const inspected = await transport.inspect(device, this.lifetime.signal);
-      if (this.current(generation)) {
-        this.heldDevice = inspected;
-        this.set({ kind: 'ready', device: inspected });
+      let inspected = await transport.inspect(device, this.lifetime.signal);
+      if (!this.current(generation)) return;
+      this.heldDevice = inspected;
+      if (this.autoConnectAfterSelect) {
+        for (let attempts = 0; attempts < 60 && inspected.engine?.state === 'starting'; attempts++) {
+          this.set({ kind: 'installing', device: inspected, progress: 'Engine 正在启动，完成后自动开通云端并生成连接码…' });
+          await new Promise<void>(resolve => setTimeout(resolve, 1500));
+          if (!this.current(generation)) return;
+          inspected = await transport.inspect(inspected, this.lifetime.signal);
+          if (!this.current(generation)) return;
+          this.heldDevice = inspected;
+        }
+        const engineState = inspected.engine?.state;
+        if (engineState === 'ready' || !inspected.engine) {
+          this.autoConnectAfterSelect = false;
+          this.set({ kind: 'ready', device: inspected });
+          await this.connect();
+          return;
+        }
+        if (engineState && ['missing', 'incomplete', 'outdated'].includes(engineState)) {
+          this.set({ kind: 'ready', device: inspected });
+          await this.oneShot();
+          return;
+        }
+        this.autoConnectAfterSelect = false;
       }
+      this.set({ kind: 'ready', device: inspected });
     } catch (error) {
+      this.autoConnectAfterSelect = false;
       if (this.current(generation)) this.set({ kind: 'failed', code: this.code(error), device,
         ...(error instanceof TransportFailure && error.detail ? { detail: error.detail } : {}) });
     }
@@ -127,6 +155,7 @@ export class PairingController {
     if (!transport) return;
     const generation = ++this.generation;
     const device = this.state.device;
+    this.autoConnectAfterSelect = true;
     this.set({ kind: 'enabling_adb', device, progress: '正在准备模块…' });
     try {
       await transport.enableAdb(device, this.lifetime.signal, progress => {
@@ -134,18 +163,30 @@ export class PairingController {
       });
       if (this.current(generation)) this.set({ kind: 'failed', code: 'adb_reconnect', device });
     } catch (error) {
-      if (this.current(generation)) this.set({ kind: 'failed', code: this.code(error), device,
+      const code = this.code(error);
+      if (code !== 'adb_reconnect') this.autoConnectAfterSelect = false;
+      if (this.current(generation)) this.set({ kind: 'failed', code, device,
         ...(error instanceof TransportFailure && error.detail ? { detail: error.detail } : {}) });
     }
   }
 
   async installEngine() {
+    await this.runInstall(false);
+  }
+
+  /** One-shot setup: install/update Engine, auto-provision cloud cert, and generate pairing code. */
+  async oneShot() {
+    await this.runInstall(true);
+  }
+
+  private async runInstall(autoConnect: boolean) {
     if (this.disposed || this.state.kind !== 'ready'
       || !['missing', 'incomplete', 'outdated'].includes(this.state.device.engine?.state || '')) return;
     const transport = this.options.transport;
     if (!transport) return;
     const generation = ++this.generation;
     const device = this.state.device;
+    this.autoConnectAfterSelect = autoConnect;
     this.set({ kind: 'installing', device, progress: '正在准备 AirSIM Engine…' });
     try {
       const installed = await transport.install(device, this.lifetime.signal, message => {
@@ -153,10 +194,15 @@ export class PairingController {
       });
       if (!this.current(generation)) return;
       this.heldDevice = installed;
+      this.autoConnectAfterSelect = false;
       this.set({ kind: 'ready', device: installed });
+      if (autoConnect && (!installed.engine || installed.engine.state === 'ready')) {
+        await this.connect();
+      }
     } catch (error) {
+      const code = this.code(error);
+      if (code !== 'install_reconnect') this.autoConnectAfterSelect = false;
       if (this.current(generation)) {
-        const code = this.code(error);
         const detail = error instanceof TransportFailure
           ? error.detail
           : error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -199,9 +245,18 @@ export class PairingController {
     } catch (error) {
       // The write may have reached the device. Only status can resolve it.
       if (!this.current(generation)) return;
-      if (this.code(error) === 'paired') {
+      const code = this.code(error);
+      if (code === 'paired') {
         try { this.options.store?.clear(); } catch { /* Recovery is not needed before a device write. */ }
         this.set({ kind: 'paired', device: operation.device });
+      } else if (code === 'provision_failed' || code === 'not_ready') {
+        try { this.options.store?.clear(); } catch { /* Failed before any pairing session was created. */ }
+        this.set({
+          kind: 'failed',
+          code,
+          device: operation.device,
+          ...(error instanceof TransportFailure && error.detail ? { detail: error.detail } : {}),
+        });
       } else {
         this.set({ kind: 'unknown', operation });
       }
@@ -222,9 +277,18 @@ export class PairingController {
       if (this.current(generation)) this.result(operation, result);
     } catch (error) {
       if (!this.current(generation)) return;
-      if (this.code(error) === 'paired') {
+      const code = this.code(error);
+      if (code === 'paired') {
         try { this.options.store?.clear(); } catch { /* Recovery is not needed before a device write. */ }
         this.set({ kind: 'paired', device: operation.device });
+      } else if (code === 'provision_failed' || code === 'not_ready') {
+        try { this.options.store?.clear(); } catch { /* Failed before any pairing session was created. */ }
+        this.set({
+          kind: 'failed',
+          code,
+          device: operation.device,
+          ...(error instanceof TransportFailure && error.detail ? { detail: error.detail } : {}),
+        });
       } else {
         this.set({ kind: 'unknown', operation });
       }

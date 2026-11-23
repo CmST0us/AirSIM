@@ -18,7 +18,9 @@ const manifest = {
 describe('module platform selection', () => {
   it('recognizes the connected QDC507 firmware and rejects other ARMv7 firmware', () => {
     expect(detectPlatform(parseProperties(eg25.replaceAll('\n', '\r\n')))).toBe('eg25-qdc507');
-    expect(detectPlatform(parseProperties(eg25.replace('02.004.03', '02.005.01')))).toBeUndefined();
+    expect(detectPlatform(parseProperties(eg25.replace('02.004.03', '01.009.01')))).toBe('eg25-qdc507');
+    expect(detectPlatform(parseProperties(eg25.replace('QDC507GLEFM21', 'QDC507GLEFM22')))).toBeUndefined();
+    expect(detectPlatform(parseProperties(eg25.replace('02.004.03', '02.004.03extra')))).toBeUndefined();
     expect(detectPlatform(parseProperties(eg25.replace('uid=0', 'uid=2000')))).toBeUndefined();
     expect(detectPlatform(parseProperties('os=Linux\nuid=0\narch=aarch64\nhost=udx710-module'))).toBe('rm500u-embedded');
   });

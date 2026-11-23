@@ -11,6 +11,7 @@ export { prepareEngineStorageScript } from './engine-storage';
 
 const socketPath = '/run/airsim-v2/control.sock';
 const sessionKey = 'airsim.pairing-session';
+const provisionKey = 'airsim.provision-session';
 const maxResponseBytes = 64 * 1024;
 const localTimeout = 8_000;
 const authTimeout = 20_000;
@@ -68,6 +69,39 @@ interface AgentProof {
   module_id: string;
   public_key_base64: string;
   proof_base64: string;
+}
+
+interface ProvisionPrepare {
+  request_id: string;
+  server_id: string;
+  api_origin: string;
+  device_origin: string;
+  media_origin: string;
+  device_ca_pem: string;
+  server_ca_pem: string;
+  nonce: string;
+  expires_at: string;
+}
+
+interface ProvisionSession {
+  prepare: ProvisionPrepare;
+  prepare_token: string;
+}
+
+interface ProvisionResponse {
+  request_id: string;
+  module_id: string;
+  public_key_base64: string;
+  csr_pem: string;
+  proof_base64: string;
+}
+
+interface ProvisionBundle {
+  request_id: string;
+  server_id: string;
+  module_id: string;
+  certificate_pem: string;
+  receipt_base64: string;
 }
 
 interface PairingSession {
@@ -389,7 +423,7 @@ trap - EXIT HUP INT TERM
 
 # All payloads, the real launcher and init entry are durable before releasing
 # a low-space maintenance waiter (also survives a browser/USB interruption).
-rm -f "$base/.engine-reinstall-pending"
+rm -f "$base/.engine-reinstall-pending" "$base/.airsim-install.sh.new"
 sync
 
 pids="$(pidof airsim-agent 2>/dev/null || true)"
@@ -512,6 +546,154 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
     if (load()?.requestId === requestId) storage.removeItem(sessionKey);
   }
 
+  function saveProvision(session: ProvisionSession) {
+    storage.setItem(provisionKey, JSON.stringify(session));
+  }
+
+  function loadProvision(): ProvisionSession | undefined {
+    const raw = storage.getItem(provisionKey);
+    if (!raw) return;
+    try {
+      const value = JSON.parse(raw) as ProvisionSession;
+      const p = value?.prepare;
+      if (!p || typeof value.prepare_token !== 'string') return;
+      return typeof p.request_id === 'string' && typeof p.server_id === 'string'
+        && typeof p.api_origin === 'string' && typeof p.device_origin === 'string'
+        && typeof p.media_origin === 'string' && typeof p.device_ca_pem === 'string'
+        && typeof p.server_ca_pem === 'string' && typeof p.nonce === 'string'
+        && typeof p.expires_at === 'string' ? value : undefined;
+    } catch {
+      return;
+    }
+  }
+
+  function clearProvision() {
+    storage.removeItem(provisionKey);
+  }
+
+  async function syncDeviceClock(adb: Adb, signal: AbortSignal, referenceMs = Date.now()): Promise<void> {
+    const targetSec = Math.floor(referenceMs / 1000);
+    if (!Number.isFinite(targetSec) || targetSec < 1_700_000_000) return;
+    const iso = new Date(targetSec * 1000).toISOString().slice(0, 19).replace('T', ' ');
+    try {
+      await shellText(adb,
+        `now="$(date -u +%s 2>/dev/null || echo 0)"; `
+        + `case "$now" in ''|*[!0-9]*) now=0 ;; esac; `
+        + `diff=$(( ${targetSec} - now )); [ "$diff" -lt 0 ] && diff=$(( -diff )); `
+        + `if [ "$diff" -gt 30 ]; then `
+        + `date -u -s "${iso}" >/dev/null 2>&1 || date -u -s "@${targetSec}" >/dev/null 2>&1 || true; `
+        + `hwclock -w >/dev/null 2>&1 || true; `
+        + `fi`,
+        signal,
+      );
+    } catch (error) {
+      if (signal.aborted) throw error;
+    }
+  }
+
+  async function ensureProvisioned(adb: Adb, signal: AbortSignal, progress?: (message: string) => void): Promise<AgentStatus> {
+    await syncDeviceClock(adb, signal);
+    let probe: { status: number; body: unknown };
+    try {
+      probe = await localJSON<unknown>(adb, 'GET', '/v2/local/pairing', undefined, signal);
+    } catch (error) {
+      if (error instanceof TransportFailure && ['cancelled', 'disconnected'].includes(error.code)) throw error;
+      const reason = error instanceof TransportFailure ? (error.detail || error.code) : String(error);
+      throw new TransportFailure('provision_failed', `无法读取模块云端状态（${reason}）。`);
+    }
+    if (probe.status === 200 && validAgentStatus(probe.body) && probe.body.configured) {
+      if (!isPlatform(probe.body.profile)) throw new TransportFailure('unsupported');
+      if (!probe.body.server_id || !probe.body.api_origin || !probe.body.media_origin) {
+        throw new TransportFailure('provision_failed', '模块云端配置不完整。');
+      }
+      return probe.body;
+    }
+    const unconfigured = probe.status === 200 && validAgentStatus(probe.body) && !probe.body.configured;
+    const expired = probe.status === 410;
+    if (!unconfigured && !expired) {
+      if (probe.status === 200 || probe.status === 404) {
+        throw new TransportFailure('not_ready', '模块尚未提供配对状态接口。');
+      }
+      const errCode = probe.body && typeof probe.body === 'object' && typeof (probe.body as Record<string, unknown>).error === 'string'
+        ? String((probe.body as Record<string, unknown>).error) : '';
+      throw new TransportFailure('provision_failed', `模块云端状态异常（HTTP ${probe.status}${errCode ? `: ${errCode}` : ''}）。`);
+    }
+    progress?.('正在自动开通云端连接…');
+    let pending = loadProvision();
+    if (!pending || !Number.isFinite(Date.parse(pending.prepare.expires_at))
+      || Date.parse(pending.prepare.expires_at) <= Date.now() + 15_000) {
+      const requestId = crypto.randomUUID();
+      let prepared: { prepare?: ProvisionPrepare; prepare_token?: string };
+      try {
+        prepared = await serviceJSON('/v2/pairing/provision/prepare', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ request_id: requestId }),
+        }, [200], signal) as { prepare?: ProvisionPrepare; prepare_token?: string };
+      } catch (error) {
+        if (signal.aborted) throw error;
+        const reason = error instanceof TransportFailure ? (error.detail || error.code) : String(error);
+        throw new TransportFailure('provision_failed', `向云端申请开通参数失败（${reason}）。`);
+      }
+      if (!prepared?.prepare || typeof prepared.prepare_token !== 'string'
+        || prepared.prepare.request_id !== requestId) {
+        throw new TransportFailure('provision_failed', '云端初始化响应格式无效。');
+      }
+      pending = { prepare: prepared.prepare, prepare_token: prepared.prepare_token };
+      saveProvision(pending);
+    }
+    // Align module UTC clock to server time (expires_at - 5 min) so fresh/no-SIM
+    // modules stuck at 1980-01-06 pass Agent expiry & X.509 certificate checks.
+    const serverNowMs = Date.parse(pending.prepare.expires_at) - 300_000;
+    if (Number.isFinite(serverNowMs)) {
+      await syncDeviceClock(adb, signal, serverNowMs);
+    }
+    const localPrepare = await localJSON<unknown>(adb, 'POST', '/v2/local/cloud/prepare', pending.prepare, signal);
+    if (localPrepare.status !== 200 || !validProvisionResponse(localPrepare.body, pending.prepare.request_id)) {
+      clearProvision();
+      throw new TransportFailure('provision_failed', `模块拒绝生成云端开通凭证（HTTP ${localPrepare.status}）。`);
+    }
+    let issued: unknown;
+    try {
+      issued = await serviceJSON('/v2/pairing/provision/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prepare: pending.prepare,
+          prepare_token: pending.prepare_token,
+          response: localPrepare.body,
+        }),
+      }, [200, 201], signal);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      const reason = error instanceof TransportFailure ? (error.detail || error.code) : String(error);
+      throw new TransportFailure('provision_failed', `云端签发设备证书失败（${reason}）。`);
+    }
+    if (!validProvisionBundle(issued, pending.prepare.request_id)) {
+      throw new TransportFailure('provision_failed', '云端签发的设备证书格式无效。');
+    }
+    const activated = await localJSON<unknown>(adb, 'POST', '/v2/local/cloud/activate', issued, signal);
+    if (activated.status !== 200) {
+      throw new TransportFailure('provision_failed', `模块激活云端证书失败（HTTP ${activated.status}）。`);
+    }
+    clearProvision();
+    progress?.('云端证书已激活，正在建立连接…');
+    let latest: AgentStatus;
+    try {
+      latest = await readStatus(adb, signal);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      const reason = error instanceof TransportFailure ? (error.detail || error.code) : String(error);
+      throw new TransportFailure('provision_failed', `云端证书已写入，但读取模块状态失败（${reason}）。`);
+    }
+    const deadline = Date.now() + 6_000;
+    while (!latest.connected && Date.now() < deadline) {
+      await pause(800, signal);
+      try { latest = await readStatus(adb, signal); } catch { break; }
+    }
+    return latest;
+  }
+
   async function serviceJSON(path: string, init: RequestInit, expected: number[] = [200], signal?: AbortSignal): Promise<unknown> {
     let response: Response;
     try {
@@ -523,19 +705,19 @@ export function createWebUsbTransport(options: WebUsbOptions = {}): DeviceTransp
         signal,
         headers: { Accept: 'application/json', ...init.headers },
       });
-    } catch {
-      throw new TransportFailure('unknown');
+    } catch (error) {
+      throw new TransportFailure('unknown', error instanceof Error ? `${error.name}: ${error.message}` : undefined);
     }
     if (response.status === 410) return { state: 'expired' };
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength > maxResponseBytes) throw new TransportFailure('failed');
     let body: unknown;
     try { body = JSON.parse(new TextDecoder().decode(bytes)); }
-    catch { throw new TransportFailure('failed'); }
+    catch { throw new TransportFailure('failed', `HTTP ${response.status}`); }
     if (!expected.includes(response.status)) {
       const code = body && typeof body === 'object' && typeof (body as Record<string, unknown>).error === 'string'
         ? String((body as Record<string, unknown>).error) : undefined;
-      throw new TransportFailure(failureForStatus(response.status, code));
+      throw new TransportFailure(failureForStatus(response.status, code), `HTTP ${response.status}${code ? `: ${code}` : ''}`);
     }
     return body;
   }
@@ -915,20 +1097,29 @@ done
     existing: PairingSession | undefined,
     signal: AbortSignal,
   ): Promise<ConnectionResult> {
-    const status = await readStatus(attachment.adb, signal);
+    const status = await ensureProvisioned(attachment.adb, signal);
     const pollToken = existing?.pollToken || crypto.getRandomValues(new Uint8Array(32)).reduce(
       (value, byte) => value + byte.toString(16).padStart(2, '0'), '');
     let session = existing;
     if (!session) {
       const replaceExisting = operation.replaceExisting === true;
-      const challengeBody = await serviceJSON('/v2/pairing/challenges', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(challengeRequest(operation, status.module_id, pollToken)),
-      }, [200, 201], signal);
-      if (!validChallenge(challengeBody, operation)) throw new TransportFailure('failed');
+      let challengeBody: unknown;
+      try {
+        challengeBody = await serviceJSON('/v2/pairing/challenges', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(challengeRequest(operation, status.module_id, pollToken)),
+        }, [200, 201], signal);
+      } catch (error) {
+        if (error instanceof TransportFailure && ['paired', 'disconnected', 'timeout', 'unknown', 'cancelled'].includes(error.code)) {
+          throw error;
+        }
+        const reason = error instanceof TransportFailure ? (error.detail || error.code) : String(error);
+        throw new TransportFailure('provision_failed', `创建配对请求失败（${reason}）。`);
+      }
+      if (!validChallenge(challengeBody, operation)) throw new TransportFailure('provision_failed', '配对响应格式无效。');
       if (challengeBody.server_id !== status.server_id || !(await validOrigin(status.api_origin))) {
-        throw new TransportFailure('not_ready');
+        throw new TransportFailure('provision_failed', '模块绑定的云端服务地址与当前站点不一致。');
       }
       session = {
         requestId: operation.id, pollToken, deviceId: operation.device.id,
@@ -937,6 +1128,10 @@ done
         replaceExisting,
       };
       save(session);
+    }
+    const challengeNowMs = Date.parse(session.expiresAt) - 300_000;
+    if (Number.isFinite(challengeNowMs)) {
+      await syncDeviceClock(attachment.adb, signal, challengeNowMs);
     }
     const proofResponse = await localJSON<unknown>(attachment.adb, 'POST', '/v2/local/pairing/authorize', {
       request_id: session.requestId,
@@ -1111,6 +1306,8 @@ done
           if (!reclaimed.includes('AIRSIM_ENGINE_RECLAIMED')) throw new TransportFailure('install_failed', '未能完成旧程序清理。');
           await stageFiles();
         }
+        stage = '同步模块时钟';
+        await syncDeviceClock(attachment.adb, signal);
         stage = '执行持久化安装脚本';
         progress('正在执行持久化安装脚本…');
         activating = true;
@@ -1119,10 +1316,18 @@ done
         progress('等待 AirSIM Engine 启动…');
         const result = await waitForAgent(attachment, signal);
         attachment = result.attachment;
-        const status = result.status;
+        let status = result.status;
         stage = '读取安装结果';
         const engine = await inspectEngine(attachment.adb, signal);
         if (engine.state !== 'ready') throw new TransportFailure('install_failed', 'Engine 文件或自启动状态未通过安装验证。');
+        if (!status) {
+          stage = '自动开通云端连接';
+          try { status = await ensureProvisioned(attachment.adb, signal, progress); }
+          catch (error) {
+            if (signal.aborted) throw error;
+            if (!(error instanceof TransportFailure && error.code === 'not_ready')) throw error;
+          }
+        }
         // A serial-bearing module may have re-enumerated with a fresh USB handle.
         const installed = deviceView(attachment.usb, status, engine);
         inspectedDevices.set(attachment.usb.serial, installed);
@@ -1198,6 +1403,26 @@ export function challengeRequest(operation: Operation, module: string, pollToken
     poll_token: pollToken,
     ...(operation.replaceExisting === true ? { replace_existing: true } : {}),
   };
+}
+
+function validProvisionResponse(value: unknown, requestId: string): value is ProvisionResponse {
+  if (!value || typeof value !== 'object') return false;
+  const resp = value as Record<string, unknown>;
+  return resp.request_id === requestId
+    && typeof resp.module_id === 'string' && resp.module_id.length > 0
+    && typeof resp.public_key_base64 === 'string' && resp.public_key_base64.length > 0
+    && typeof resp.csr_pem === 'string' && resp.csr_pem.includes('BEGIN CERTIFICATE REQUEST')
+    && typeof resp.proof_base64 === 'string' && resp.proof_base64.length > 0;
+}
+
+function validProvisionBundle(value: unknown, requestId: string): value is ProvisionBundle {
+  if (!value || typeof value !== 'object') return false;
+  const bundle = value as Record<string, unknown>;
+  return bundle.request_id === requestId
+    && typeof bundle.server_id === 'string' && bundle.server_id.length > 0
+    && typeof bundle.module_id === 'string' && bundle.module_id.length > 0
+    && typeof bundle.certificate_pem === 'string' && bundle.certificate_pem.includes('BEGIN CERTIFICATE')
+    && typeof bundle.receipt_base64 === 'string' && bundle.receipt_base64.length > 0;
 }
 
 function validProof(value: unknown, session: PairingSession): value is AgentProof {
