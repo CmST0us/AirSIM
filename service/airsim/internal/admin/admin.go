@@ -101,7 +101,7 @@ func ClientTTL(ctx context.Context, db *store.Store, out string, ttl time.Durati
 	if e = tx.QueryRow(ctx, "SELECT count(*) FROM clients WHERE user_id=$1 AND NOT revoked AND expires_at>now()", owner).Scan(&count); e != nil {
 		return e
 	}
-	if count >= 16 {
+	if count >= 64 {
 		return errors.New("capacity_exceeded")
 	}
 	id, token := wire.ID(), wire.Token()
@@ -248,12 +248,12 @@ func Issue(ctx context.Context, db *store.Store, dir, request, response, out str
 	if e = tx.QueryRow(ctx, "SELECT count(*) FROM modules WHERE user_id=$1", owner).Scan(&count); e != nil {
 		return e
 	}
-	if count >= 16 {
+	if count >= 64 {
 		return errors.New("capacity_exceeded")
 	}
 	sn := serial()
 	san, _ := url.Parse(uri)
-	tmpl := &x509.Certificate{SerialNumber: sn, Subject: pkix.Name{CommonName: r.Module}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().AddDate(0, 0, 30), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, URIs: []*url.URL{san}}
+	tmpl := &x509.Certificate{SerialNumber: sn, Subject: pkix.Name{CommonName: r.Module}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().AddDate(0, 0, 90), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, URIs: []*url.URL{san}}
 	der, e := x509.CreateCertificate(rand.Reader, tmpl, ca, cp, key)
 	if e != nil {
 		return e
@@ -267,6 +267,77 @@ func Issue(ctx context.Context, db *store.Store, dir, request, response, out str
 		return errors.New("provision_conflict")
 	}
 	if _, e = tx.Exec(ctx, "INSERT INTO provisions(request_id,module_id,request_digest,bundle) VALUES($1,$2,$3,$4)", p.Request, r.Module, digest, encoded); e != nil {
+		return e
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return e
+	}
+	return Save(out, encoded)
+}
+
+// RenewModule mints a replacement 90-day leaf certificate for an existing
+// non-revoked module (e.g. if its previous certificate expired while offline)
+// and writes the activation bundle using the original request_id and nonce.
+func RenewModule(ctx context.Context, db *store.Store, dir, moduleID, requestID, nonce, out string) error {
+	if !wire.UUID.MatchString(moduleID) || !wire.UUID.MatchString(requestID) || !wire.Hex.MatchString(nonce) {
+		return invalid
+	}
+	caBytes, e := read(filepath.Join(dir, "device-ca.pem"))
+	if e != nil {
+		return e
+	}
+	cb, _ := pem.Decode(caBytes)
+	if cb == nil {
+		return invalid
+	}
+	ca, e := x509.ParseCertificate(cb.Bytes)
+	if e != nil {
+		return invalid
+	}
+	keyBytes, e := read(filepath.Join(dir, "device-ca-key.pem"))
+	if e != nil {
+		return e
+	}
+	kb, _ := pem.Decode(keyBytes)
+	if kb == nil {
+		return invalid
+	}
+	keyAny, e := x509.ParsePKCS8PrivateKey(kb.Bytes)
+	if e != nil {
+		return invalid
+	}
+	key, ok := keyAny.(ed25519.PrivateKey)
+	if !ok {
+		return invalid
+	}
+	tx, e := db.Begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	var server string
+	var pub []byte
+	var currentSerial string
+	if e = tx.QueryRow(ctx, "SELECT server_id,public_key,serial FROM modules WHERE id=$1 AND NOT revoked FOR UPDATE", moduleID).Scan(&server, &pub, &currentSerial); e != nil {
+		return e
+	}
+	if len(pub) != ed25519.PublicKeySize {
+		return invalid
+	}
+	uri := "urn:airsim:" + server + ":module:" + moduleID
+	san, _ := url.Parse(uri)
+	sn := serial()
+	tmpl := &x509.Certificate{SerialNumber: sn, Subject: pkix.Name{CommonName: moduleID}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().AddDate(0, 0, 90), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, URIs: []*url.URL{san}}
+	der, e := x509.CreateCertificate(rand.Reader, tmpl, ca, ed25519.PublicKey(pub), key)
+	if e != nil {
+		return e
+	}
+	cert := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	ch := sha256.Sum256(der)
+	receipt := strings.Join([]string{"airsim-v2-r4-commit", requestID, server, moduleID, hex.EncodeToString(ch[:]), nonce, ""}, "\n")
+	bundle := Bundle{requestID, server, moduleID, cert, base64.StdEncoding.EncodeToString(ed25519.Sign(key, []byte(receipt)))}
+	encoded, _ := json.Marshal(bundle)
+	if _, e = tx.Exec(ctx, "UPDATE modules SET previous_serial=$1,serial=$2,certificate=$3 WHERE id=$4 AND NOT revoked", currentSerial, sn.String(), cert, moduleID); e != nil {
 		return e
 	}
 	if e = tx.Commit(ctx); e != nil {

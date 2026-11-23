@@ -163,6 +163,18 @@ func pairingProofBytes(requestID, serverID, moduleID, nonce, expires, pollHash s
 func (s *Server) pairing(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	switch r.URL.Path {
+	case "/v2/pairing/provision/prepare":
+		if r.Method != http.MethodPost {
+			wire.Error(w, http.StatusMethodNotAllowed, "method_not_allowed")
+			return
+		}
+		s.provisionPrepareHandler(w, r)
+	case "/v2/pairing/provision/issue":
+		if r.Method != http.MethodPost {
+			wire.Error(w, http.StatusMethodNotAllowed, "method_not_allowed")
+			return
+		}
+		s.provisionIssueHandler(w, r)
 	case "/v2/pairing/challenges":
 		if r.Method != http.MethodPost {
 			wire.Error(w, http.StatusMethodNotAllowed, "method_not_allowed")

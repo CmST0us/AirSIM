@@ -1,0 +1,2 @@
+ALTER TABLE modules ADD COLUMN IF NOT EXISTS previous_serial text NOT NULL DEFAULT '';
+INSERT INTO schema_version(version) VALUES(7) ON CONFLICT DO NOTHING;

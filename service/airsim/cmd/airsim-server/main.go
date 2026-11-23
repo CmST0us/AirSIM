@@ -43,6 +43,8 @@ func main() {
 	if !cfg.Roots.AppendCertsFromPEM(b) {
 		rt.Exit(errors.New("ca_invalid"))
 	}
+	cfg.DeviceCA, cfg.DeviceCAKey, e = control.LoadDeviceCA(b, os.Getenv("DEVICE_CA_KEY_FILE"))
+	rt.Exit(e)
 	_, e = db.Exec(ctx, "UPDATE commands SET state='outcome_unknown' WHERE state IN ('pending','dispatched')")
 	rt.Exit(e)
 	provider, e := push.LoadConfig(push.Config{

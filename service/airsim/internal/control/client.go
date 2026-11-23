@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"github.com/jackc/pgx/v5"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -144,8 +145,21 @@ func (s *Server) command(w http.ResponseWriter, r *http.Request, user, client, m
 	h.Write(canonical)
 	digest := hex.EncodeToString(h.Sum(nil))
 	ctx := r.Context()
+	// Snapshot peer state briefly under s.mu; run the entire Postgres
+	// transaction outside s.mu so DB latency never stalls heartbeats/WS I/O.
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	p := s.peers[module]
+	var peerEpoch, peerBoot, peerBackend string
+	var peerReady bool
+	var peerCalls []Call
+	if p != nil && p.snapshot != nil {
+		peerEpoch = p.epoch
+		peerBoot = p.boot
+		peerBackend = p.backend
+		peerReady = p.snapshot.Control.Ready
+		peerCalls = append([]Call(nil), p.snapshot.Calls.Calls...)
+	}
+	s.mu.Unlock()
 	tx, e := s.db.Begin(ctx)
 	if e != nil {
 		wire.Error(w, 503, "database_unavailable")
@@ -179,12 +193,13 @@ func (s *Server) command(w http.ResponseWriter, r *http.Request, user, client, m
 		wire.Error(w, 503, "database_unavailable")
 		return
 	}
-	p := s.peers[module]
-	if p == nil || p.snapshot == nil || !p.snapshot.Control.Ready {
+	if p == nil || !peerReady {
+		log.Printf("command_rejected module=%s action=%s code=module_offline", module, req.Action)
 		wire.Error(w, 503, "module_offline")
 		return
 	}
-	if p.epoch != b.Epoch || p.boot != req.Boot || p.backend != req.Backend {
+	if peerEpoch != b.Epoch || peerBoot != req.Boot || peerBackend != req.Backend {
+		log.Printf("command_rejected module=%s action=%s code=epoch_conflict", module, req.Action)
 		wire.Error(w, 409, "epoch_conflict")
 		return
 	}
@@ -198,7 +213,18 @@ func (s *Server) command(w http.ResponseWriter, r *http.Request, user, client, m
 		wire.Error(w, 503, "database_unavailable")
 		return
 	}
+	if count >= 9000 {
+		// Reclaim old completed/unknown history before enforcing the 10k ceiling.
+		_, _ = tx.Exec(ctx, `DELETE FROM commands WHERE id IN (
+			SELECT id FROM commands WHERE state IN ('completed','outcome_unknown')
+			AND created_at < now() - interval '24 hours'
+			AND id NOT IN (SELECT command_id FROM reservations)
+			ORDER BY created_at ASC LIMIT 2000
+		)`)
+		_ = tx.QueryRow(ctx, "SELECT count(*) FROM commands").Scan(&count)
+	}
 	if count >= 10000 || pending >= 32 {
+		log.Printf("command_rejected module=%s action=%s code=capacity_exceeded count=%d pending=%d", module, req.Action, count, pending)
 		wire.Error(w, 429, "capacity_exceeded")
 		return
 	}
@@ -215,8 +241,8 @@ func (s *Server) command(w http.ResponseWriter, r *http.Request, user, client, m
 	if req.Action != "sms.send" {
 		idle := true
 		var target *Call
-		for i := range p.snapshot.Calls.Calls {
-			c := &p.snapshot.Calls.Calls[i]
+		for i := range peerCalls {
+			c := &peerCalls[i]
 			if c.State != "disconnected" {
 				idle = false
 			}
@@ -268,7 +294,11 @@ func (s *Server) command(w http.ResponseWriter, r *http.Request, user, client, m
 		wire.Error(w, 503, "database_unavailable")
 		return
 	}
-	if !s.enqueue(p, "command", map[string]any{"client_installation_id": client, "generation": generation, "command": req}) {
+	s.mu.Lock()
+	enqueued := s.peers[module] == p && s.enqueue(p, "command", map[string]any{"client_installation_id": client, "generation": generation, "command": req})
+	s.mu.Unlock()
+	if !enqueued {
+		log.Printf("command_dispatch_failed module=%s action=%s command_id=%s", module, req.Action, req.ID)
 		_, _ = s.db.Exec(ctx, "UPDATE commands SET state='outcome_unknown' WHERE id=$1", req.ID)
 	}
 	wire.JSON(w, 202, Record{ID: req.ID, State: "pending", Generation: generation})

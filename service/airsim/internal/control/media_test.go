@@ -261,3 +261,33 @@ func TestOpusHelperReadySnapshot(t *testing.T) {
 		t.Fatal("codec or hardware PCM metadata lost")
 	}
 }
+
+func TestMediaClosedSessionsPrunedAfterTTLAndGracePreservesStreaming(t *testing.T) {
+	s := New(nil, Config{})
+	now := time.Now()
+	oldID, freshID := wire.ID(), wire.ID()
+	s.sessions[oldID] = &mediaSession{Request: oldID, Closed: true, closedAt: now.Add(-25 * time.Hour), answered: make(chan struct{})}
+	s.sessions[freshID] = &mediaSession{Request: freshID, Closed: true, closedAt: now.Add(-1 * time.Hour), answered: make(chan struct{})}
+	s.pruneClosedSessions(now)
+	if _, ok := s.sessions[oldID]; ok {
+		t.Fatal("expired closed session not pruned")
+	}
+	if _, ok := s.sessions[freshID]; !ok {
+		t.Fatal("recent closed session pruned prematurely")
+	}
+	// Streaming session survives brief control drop within controlReconnectGrace.
+	streaming := &mediaSession{
+		started:      true,
+		Answer:       "v=0\r\n",
+		offlineSince: now.Add(-5 * time.Second),
+		answered:     make(chan struct{}),
+		Spec:         mediaSpec{ID: wire.ID(), Module: wire.ID()},
+	}
+	if !s.mediaActive(streaming) {
+		t.Fatal("streaming session not preserved during brief control disconnect")
+	}
+	streaming.offlineSince = now.Add(-(controlReconnectGrace + time.Second))
+	if s.mediaActive(streaming) {
+		t.Fatal("streaming session did not expire after reconnect grace")
+	}
+}

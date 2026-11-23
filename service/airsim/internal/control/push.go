@@ -5,6 +5,7 @@ import (
 	"airsim.local/server/internal/wire"
 	"context"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -230,6 +231,9 @@ func (s *Server) deliverPush(ctx context.Context, sub subscription, event pushEv
 		payload["number"] = current.Number
 	}
 	result, err := s.cfg.Push.Send(ctx, n)
+	if err != nil {
+		log.Printf("push_failed module=%s kind=%s env=%s retry=%t invalid_token=%t", event.Module, n.Kind, sub.Environment, result.Retry, result.InvalidToken)
+	}
 	if err == nil || !result.Retry {
 		_, _ = s.db.Exec(ctx, `UPDATE push_deliveries SET finished=true WHERE registration_id=$1 AND module_id=$2 AND agent_boot_id=$3 AND backend_epoch=$4 AND event=$5 AND event_id=$6`, key...)
 	}
@@ -295,6 +299,7 @@ func (s *Server) RunPush(ctx context.Context) {
 		case <-cleanup.C:
 			_, _ = s.db.Exec(ctx, `DELETE FROM push_registrations r USING clients c WHERE r.client_id=c.id AND (c.revoked OR (c.refresh_hash IS NULL AND c.expires_at<=now()) OR (c.refresh_hash IS NOT NULL AND c.refresh_expires_at IS NOT NULL AND c.refresh_expires_at<=now()))`)
 			_, _ = s.db.Exec(ctx, `DELETE FROM push_calls WHERE last_seen<now()-interval '31 days'`)
+			_, _ = s.db.Exec(ctx, `DELETE FROM push_deliveries WHERE created_at<now()-interval '31 days'`)
 		}
 	}
 }

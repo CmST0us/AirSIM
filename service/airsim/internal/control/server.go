@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/coder/websocket"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -25,8 +26,11 @@ type Config struct {
 	// TURNSecret signs relay credentials; TURNHost is the relay's public address.
 	TURNSecret, TURNHost string
 	Roots                *x509.CertPool
-	Push                 push.Sender
-	PushBundle           string
+	// Optional DeviceCA + DeviceCAKey enable automatic online device mTLS certificate renewal.
+	DeviceCA    *x509.Certificate
+	DeviceCAKey ed25519.PrivateKey
+	Push        push.Sender
+	PushBundle  string
 }
 type peer struct {
 	queried                      bool
@@ -113,21 +117,30 @@ func (s *Server) authenticateDevice(r *http.Request) (string, time.Time, error) 
 		return "", time.Time{}, wire.ErrInvalid
 	}
 	var pub []byte
-	var serial string
+	var serial, previousSerial string
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	e = s.db.QueryRow(ctx, "SELECT public_key,serial FROM modules WHERE id=$1 AND server_id=$2 AND NOT revoked", module, s.cfg.Server).Scan(&pub, &serial)
+	e = s.db.QueryRow(ctx, "SELECT public_key,serial,previous_serial FROM modules WHERE id=$1 AND server_id=$2 AND NOT revoked", module, s.cfg.Server).Scan(&pub, &serial, &previousSerial)
 	key, ok := cert.PublicKey.(ed25519.PublicKey)
-	if e != nil || !ok || string(pub) != string(key) || serial != cert.SerialNumber.String() {
+	presented := cert.SerialNumber.String()
+	serialOK := presented == serial || (previousSerial != "" && presented == previousSerial)
+	if e != nil || !ok || string(pub) != string(key) || !serialOK {
 		return "", time.Time{}, wire.ErrInvalid
+	}
+	if presented == serial && previousSerial != "" {
+		_, _ = s.db.Exec(ctx, "UPDATE modules SET previous_serial='' WHERE id=$1 AND server_id=$2 AND serial=$3", module, s.cfg.Server, serial)
 	}
 	return module, cert.NotAfter, nil
 }
 func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 	module, certificateExpiry, e := s.authenticateDevice(r)
 	if e != nil {
+		log.Printf("device_auth_failed reason=%v", e)
 		wire.Error(w, 401, "unauthorized")
 		return
+	}
+	if s.cfg.DeviceCA != nil && s.cfg.DeviceCAKey != nil {
+		w.Header().Set("X-AirSIM-Cert-Renewal", "1")
 	}
 	c, e := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"airsim.control.v2"}, CompressionMode: websocket.CompressionDisabled})
 	if e != nil {
@@ -151,28 +164,52 @@ func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 	p := &peer{conn: c, module: module, epoch: wire.ID(), boot: hello.Boot, backend: hello.Backend, platform: hello.Platform, mediaCodec: hello.MediaCodec, usbLocal: hello.USBLocal, ctx: ctx, cancel: cancel, queue: make(chan Envelope, 32), last: time.Now()}
 	s.mu.Lock()
 	if old := s.peers[module]; old != nil {
+		sameRuntime := old.boot == p.boot && old.backend == p.backend
 		for _, m := range s.sessions {
 			if m.Spec.Module == module && !m.Closed {
-				s.stopMedia(m, "connection_replaced")
+				if sameRuntime && m.Answer != "" {
+					// Preserve running WebRTC media across control WSS reconnects.
+					m.Spec.Connection = p.epoch
+					m.offlineSince = time.Time{}
+				} else {
+					s.stopMedia(m, "connection_replaced")
+				}
 			}
 		}
 		old.cancel()
 		old.conn.CloseNow()
+	} else {
+		// Rebind any streaming sessions surviving a transient control drop.
+		for _, m := range s.sessions {
+			if m.Spec.Module == module && !m.Closed && m.Answer != "" && m.Spec.Boot == p.boot && m.Spec.Backend == p.backend {
+				m.Spec.Connection = p.epoch
+				m.offlineSince = time.Time{}
+			}
+		}
 	}
 	s.peers[module] = p
 	s.last[module] = p
 	s.mu.Unlock()
+	log.Printf("device_connected module=%s platform=%s epoch=%s cert_expires=%s", module, hello.Platform, p.epoch, certificateExpiry.UTC().Format(time.RFC3339))
+	disconnectReason := "closed"
 	defer func() {
+		now := time.Now()
 		s.mu.Lock()
 		if s.peers[module] == p {
 			delete(s.peers, module)
 			for _, m := range s.sessions {
-				if m.Spec.Module == module && m.Spec.Connection == p.epoch {
-					s.stopMedia(m, "control_closed")
+				if m.Spec.Module == module && m.Spec.Connection == p.epoch && !m.Closed {
+					if m.Answer == "" {
+						s.stopMedia(m, "control_closed")
+					} else if m.offlineSince.IsZero() {
+						// Active WebRTC media outlives brief control WSS disconnects.
+						m.offlineSince = now
+					}
 				}
 			}
 		}
 		s.mu.Unlock()
+		log.Printf("device_disconnected module=%s epoch=%s reason=%s", module, p.epoch, disconnectReason)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_, _ = s.db.Exec(ctx, "UPDATE commands SET state='outcome_unknown' WHERE module_id=$1 AND connection_epoch=$2 AND state IN ('pending','dispatched')", module, p.epoch)
@@ -215,27 +252,77 @@ func (s *Server) device(w http.ResponseWriter, r *http.Request) {
 		typ, b, e = c.Read(rc)
 		cc()
 		if e != nil {
+			disconnectReason = "read_error"
 			return
 		}
 		if typ != websocket.MessageText || wire.Decode(b, &env, "type", "protocol_version", "module_id", "connection_epoch", "sequence", "payload") != nil || env.Module != module || env.Epoch != p.epoch || env.Version != 2 || env.Sequence != seq+1 {
+			disconnectReason = "protocol_error"
 			return
 		}
 		seq++
 		if env.Type == "usb_authorization" && len(b) > 16*1024 {
+			disconnectReason = "oversized_usb"
 			return
 		}
+		// Run DB-heavy handlers outside s.mu so slow Postgres queries never
+		// stall heartbeats or signaling for other modules.
+		if env.Type == "receipt" || env.Type == "cert_renew" {
+			s.mu.Lock()
+			active := s.peers[module] == p
+			s.mu.Unlock()
+			if !active {
+				disconnectReason = "replaced"
+				return
+			}
+			var valid bool
+			if env.Type == "receipt" {
+				valid = s.receipt(p, env.Payload)
+			} else {
+				valid = s.certRenew(p, env.Payload)
+			}
+			if !valid {
+				disconnectReason = "invalid_" + env.Type
+				return
+			}
+			s.mu.Lock()
+			if s.peers[module] == p {
+				p.last = time.Now()
+			}
+			s.mu.Unlock()
+			continue
+		}
+		var snapCopy *Snapshot
+		var prevBackend string
+		var needQuery bool
 		s.mu.Lock()
 		if s.peers[module] != p {
 			s.mu.Unlock()
+			disconnectReason = "replaced"
 			return
 		}
+		prevBackend = p.backend
 		valid := s.consume(p, env)
 		if valid {
 			p.last = time.Now()
+			if env.Type == "snapshot" && p.snapshot != nil {
+				cp := *p.snapshot
+				snapCopy = &cp
+				if !p.queried {
+					p.queried = true
+					needQuery = true
+				}
+			}
 		}
 		s.mu.Unlock()
 		if !valid {
+			disconnectReason = "invalid_" + env.Type
 			return
+		}
+		if snapCopy != nil {
+			s.releaseDisconnected(p, snapCopy, needQuery || prevBackend != snapCopy.Backend)
+			if needQuery {
+				s.queryReceipts(p)
+			}
 		}
 	}
 }
@@ -309,11 +396,6 @@ func (s *Server) consume(p *peer, env Envelope) bool {
 		}
 		p.backend = snap.Backend
 		p.snapshot = &snap
-		s.releaseDisconnected(p)
-		if !p.queried {
-			p.queried = true
-			s.queryReceipts(p)
-		}
 		return true
 	case "messages":
 		var msg Messages

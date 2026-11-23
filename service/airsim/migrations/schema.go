@@ -19,3 +19,6 @@ var PermanentModuleSessions string
 
 //go:embed 006_pairing_reset.sql
 var PairingReset string
+
+//go:embed 007_module_cert_renewal.sql
+var ModuleCertRenewal string

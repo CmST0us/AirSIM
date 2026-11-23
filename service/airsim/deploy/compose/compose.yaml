@@ -70,6 +70,7 @@ services:
       AIRSIM_TURN_IP: ${AIRSIM_TURN_IP:?}
       COMMAND_HMAC_FILE: /run/secrets/command-hmac
       DEVICE_CA_FILE: /run/secrets/device-ca.pem
+      DEVICE_CA_KEY_FILE: /run/secrets/device-ca-key.pem
       APNS_KEY_ID: ${APNS_KEY_ID:-}
       APNS_TEAM_ID: ${APNS_TEAM_ID:-}
       APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-}
@@ -81,6 +82,7 @@ services:
     volumes:
       - ${AIRSIM_SECRET_DIR}/database-password:/run/secrets/database-password:ro
       - ${AIRSIM_SECRET_DIR}/identity/device-ca.pem:/run/secrets/device-ca.pem:ro
+      - ${AIRSIM_SECRET_DIR}/identity/device-ca-key.pem:/run/secrets/device-ca-key.pem:ro
       - ${AIRSIM_SECRET_DIR}/identity/edge-token:/run/secrets/edge-token:ro
       - ${AIRSIM_SECRET_DIR}/identity/turn-secret:/run/secrets/turn-secret:ro
       - ${AIRSIM_SECRET_DIR}/identity/command-hmac:/run/secrets/command-hmac:ro

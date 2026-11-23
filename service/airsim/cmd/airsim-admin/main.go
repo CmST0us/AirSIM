@@ -11,12 +11,15 @@ import (
 )
 
 func main() {
-	op := flag.String("operation", "", "init, issue-client, revoke-client, issue-module")
+	op := flag.String("operation", "", "init, issue-client, revoke-client, issue-module, renew-module")
 	dir := flag.String("secrets-dir", "", "protected directory")
 	out := flag.String("output", "", "explicit 0600 output")
 	req := flag.String("request", "", "prepare request")
 	res := flag.String("response", "", "prepare response")
 	id := flag.String("client-id", "", "client to revoke")
+	moduleID := flag.String("module-id", "", "module to renew")
+	requestID := flag.String("request-id", "", "existing cloud.json request_id")
+	nonce := flag.String("nonce", "", "existing cloud.json nonce")
 	ttl := flag.Duration("client-ttl", time.Hour, "client validity: 1h to 720h")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -31,6 +34,8 @@ func main() {
 		e = admin.ClientTTL(ctx, db, *out, *ttl)
 	case "issue-module":
 		e = admin.Issue(ctx, db, *dir, *req, *res, *out)
+	case "renew-module":
+		e = admin.RenewModule(ctx, db, *dir, *moduleID, *requestID, *nonce, *out)
 	case "revoke-client":
 		_, e = db.Exec(ctx, "UPDATE clients SET revoked=true WHERE id=$1", *id)
 	default:

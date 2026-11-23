@@ -31,9 +31,10 @@ services:
     networks: [database]
     healthcheck:
       test: [CMD-SHELL, "pg_isready -U airsim -d airsim"]
-      interval: 2s
+      interval: 15s
+      start_period: 5s
       timeout: 2s
-      retries: 30
+      retries: 10
     mem_limit: 256m
     pids_limit: 128
   migrate:
@@ -74,6 +75,7 @@ services:
       AIRSIM_TURN_IP: ${AIRSIM_TURN_IP:?}
       COMMAND_HMAC_FILE: /run/secrets/command-hmac
       DEVICE_CA_FILE: /run/secrets/device-ca.pem
+      DEVICE_CA_KEY_FILE: /run/secrets/device-ca-key.pem
       APNS_KEY_ID: ${APNS_KEY_ID:-}
       APNS_TEAM_ID: ${APNS_TEAM_ID:-}
       APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-}
@@ -85,6 +87,7 @@ services:
     volumes:
       - ${AIRSIM_SECRET_DIR}/database-password:/run/secrets/database-password:ro
       - ${AIRSIM_SECRET_DIR}/identity/device-ca.pem:/run/secrets/device-ca.pem:ro
+      - ${AIRSIM_SECRET_DIR}/identity/device-ca-key.pem:/run/secrets/device-ca-key.pem:ro
       - ${AIRSIM_SECRET_DIR}/identity/edge-token:/run/secrets/edge-token:ro
       - ${AIRSIM_SECRET_DIR}/identity/turn-secret:/run/secrets/turn-secret:ro
       - ${AIRSIM_SECRET_DIR}/identity/command-hmac:/run/secrets/command-hmac:ro
@@ -93,9 +96,10 @@ services:
       migrate: {condition: service_completed_successfully}
     healthcheck:
       test: [CMD, /bin/airsim-server, healthcheck]
-      interval: 2s
+      interval: 15s
+      start_period: 5s
       timeout: 3s
-      retries: 30
+      retries: 10
   media:
     <<: *business
     restart: unless-stopped
@@ -110,9 +114,10 @@ services:
       - ${AIRSIM_SECRET_DIR}/identity/turn-secret:/run/secrets/turn-secret:ro
     healthcheck:
       test: [CMD, /bin/airsim-media, healthcheck]
-      interval: 2s
+      interval: 15s
+      start_period: 5s
       timeout: 3s
-      retries: 30
+      retries: 10
   edge-storage-init:
     image: ${AIRSIM_CADDY_IMAGE:-caddy:2.11.7@sha256:504a44d7d74bd2bc28a66afc4774912fc21223ca8a67734af1c54ab2f999b489}
     pull_policy: never
@@ -156,9 +161,10 @@ services:
       AIRSIM_API_HOST: ${AIRSIM_API_HOST:?}
     healthcheck:
       test: [CMD-SHELL, 'curl --noproxy "*" --fail --silent --resolve "$${AIRSIM_API_HOST}:8443:127.0.0.1" "https://$${AIRSIM_API_HOST}:8443/healthz" >/dev/null']
-      interval: 2s
+      interval: 15s
+      start_period: 5s
       timeout: 3s
-      retries: 30
+      retries: 10
     networks: [ingress, control]
     depends_on:
       edge-storage-init: {condition: service_completed_successfully}

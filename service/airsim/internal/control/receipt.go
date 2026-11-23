@@ -74,10 +74,24 @@ func (s *Server) receipt(p *peer, b []byte) bool {
 	}
 	return tx.Commit(ctx) == nil
 }
-func (s *Server) releaseDisconnected(p *peer) {
+func (s *Server) releaseDisconnected(p *peer, snap *Snapshot, backendChanged bool) {
+	if s.db == nil {
+		return
+	}
 	now := time.Now()
-	snap := p.snapshot
 	if snap == nil || !snap.Control.Ready || !snap.Calls.Available || !wire.UUID.MatchString(snap.Boot) || !wire.UUID.MatchString(snap.Backend) || now.Sub(snap.Observed) > 8*time.Second || snap.Observed.After(now.Add(3*time.Second)) {
+		return
+	}
+	hasDisconnected := false
+	for _, c := range snap.Calls.Calls {
+		if c.State == "disconnected" {
+			hasDisconnected = true
+			break
+		}
+	}
+	if !backendChanged && !hasDisconnected {
+		// Fast path: nothing changed and no disconnected call; avoid a
+		// pointless DELETE query on every 5 s idle snapshot.
 		return
 	}
 	ctx, cancel := context.WithTimeout(p.ctx, time.Second)
@@ -86,13 +100,16 @@ func (s *Server) releaseDisconnected(p *peer) {
 	if _, err := s.db.Exec(ctx, "DELETE FROM reservations WHERE module_id=$1 AND (agent_boot_id<>$2 OR backend_epoch<>$3)", p.module, snap.Boot, snap.Backend); err != nil {
 		return
 	}
-	for _, c := range p.snapshot.Calls.Calls {
+	for _, c := range snap.Calls.Calls {
 		if c.State == "disconnected" {
-			_, _ = s.db.Exec(ctx, "DELETE FROM reservations WHERE module_id=$1 AND call_id=$2 AND agent_boot_id=$3 AND backend_epoch=$4", p.module, c.ID, p.boot, p.backend)
+			_, _ = s.db.Exec(ctx, "DELETE FROM reservations WHERE module_id=$1 AND call_id=$2 AND agent_boot_id=$3 AND backend_epoch=$4", p.module, c.ID, snap.Boot, snap.Backend)
 		}
 	}
 }
 func (s *Server) queryReceipts(p *peer) {
+	if s.db == nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(p.ctx, time.Second)
 	defer cancel()
 	rows, e := s.db.Query(ctx, "SELECT id FROM commands WHERE module_id=$1 AND state='outcome_unknown' ORDER BY created_at DESC LIMIT 64", p.module)

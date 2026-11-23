@@ -17,7 +17,10 @@ const (
 	offerWindow = 30 * time.Second
 	// answerWindow covers the Agent's candidate gathering, which ends within 8 s.
 	answerWindow = 10 * time.Second
-	maxSDP       = 32768
+	// controlReconnectGrace keeps running WebRTC media alive across brief WSS drops.
+	controlReconnectGrace = 20 * time.Second
+	closedSessionTTL      = 24 * time.Hour
+	maxSDP                = 32768
 )
 
 type mediaSpec struct {
@@ -30,6 +33,8 @@ type mediaSession struct {
 	Offer, Answer, Reason string
 	Closed, busy, started bool
 	answerBy              time.Time
+	closedAt              time.Time
+	offlineSince          time.Time
 	// answered closes once the Agent answers or the session closes.
 	answered chan struct{}
 	signaled bool
@@ -51,10 +56,22 @@ func (s *Server) stopMedia(m *mediaSession, reason string) {
 	}
 	m.Closed = true
 	m.Reason = reason
+	m.closedAt = time.Now()
 	m.Offer, m.Answer = "", ""
 	m.signal()
+	log.Printf("media_session_closed session=%s module=%s reason=%s", m.Spec.ID, m.Spec.Module, reason)
 	if p := s.peers[m.Spec.Module]; m.started && p != nil && p.epoch == m.Spec.Connection {
 		s.enqueue(p, "media_stop", map[string]string{"session_id": m.Spec.ID, "reason": reason})
+	}
+}
+
+// pruneClosedSessions removes closed media records older than closedSessionTTL.
+// Called with s.mu held. Synthetic records with zero closedAt are retained.
+func (s *Server) pruneClosedSessions(now time.Time) {
+	for id, m := range s.sessions {
+		if m.Closed && !m.closedAt.IsZero() && now.Sub(m.closedAt) > closedSessionTTL {
+			delete(s.sessions, id)
+		}
 	}
 }
 func (s *Server) queueMedia(m *mediaSession) {
@@ -73,7 +90,12 @@ func (s *Server) mediaActive(m *mediaSession) bool {
 		return false
 	}
 	p := s.peers[m.Spec.Module]
-	if p == nil || p.epoch != m.Spec.Connection || p.boot != m.Spec.Boot || p.backend != m.Spec.Backend || p.snapshot == nil {
+	if p == nil {
+		// Allow an already-answered streaming session to survive a transient
+		// control WSS drop while the module reconnects.
+		return m.Answer != "" && !m.offlineSince.IsZero() && time.Since(m.offlineSince) < controlReconnectGrace
+	}
+	if p.epoch != m.Spec.Connection || p.boot != m.Spec.Boot || p.backend != m.Spec.Backend || p.snapshot == nil {
 		return false
 	}
 	return activeCall(p, m.Spec.Call)
@@ -184,36 +206,94 @@ func (s *Server) mediaCreate(w http.ResponseWriter, r *http.Request, client, mod
 		wire.Error(w, 400, "invalid_parameters")
 		return
 	}
+	now := time.Now().UTC()
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.pruneClosedSessions(now)
 	if old := s.sessions[b.Request]; old != nil {
 		if old.Spec.Client != client || old.Spec.Module != module || old.Spec.Call != call || old.Spec.Connection != b.Connection || old.Spec.Generation != b.Generation {
+			s.mu.Unlock()
 			wire.Error(w, 409, "session_conflict")
 		} else if old.Closed {
+			s.mu.Unlock()
 			wire.Error(w, 410, "session_closed")
 		} else {
+			s.mu.Unlock()
 			s.mediaResult(w, 200, old)
 		}
 		return
 	}
 	if len(s.sessions) >= 10000 {
+		s.mu.Unlock()
 		wire.Error(w, 429, "capacity_exceeded")
 		return
 	}
 	p := s.peers[module]
 	if p == nil || p.snapshot == nil {
+		s.mu.Unlock()
 		wire.Error(w, 503, "module_offline")
 		return
 	}
 	if p.mediaCodec != mediaCodec {
+		s.mu.Unlock()
 		wire.Error(w, 409, "media_unavailable")
 		return
 	}
 	if p.epoch != b.Connection {
+		s.mu.Unlock()
 		wire.Error(w, 409, "epoch_conflict")
 		return
 	}
 	if !activeCall(p, call) {
+		s.mu.Unlock()
+		wire.Error(w, 409, "call_conflict")
+		return
+	}
+	spec := mediaSpec{ID: wire.ID(), Module: module, Call: call, Boot: p.boot, Backend: p.backend, Connection: p.epoch, Client: client, Generation: b.Generation, Created: now, Expires: now.Add(offerWindow)}
+	s.mu.Unlock()
+
+	// Verify reservation ownership in Postgres without holding s.mu.
+	tx, e := s.db.Begin(r.Context())
+	if e != nil {
+		wire.Error(w, 503, "database_unavailable")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if !ownsReservation(r.Context(), tx, spec) {
+		wire.Error(w, 409, "call_conflict")
+		return
+	}
+	if tx.Commit(r.Context()) != nil {
+		wire.Error(w, 503, "database_unavailable")
+		return
+	}
+
+	s.mu.Lock()
+	if old := s.sessions[b.Request]; old != nil {
+		if old.Spec.Client != client || old.Spec.Module != module || old.Spec.Call != call || old.Spec.Connection != b.Connection || old.Spec.Generation != b.Generation {
+			s.mu.Unlock()
+			wire.Error(w, 409, "session_conflict")
+		} else if old.Closed {
+			s.mu.Unlock()
+			wire.Error(w, 410, "session_closed")
+		} else {
+			s.mu.Unlock()
+			s.mediaResult(w, 200, old)
+		}
+		return
+	}
+	if len(s.sessions) >= 10000 {
+		s.mu.Unlock()
+		wire.Error(w, 429, "capacity_exceeded")
+		return
+	}
+	p = s.peers[module]
+	if p == nil || p.snapshot == nil {
+		s.mu.Unlock()
+		wire.Error(w, 503, "module_offline")
+		return
+	}
+	if p.epoch != spec.Connection || p.boot != spec.Boot || p.backend != spec.Backend || !activeCall(p, call) {
+		s.mu.Unlock()
 		wire.Error(w, 409, "call_conflict")
 		return
 	}
@@ -230,28 +310,14 @@ func (s *Server) mediaCreate(w http.ResponseWriter, r *http.Request, client, mod
 		}
 		count++
 		if m.Spec.Module == module || m.Spec.Client == client {
+			s.mu.Unlock()
 			wire.Error(w, 409, "session_conflict")
 			return
 		}
 	}
 	if count >= 32 {
+		s.mu.Unlock()
 		wire.Error(w, 429, "capacity_exceeded")
-		return
-	}
-	now := time.Now().UTC()
-	spec := mediaSpec{ID: wire.ID(), Module: module, Call: call, Boot: p.boot, Backend: p.backend, Connection: p.epoch, Client: client, Generation: b.Generation, Created: now, Expires: now.Add(offerWindow)}
-	tx, e := s.db.Begin(r.Context())
-	if e != nil {
-		wire.Error(w, 503, "database_unavailable")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	if !ownsReservation(r.Context(), tx, spec) {
-		wire.Error(w, 409, "call_conflict")
-		return
-	}
-	if tx.Commit(r.Context()) != nil {
-		wire.Error(w, 503, "database_unavailable")
 		return
 	}
 	for _, old := range replaced {
@@ -259,6 +325,7 @@ func (s *Server) mediaCreate(w http.ResponseWriter, r *http.Request, client, mod
 	}
 	m := &mediaSession{Request: b.Request, Spec: spec, answered: make(chan struct{})}
 	s.sessions[b.Request] = m
+	s.mu.Unlock()
 	s.mediaResult(w, 201, m)
 }
 func (s *Server) mediaResult(w http.ResponseWriter, status int, m *mediaSession) {
@@ -290,7 +357,52 @@ func (s *Server) mediaOffer(w http.ResponseWriter, r *http.Request, client, modu
 		wire.Error(w, 409, "session_conflict")
 		return
 	case !m.started:
-		if status, code := s.startMedia(r.Context(), m, b.SDP); status != 0 {
+		spec := m.Spec
+		if !time.Now().Before(spec.Expires) {
+			s.stopMedia(m, "offer_timeout")
+			s.mu.Unlock()
+			wire.Error(w, 410, "session_closed")
+			return
+		}
+		if !s.mediaActive(m) {
+			s.stopMedia(m, "lease_revoked")
+			s.mu.Unlock()
+			wire.Error(w, 409, "call_conflict")
+			return
+		}
+		// Check DB reservation outside s.mu, then re-lock to transition m.started once.
+		s.mu.Unlock()
+		tx, e := s.db.Begin(r.Context())
+		if e != nil {
+			wire.Error(w, 503, "database_unavailable")
+			return
+		}
+		owned := ownsReservation(r.Context(), tx, spec)
+		if !owned {
+			_ = tx.Rollback(r.Context())
+			s.mu.Lock()
+			s.stopMedia(m, "lease_revoked")
+			s.mu.Unlock()
+			wire.Error(w, 409, "call_conflict")
+			return
+		}
+		if tx.Commit(r.Context()) != nil {
+			wire.Error(w, 503, "database_unavailable")
+			return
+		}
+		s.mu.Lock()
+		if m.Closed {
+			s.mu.Unlock()
+			wire.Error(w, 410, "session_closed")
+			return
+		}
+		if m.started {
+			if m.Offer != b.SDP {
+				s.mu.Unlock()
+				wire.Error(w, 409, "session_conflict")
+				return
+			}
+		} else if status, code := s.startMediaLocked(m, b.SDP); status != 0 {
 			s.mu.Unlock()
 			wire.Error(w, status, code)
 			return
@@ -325,9 +437,9 @@ func (s *Server) mediaOffer(w http.ResponseWriter, r *http.Request, client, modu
 	wire.Error(w, 502, "media_unavailable")
 }
 
-// startMedia is called with mu held. media_start is produced while the
-// reservation row is locked so it is sent at most once for the owning generation.
-func (s *Server) startMedia(ctx context.Context, m *mediaSession, offer string) (int, string) {
+// startMediaLocked is called with mu held after reservation ownership has been
+// verified in Postgres.
+func (s *Server) startMediaLocked(m *mediaSession, offer string) (int, string) {
 	if !time.Now().Before(m.Spec.Expires) {
 		s.stopMedia(m, "offer_timeout")
 		return 410, "session_closed"
@@ -336,28 +448,15 @@ func (s *Server) startMedia(ctx context.Context, m *mediaSession, offer string) 
 		s.stopMedia(m, "lease_revoked")
 		return 409, "call_conflict"
 	}
-	tx, e := s.db.Begin(ctx)
-	if e != nil {
-		return 503, "database_unavailable"
-	}
-	defer tx.Rollback(ctx)
-	if !ownsReservation(ctx, tx, m.Spec) {
-		s.stopMedia(m, "lease_revoked")
-		return 409, "call_conflict"
-	}
 	now := time.Now().UTC()
 	p := s.peers[m.Spec.Module]
-	if !s.enqueue(p, "media_start", map[string]any{"request_id": m.Request, "session_id": m.Spec.ID, "call_id": m.Spec.Call, "agent_boot_id": m.Spec.Boot, "backend_epoch": m.Spec.Backend, "client_installation_id": m.Spec.Client, "generation": m.Spec.Generation, "expires_at": now.Add(answerWindow), "offer": offer, "ice_servers": ice.Servers(s.cfg.TURNSecret, s.cfg.TURNHost, m.Spec.ID, "agent", now)}) {
+	if p == nil || !s.enqueue(p, "media_start", map[string]any{"request_id": m.Request, "session_id": m.Spec.ID, "call_id": m.Spec.Call, "agent_boot_id": m.Spec.Boot, "backend_epoch": m.Spec.Backend, "client_installation_id": m.Spec.Client, "generation": m.Spec.Generation, "expires_at": now.Add(answerWindow), "offer": offer, "ice_servers": ice.Servers(s.cfg.TURNSecret, s.cfg.TURNHost, m.Spec.ID, "agent", now)}) {
 		s.stopMedia(m, "control_closed")
 		return 503, "module_offline"
 	}
 	m.started = true
 	m.Offer = offer
 	m.answerBy = now.Add(answerWindow)
-	if tx.Commit(ctx) != nil {
-		s.stopMedia(m, "database_unavailable")
-		return 503, "database_unavailable"
-	}
 	return 0, ""
 }
 
@@ -383,6 +482,8 @@ func (s *Server) Run(ctx context.Context) {
 	}()
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
+	cleanup := time.NewTicker(10 * time.Minute)
+	defer cleanup.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -403,6 +504,24 @@ func (s *Server) Run(ctx context.Context) {
 				}
 			}
 			s.mu.Unlock()
+		case <-cleanup.C:
+			s.mu.Lock()
+			s.pruneClosedSessions(time.Now())
+			s.mu.Unlock()
+			s.pruneDatabase(ctx)
 		}
 	}
+}
+
+// pruneDatabase prevents unbounded growth of historical commands, push
+// deliveries and expired pairing rows so the server never hits the 10k wall.
+func (s *Server) pruneDatabase(ctx context.Context) {
+	if s.db == nil {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, _ = s.db.Exec(cctx, `DELETE FROM commands WHERE state IN ('completed','outcome_unknown') AND created_at < now() - interval '30 days' AND id NOT IN (SELECT command_id FROM reservations)`)
+	_, _ = s.db.Exec(cctx, `DELETE FROM push_deliveries WHERE created_at < now() - interval '30 days'`)
+	_, _ = s.db.Exec(cctx, `DELETE FROM pairing_requests WHERE expires_at < now() - interval '7 days'`)
 }
