@@ -32,8 +32,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 
-pub const ENGINE_VERSION: &str = "2.0.0-rs.2";
-pub const HELPER_COMPAT_VERSION: &str = "airsim-audiod 2.0.0-rs.2 libopus-1.5.2 unified-rt-wsola";
+pub const ENGINE_VERSION: &str = "2.0.0-rs.3";
+pub const HELPER_COMPAT_VERSION: &str = "airsim-audiod 2.0.0-rs.3 libopus-1.5.2 unified-rt-wsola";
 
 fn ensure_private_dir(path: &Path) -> Result<(), String> {
     if !path.exists() {

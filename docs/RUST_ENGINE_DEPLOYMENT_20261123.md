@@ -26,7 +26,19 @@
 
 - **云端连通性实机验收通过**：升级至 `rustls` 官方默认 `aws-lc-rs`（`X25519MLKEM768`）后，EG25 通过移动 4G 完成 HTTPS Discovery（`/.well-known/airsim`）、Let's Encrypt `YE2` 四级证书链校验、Ed25519 客户端证书 mTLS 握手与 `wss://device.airsim.eric3u.cc/v2/device/control` 控制连接；模块 `/v2/local/cloud` 为 `connected=true`，ECS `airsim-v2-control-1` 实时记录 `device_connected`。
 - **内存与存储实测**：在线建连后稳态 `VmRSS` 从原 Go 版 `8,244 KiB` 降至 **`2,936 KiB`（2.87 MB，-64.4%）**，`VmSize` 从 `543,332 KiB` 降至 **`9,836 KiB`（-98.2%）**，二进制体积由 Go+C `12.1 MB` 降至 **`4.5 MB`（-62.8%）**，保留旧 Go 回滚包后 `/usrdata` 仍余 `4.0 MiB`。
-- **本机控制面实测**：`SIGTERM` 优雅退出并由 BusyBox init 拉起通过；`/healthz` 返回 `2.0.0-rs.2`；`/v2/local/control` 返回 `ready=true`、`telephony_ready=true`、`messaging_ready=true`；既有 22 条 PDU / 14 条短信零重复解码；USB 本地 HTTPS 监听 `192.168.225.1:8577`。真实蜂窝双向通话听感待配合 SkySIM Build 89 实拨验收。
+- **本机控制面实测**：`SIGTERM` 优雅退出并由 BusyBox init 拉起通过；`/healthz` 返回 `2.0.0-rs.2`；`/v2/local/control` 返回 `ready=true`、`telephony_ready=true`、`messaging_ready=true`；既有 22 条 PDU / 14 条短信零重复解码；USB 本地 HTTPS 监听 `192.168.225.1:8577`。
+
+## 2.5 首通真机通话遥测与 `2.0.0-rs.3` 上行连贯性优化（22:38）
+
+在 `2.0.0-rs.2` 上完成首通 136 秒真实蜂窝通话（会话 `66c9123e-5325-4cff-bfe1-5c9d10bbfc8b`）：
+
+- **实测听感**：SkySIM 端下行声音清晰（`packets_sent=6807`、`local_stalls=0`、`send_stalls=0`、`capture_xruns=0`、`gc_cycles=0`、`heap_live_kb=4304`）；对端（非 SkySIM 端）听到的上行声音偶有断续。
+- **遥测定位**：实测 `/v2/local/cloud/media-stats` 显示 EG25 在 VoLTE 通话期间 QCI=9 数据承载存在 `rtp_stalls=138`（最大 `639 ms`）的 4G 突发到达，同时暴露出旧抖动缓冲的 4 个问题：`playout_resyncs=23`（`start_of_talkspurt` 误触发清空缓冲并写入 220 ms 静音）、`wsola_accelerated=585`（`alsa_delay_ms >= 56` 在缓冲偏低时仍强制加速抽干缓冲）、`packets_late=127`（空缓冲 PLC 期间推进 `play_slot` 丢弃晚到帧）、`plc_frames=846`（220 ms 上限不足且 `PreemptiveExpand` 因 `alsa_delay <= 28` 极少触发）。
+- **`2.0.0-rs.3` 修复与发布**（`rust-engine-20261123-rs3`，21/21 测试通过含 640 ms QCI=9 突发回放测试零重同步/零晚到丢帧）：
+  - 抖动缓冲扩至 128 槽（2.56 s），蜂窝目标 `100–440 ms`（起播 140 ms）并放慢峰值衰减（每 8 帧 -1 ms）；仅 >1.92 s 真断层才重同步。
+  - 采用 NetEq 空缓冲驻留策略：空缓冲等待 4G 突发时 `play_slot` 驻留不前冲，晚到语音帧零丢弃且保留 LBRR FEC 恢复机会。
+  - WSOLA 改由纯抖动缓冲滞回区间驱动（`<= target/2` 提前扩帧、`>= target+3` 才温和加速），不再受正常 EG25 32–56 ms ALSA DMA 延迟误触发；同时放大 TURN UDP `SO_RCVBUF` 至 256 KiB。
+  - 已通过 Workbench 原子发布至 `airsim.eric3u.cc`（源站 HTTPS 23 项资源哈希校验通过：EG25 `4,713,188 B` SHA-256 `e142c59ab0f0ce52801170750d2c50ab9dccf07d422bce94c06d53627751e291`；RM500U `4,858,664 B` SHA-256 `b9e67dca25cb5263392eda60e8f0d83bc55031d4e9d88ca6e856a2dd3f43730b`）并同步安装至本机 EG25，待再次实拨验收对端上行听感。
 
 ## 3. SkySIM `0.9.6 (89)` TestFlight 上传
 

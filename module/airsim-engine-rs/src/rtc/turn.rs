@@ -289,6 +289,17 @@ impl TurnClient {
         let mut sock = match ep.transport {
             TurnTransport::Udp => {
                 let u = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("turn_udp_bind: {e}"))?;
+                // Enlarge UDP receive buffer so 4G LTE downlink bursts (up to 600 ms) never drop in kernel.
+                let rcvbuf: libc::c_int = 262_144;
+                unsafe {
+                    libc::setsockopt(
+                        u.as_raw_fd(),
+                        libc::SOL_SOCKET,
+                        libc::SO_RCVBUF,
+                        &rcvbuf as *const libc::c_int as *const libc::c_void,
+                        std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                    );
+                }
                 u.connect(server_addr).map_err(|e| format!("turn_udp_conn: {e}"))?;
                 TurnSocket::Udp(u)
             }

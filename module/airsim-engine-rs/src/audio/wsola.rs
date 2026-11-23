@@ -82,19 +82,21 @@ impl WsolaProcessor {
             return FRAME_SAMPLES;
         }
 
-        // Check signal energy in the splice region. For near-silence (< -48 dBFS RMS),
+        // Check signal energy in the splice region FIRST. For near-silence (< -48 dBFS RMS),
         // crossfade cleanly with fixed 64-sample (4 ms) shift without wasting CPU on correlation.
-        let (best_lag, corr_q15) = find_best_pitch_lag(input);
         let silence = region_energy(input, SPLIT_POS - 64, 128) < (128u64 * 90 * 90);
-
-        if !silence && !force && corr_q15 < 17039 {
-            // 17039 / 32768 ~= 0.52: defer on unvoiced plosive/fricative to avoid smearing.
-            self.stats.deferred_frames += 1;
-            out[..FRAME_SAMPLES].copy_from_slice(input);
-            return FRAME_SAMPLES;
-        }
-
-        let lag = if silence { 64 } else { best_lag };
+        let lag = if silence {
+            64
+        } else {
+            let (best_lag, corr_q15) = find_best_pitch_lag(input);
+            if !force && corr_q15 < 17039 {
+                // 17039 / 32768 ~= 0.52: defer on unvoiced plosive/fricative to avoid smearing.
+                self.stats.deferred_frames += 1;
+                out[..FRAME_SAMPLES].copy_from_slice(input);
+                return FRAME_SAMPLES;
+            }
+            best_lag
+        };
         self.cooldown = if force { 0 } else { 1 };
 
         match mode {

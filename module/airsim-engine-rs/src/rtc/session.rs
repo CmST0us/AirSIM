@@ -707,7 +707,6 @@ fn run_rtc_loop(
             wakeup.drain();
         }
 
-        let mut fed_packet = false;
         if (pfds[0].revents & (libc::POLLIN | libc::POLLERR | libc::POLLHUP)) != 0 {
             incoming_pkts.clear();
             if transport.recv_all(&mut incoming_pkts).is_err() {
@@ -722,7 +721,6 @@ fn run_rtc_loop(
                         stop.store(true, Ordering::Release);
                         break;
                     }
-                    fed_packet = true;
                     // Strictly honor single-mutation invariant: drain poll_output after each packet!
                     loop {
                         match rtc.poll_output() {
@@ -758,7 +756,7 @@ fn run_rtc_loop(
 
         let after = Instant::now();
         transport.handle_timeout(after);
-        if !fed_packet && after >= timeout {
+        if after >= timeout {
             let _ = rtc.handle_input(Input::Timeout(after));
         }
     }

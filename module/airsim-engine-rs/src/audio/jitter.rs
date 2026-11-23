@@ -2,18 +2,23 @@ use crate::audio::opus::DecodeKind;
 use crate::audio::ring::{IncomingOpusPacket, MAX_OPUS_PACKET};
 use crate::audio::wsola::WsolaMode;
 
-/// 64-slot media-time adaptive playout jitter buffer (zero heap allocations).
+/// 128-slot (2.56 s) NetEq-grade media-time adaptive playout jitter buffer (zero heap allocations).
 ///
-/// Key properties (designed directly from our EG25 LTE + NetEq diagnosis):
+/// Key properties (tuned directly from real EG25 QCI=9 4G LTE + TURN call telemetry):
 /// - Indexed by 20 ms media slot (`rtp_time_48k / 960`), tolerating arbitrary out-of-order arrivals.
-/// - Adapts target depth smoothly from RFC 3550 EWMA jitter + leaky-peak burst detector:
+/// - Adapts target depth smoothly from RFC 3550 EWMA jitter + slow-decay burst peak detector:
 ///   - USB local: floor 40 ms (2 frames), start 40 ms, ceiling 120 ms (6 frames)
-///   - Cellular TURN relay: floor 60 ms (3 frames), start 80 ms, ceiling 220 ms (11 frames)
-/// - Drives pitch-synchronous WSOLA (`Accelerate` / `PreemptiveExpand`) using BOTH jitter occupancy
-///   and ALSA `pcm_get_delay()` feedback, eliminating frame drops, crystal-drift xruns, and PLC bursts.
-/// - Zero ping-pong resyncs: hard resync only on talkspurt / discontinuity > 500 ms (25 slots).
+///   - Cellular TURN relay: floor 100 ms (5 frames), start 140 ms (7 frames), ceiling 440 ms (22 frames)
+/// - NetEq empty-buffer hold: when the buffer runs empty during a 4G LTE RLC burst stall,
+///   `play_slot` stays parked on the expected frame instead of racing ahead, so ZERO delayed
+///   voice frames are dropped as "late" and LBRR FEC can still recover isolated losses.
+/// - Hysteresis-banded pitch-synchronous WSOLA:
+///   - `<= target/2`: proactive `PreemptiveExpand` BEFORE starvation
+///   - `(target/2 .. target+3)`: untouched 1.0x pass-through
+///   - `>= target+3`: gentle `Accelerate` to drain post-burst backlog cleanly (never self-starving!)
+/// - Zero sentence-chopping resyncs: hard resync ONLY on true > 1.92 s (96-slot) discontinuity.
 
-const RING_SLOTS: usize = 64;
+const RING_SLOTS: usize = 128;
 const RING_MASK: usize = RING_SLOTS - 1;
 pub const TICKS_PER_FRAME_48K: u64 = 960;
 
@@ -79,6 +84,7 @@ pub struct AdaptiveJitterBuffer {
     prev_transit_ms: i64,
     jitter_q4: u64,
     peak_jitter_ms: u64,
+    peak_decay_tick: u8,
     quiet_frames: u32,
 
     pub stats: JitterStats,
@@ -86,7 +92,7 @@ pub struct AdaptiveJitterBuffer {
 
 impl AdaptiveJitterBuffer {
     pub fn new(relayed: bool) -> Self {
-        let (min_s, start_s, max_s) = if relayed { (3, 4, 11) } else { (2, 2, 6) };
+        let (min_s, start_s, max_s) = if relayed { (5, 7, 22) } else { (2, 2, 6) };
         let mut s = Self {
             relayed,
             min_target_slots: min_s,
@@ -105,6 +111,7 @@ impl AdaptiveJitterBuffer {
             prev_transit_ms: 0,
             jitter_q4: 0,
             peak_jitter_ms: 0,
+            peak_decay_tick: 0,
             quiet_frames: 0,
             stats: JitterStats::default(),
         };
@@ -124,8 +131,9 @@ impl AdaptiveJitterBuffer {
         self.has_prev_transit = false;
         self.jitter_q4 = 0;
         self.peak_jitter_ms = 0;
+        self.peak_decay_tick = 0;
         self.quiet_frames = 0;
-        self.target_slots = if self.relayed { 4 } else { 2 };
+        self.target_slots = if self.relayed { 7 } else { 2 };
         self.stats.target_delay_ms = (self.target_slots * 20) as u32;
     }
 
@@ -144,7 +152,7 @@ impl AdaptiveJitterBuffer {
         let media_ms = (slot_idx * 20) as i64;
         let transit = pkt.rx_at_ms as i64 - media_ms;
         if self.has_prev_transit {
-            let d = (transit - self.prev_transit_ms).unsigned_abs().min(500);
+            let d = (transit - self.prev_transit_ms).unsigned_abs().min(600);
             // J = J + (|D| - J) / 16
             let d_q4 = d << 4;
             if d_q4 >= self.jitter_q4 {
@@ -154,9 +162,15 @@ impl AdaptiveJitterBuffer {
             }
             if d > self.peak_jitter_ms {
                 self.peak_jitter_ms = d;
+                self.peak_decay_tick = 0;
             } else {
-                // Slow leaky decay (~4 seconds half-life at 50 fps) so LTE burst cushion stays steady.
-                self.peak_jitter_ms = self.peak_jitter_ms.saturating_sub(1);
+                // Slow NetEq-like burst memory decay (~6.25 ms/sec at 50 fps) so 4G LTE
+                // cushion holds steady across recurring 200-400 ms RLC bursts.
+                self.peak_decay_tick = self.peak_decay_tick.wrapping_add(1);
+                if self.peak_decay_tick >= 8 {
+                    self.peak_decay_tick = 0;
+                    self.peak_jitter_ms = self.peak_jitter_ms.saturating_sub(1);
+                }
             }
         }
         self.prev_transit_ms = transit;
@@ -174,10 +188,10 @@ impl AdaptiveJitterBuffer {
             return;
         }
 
-        // Check for true talkspurt discontinuity or huge forward/backward jump (> 500 ms = 25 slots).
-        let huge_jump = slot_idx > self.play_slot.saturating_add(25)
-            || (pkt.start_of_talkspurt && slot_idx > self.play_slot.saturating_add(10))
-            || slot_idx.saturating_add(25) < self.play_slot;
+        // Only hard-resync on a true multi-second stream discontinuity (> 1.92 s = 96 slots),
+        // NEVER on normal RTP marker bits or 200-650 ms 4G LTE RLC bursts!
+        let huge_jump = slot_idx > self.play_slot.saturating_add(96)
+            || slot_idx.saturating_add(96) < self.play_slot;
 
         if huge_jump {
             for s in &mut self.slots {
@@ -187,19 +201,21 @@ impl AdaptiveJitterBuffer {
             self.max_seen_slot = slot_idx;
             self.buffering = true;
             self.first_rx_ms = pkt.rx_at_ms;
+            self.consecutive_plc = 0;
+            self.consecutive_late = 0;
             self.stats.playout_resyncs += 1;
             self.insert_slot(slot_idx, pkt.as_slice());
             return;
         }
 
         // If we were stalled in PLC (buffer empty) and a fresh packet arrives that is newer than
-        // the last real frame we actually played, re-anchor play_slot to it cleanly instead of
-        // discarding it as "late" because play_slot raced ahead during PLC!
+        // the last real frame we actually played, re-anchor play_slot to it cleanly so ZERO frames
+        // are discarded as "late".
         let newer_than_played = self
             .last_played_real_slot
             .map(|last| slot_idx > last)
             .unwrap_or(true);
-        if slot_idx < self.play_slot && self.consecutive_plc >= 2 && self.buffered_slots() == 0 && newer_than_played {
+        if slot_idx < self.play_slot && self.consecutive_plc >= 1 && self.buffered_slots() == 0 && newer_than_played {
             self.play_slot = slot_idx;
             self.max_seen_slot = slot_idx;
             self.consecutive_late = 0;
@@ -210,7 +226,6 @@ impl AdaptiveJitterBuffer {
         if slot_idx < self.play_slot {
             self.stats.packets_late += 1;
             self.consecutive_late += 1;
-            // Self-heal if play_slot ever persistently outran a slower sender clock while empty.
             if self.consecutive_late >= 3 && self.buffered_slots() == 0 && newer_than_played {
                 self.play_slot = slot_idx;
                 self.max_seen_slot = slot_idx;
@@ -225,7 +240,7 @@ impl AdaptiveJitterBuffer {
             self.max_seen_slot = slot_idx;
         }
 
-        // If the ring would wrap over `play_slot`, advance `play_slot` only as last resort (> 1.1s lag).
+        // If the 128-slot ring would wrap over `play_slot`, advance `play_slot` only as last resort (> 2.4 s lag).
         while slot_idx >= self.play_slot + (RING_SLOTS as u64 - 4) {
             let old = &mut self.slots[(self.play_slot as usize) & RING_MASK];
             if old.occupied && old.slot_index == self.play_slot {
@@ -254,18 +269,19 @@ impl AdaptiveJitterBuffer {
 
     fn recompute_target(&mut self) {
         let jitter_ms = self.jitter_q4 >> 4;
-        // Target cushion: 2.5 * EWMA jitter + 0.5 * decaying burst peak + 20 ms base,
-        // clamped to [min_target_slots .. max_target_slots].
-        let desired_ms = (jitter_ms * 5) / 2 + self.peak_jitter_ms / 2 + 20;
+        // NetEq-style cushion: 2 * EWMA jitter + 0.75 * slow-decay burst peak + 40 ms base
+        // (USB uses lighter 20 ms base).
+        let base_ms = if self.relayed { 40 } else { 20 };
+        let desired_ms = jitter_ms * 2 + (self.peak_jitter_ms * 3) / 4 + base_ms;
         let desired_slots = ((desired_ms + 19) / 20).clamp(self.min_target_slots, self.max_target_slots);
         if desired_slots > self.target_slots {
             // React quickly upward when LTE jitter rises.
             self.target_slots = desired_slots;
             self.quiet_frames = 0;
         } else if desired_slots < self.target_slots {
-            // Decay downward slowly (1 slot per ~1.5 s of calm network) so we don't oscillate.
+            // Decay downward slowly (1 slot per ~4 s of calm network) so we don't oscillate.
             self.quiet_frames += 1;
-            if self.quiet_frames >= 75 {
+            if self.quiet_frames >= 200 {
                 self.target_slots -= 1;
                 self.quiet_frames = 0;
             }
@@ -310,8 +326,9 @@ impl AdaptiveJitterBuffer {
             return None;
         }
         if self.buffering {
-            let ready = self.lead_slots() >= self.target_slots
-                || now_ms.saturating_sub(self.first_rx_ms) >= (self.target_slots * 20).max(60);
+            let boot_slots = self.target_slots.min(7);
+            let ready = self.lead_slots() >= boot_slots
+                || now_ms.saturating_sub(self.first_rx_ms) >= (boot_slots * 20).max(60);
             if !ready {
                 return None;
             }
@@ -319,8 +336,6 @@ impl AdaptiveJitterBuffer {
         }
 
         let cur = self.play_slot;
-        self.play_slot += 1;
-
         let pos = (cur as usize) & RING_MASK;
         let mut frame = PlayoutFrame {
             kind: DecodeKind::Erasure,
@@ -336,6 +351,7 @@ impl AdaptiveJitterBuffer {
             frame.len = len;
             frame.kind = DecodeKind::Packet;
             self.slots[pos].occupied = false;
+            self.play_slot += 1;
             self.last_played_real_slot = Some(cur);
             self.consecutive_plc = 0;
         } else {
@@ -347,6 +363,7 @@ impl AdaptiveJitterBuffer {
                 frame.data[..len].copy_from_slice(&self.slots[next_pos].data[..len]);
                 frame.len = len;
                 frame.kind = DecodeKind::Fec;
+                self.play_slot += 1;
                 self.stats.fec_frames += 1;
                 self.last_played_real_slot = Some(cur);
                 self.consecutive_plc = 0;
@@ -354,24 +371,33 @@ impl AdaptiveJitterBuffer {
                 frame.kind = DecodeKind::Erasure;
                 self.stats.plc_frames += 1;
                 self.consecutive_plc = self.consecutive_plc.saturating_add(1);
+                // NetEq empty-buffer hold:
+                // - If future packets are ALREADY waiting in the buffer (`buffered_slots() > 0`),
+                //   `cur` is a real lost hole -> advance `play_slot` so we move cleanly into them!
+                // - If the buffer is completely empty (`buffered_slots() == 0`), we are waiting on
+                //   a delayed 4G LTE burst -> keep `play_slot` parked on `cur` so when the burst
+                //   arrives, ZERO delayed voice frames are dropped as "late"!
+                if self.buffered_slots() > 0 {
+                    self.play_slot += 1;
+                }
             }
         }
 
-        // Choose WSOLA mode based on BOTH jitter occupancy and ALSA hardware buffer delay!
-        // Only apply WSOLA on real decoded packets (never stretch/compress an erasure).
+        // Hysteresis-banded WSOLA driven strictly by jitter occupancy (never self-starving on normal
+        // EG25 32-56 ms ALSA DMA delay!).
         if frame.kind == DecodeKind::Packet {
-            let remaining = self.lead_slots(); // slots still ahead of the one we just popped
-            let high_water = self.target_slots + 2;
-            let emergency_water = self.target_slots + 6;
-            if remaining >= emergency_water || alsa_delay_ms >= 84 {
+            let remaining = self.lead_slots();
+            let high_water = self.target_slots + 3;
+            let emergency_water = self.target_slots + 8;
+            let low_water = (self.target_slots / 2).max(2);
+            if remaining >= emergency_water || (remaining >= self.target_slots && alsa_delay_ms >= 96) {
                 frame.wsola_mode = WsolaMode::Accelerate;
                 frame.wsola_force = true;
-            } else if remaining >= high_water || alsa_delay_ms >= 56 {
+            } else if remaining >= high_water {
                 frame.wsola_mode = WsolaMode::Accelerate;
                 frame.wsola_force = false;
-            } else if remaining == 0 && alsa_delay_ms <= 28 {
-                // Next pull will starve unless a packet arrives — gently expand this voiced frame
-                // by 4–7 ms to buy arrival headroom and avoid Opus PLC!
+            } else if remaining <= low_water && alsa_delay_ms <= 52 {
+                // Proactively stretch voiced frames by 4-7 ms BEFORE the buffer runs dry!
                 frame.wsola_mode = WsolaMode::PreemptiveExpand;
                 frame.wsola_force = false;
             }
@@ -400,23 +426,23 @@ mod tests {
     #[test]
     fn absorbs_lte_burst_via_wsola_without_drops_or_resyncs() {
         let mut jb = AdaptiveJitterBuffer::new(true);
-        // Feed 4 initial frames cleanly (80 ms start target)
-        for i in 0..4u64 {
+        // Feed 7 initial frames cleanly (140 ms cellular start target)
+        for i in 0..7u64 {
             jb.push(&mk_pkt(i, i * 20));
         }
         // Pull frame 0 -> normal
-        let f0 = jb.pop(80, 32).unwrap();
+        let f0 = jb.pop(140, 36).unwrap();
         assert_eq!(f0.kind, DecodeKind::Packet);
         assert_eq!(f0.wsola_mode, WsolaMode::Normal);
 
-        // Simulate LTE 120 ms stall then 7-packet burst arriving together!
-        for i in 4..12u64 {
-            jb.push(&mk_pkt(i, 240));
+        // Simulate LTE 260 ms stall then 15-packet burst arriving together!
+        for i in 7..22u64 {
+            jb.push(&mk_pkt(i, 400));
         }
-        // Pull next frame -> should engage WSOLA Accelerate smoothly, ZERO drops, ZERO resyncs!
+        // Pull next frames -> should engage WSOLA Accelerate smoothly, ZERO drops, ZERO resyncs!
         let mut accel_count = 0;
-        for step in 0..8 {
-            if let Some(f) = jb.pop(240 + step * 20, 36) {
+        for step in 0..15 {
+            if let Some(f) = jb.pop(400 + step * 20, 40) {
                 if f.wsola_mode == WsolaMode::Accelerate {
                     accel_count += 1;
                 }
@@ -425,6 +451,7 @@ mod tests {
         assert!(accel_count > 0, "expected WSOLA Accelerate to drain burst");
         assert_eq!(jb.stats.queue_drops, 0);
         assert_eq!(jb.stats.playout_resyncs, 0);
+        assert_eq!(jb.stats.packets_late, 0);
     }
 
     #[test]

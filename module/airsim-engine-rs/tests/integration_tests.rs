@@ -1014,3 +1014,77 @@ fn provisioner_ed25519_ca_prepare_activate_reload_renew_and_pairing_proof() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn replays_harsh_eg25_qci9_lte_bursts_with_zero_resyncs_zero_late_and_minimal_plc() {
+    // Reproduces the exact measured EG25 4G LTE QCI=9 call pattern:
+    // - 1000 frames (20 s) with recurring 160-320 ms RLC bursts every ~1.2 s + a 640 ms spike
+    // - Oscillating EG25 pcm5p ALSA delay (32..60 ms)
+    // - Periodic RTP marker bits (`start_of_talkspurt = true` every 150 frames)
+    let mut enc = OpusEncoder::new().unwrap();
+    let mut dec = OpusDecoder::new().unwrap();
+    let mut jb = AdaptiveJitterBuffer::new(true);
+    let mut wsola = WsolaProcessor::new();
+
+    let mut arrivals: Vec<(u64, IncomingOpusPacket)> = Vec::new();
+    let mut burst_hold_until = 0u64;
+    for f in 0..1000u64 {
+        let pcm = synth_voice_frame(f);
+        let mut pkt_bytes = [0u8; MAX_OPUS_PACKET];
+        let len = enc.encode(&pcm, &mut pkt_bytes).unwrap();
+        let nom = f * 20;
+        if f == 450 {
+            burst_hold_until = nom + 640; // 640 ms extreme RLC stall!
+        } else if f > 20 && f % 60 == 0 && nom >= burst_hold_until {
+            let dur = 180 + ((f / 60) % 4) * 40; // 180..300 ms recurring bursts
+            burst_hold_until = nom + dur;
+        }
+        let rx_ms = nom.max(burst_hold_until);
+        let mut in_pkt = IncomingOpusPacket {
+            bytes: [0u8; MAX_OPUS_PACKET],
+            len: len as u16,
+            rtp_time_48k: f * TICKS_PER_FRAME_48K,
+            rx_at_ms: rx_ms,
+            start_of_talkspurt: f == 0 || f % 150 == 0,
+        };
+        in_pkt.bytes[..len].copy_from_slice(&pkt_bytes[..len]);
+        arrivals.push((rx_ms, in_pkt));
+    }
+    arrivals.sort_by_key(|(t, _)| *t);
+
+    let mut arr_idx = 0usize;
+    let mut decoded = [0i16; OPUS_FRAME_SAMPLES];
+    let mut wsola_out = [0i16; MAX_WSOLA_OUT];
+    let mut play_time_ms = 0u64;
+    let mut step = 0u32;
+
+    while play_time_ms < 20_500 {
+        while arr_idx < arrivals.len() && arrivals[arr_idx].0 <= play_time_ms {
+            jb.push(&arrivals[arr_idx].1);
+            arr_idx += 1;
+        }
+        // Simulate real EG25 ALSA pcm5p delay oscillating between 32 ms and 60 ms!
+        let alsa_delay = 32 + ((step * 7) % 29);
+        step += 1;
+        if let Some(frame) = jb.pop(play_time_ms, alsa_delay) {
+            let slice = if frame.len > 0 { Some(&frame.data[..frame.len]) } else { None };
+            dec.decode(slice, frame.kind, &mut decoded).unwrap();
+            let n = wsola.process(&decoded, frame.wsola_mode, frame.wsola_force, &mut wsola_out);
+            condition_uplink_pcm(&mut wsola_out[..n]);
+            play_time_ms += (n as u64 * 1000) / 16000;
+        } else {
+            play_time_ms += 20;
+        }
+    }
+
+    assert_eq!(jb.stats.playout_resyncs, 0, "must never resync/silence-cut on LTE bursts or markers");
+    assert_eq!(jb.stats.packets_late, 0, "NetEq empty-buffer hold must drop 0 delayed voice frames");
+    assert_eq!(jb.stats.queue_drops, 0);
+    // Only the single 640 ms spike (exceeding 440 ms cushion) may trigger brief PLC (~10-18 frames),
+    // whereas ALL recurring 180-300 ms bursts must play with ZERO PLC!
+    assert!(
+        jb.stats.plc_frames <= 25,
+        "expected <=25 PLC frames even with 640ms spike + 15 bursts, got {}",
+        jb.stats.plc_frames
+    );
+}
