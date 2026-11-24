@@ -346,6 +346,7 @@ final class AppModel: ObservableObject {
     private var cloudStatusRefreshTask: Task<Void, Never>?
     private var cloudStatusRefreshGeneration = 0
     private var audioWarmupCallID: String?
+    private var activeCallBackendID: String?
     private var lowPowerModeEnabled = true
     private let backgroundStandbyKey = "airsim.background-standby-enabled"
     private let lowPowerModeKey = "airsim.low-power-mode-enabled"
@@ -1862,14 +1863,17 @@ final class AppModel: ObservableObject {
                 missed: call.direction == "incoming" && call.disconnect_reason == "missed")
         }
         callHistory = Self.accountCallHistory(cloudV2.history.calls, identity: cloudV2.configuration?.identity).map(record)
-        let observed = cloudV2.visibleCalls.first { $0.call.call_id == cloudV2.activeCall?.call_id && $0.domain.bootID == cloudV2.snapshot?.snapshot?.agent_boot_id && $0.domain.backendEpoch == cloudV2.snapshot?.snapshot?.backend_epoch && $0.call.state != "disconnected" }.map(record)
+        let observedItem = cloudV2.visibleCalls.first { $0.call.call_id == cloudV2.activeCall?.call_id && $0.domain.bootID == cloudV2.snapshot?.snapshot?.agent_boot_id && $0.domain.backendEpoch == cloudV2.snapshot?.snapshot?.backend_epoch && $0.call.state != "disconnected" }
+        let observed = observedItem.map(record)
         // Without a current module snapshot the call is unknown, not ended: keep
         // presenting it so the call screen does not drop out during a reconnect.
+        let preservedID = cloudV2.ownedCall?.callID ?? cloudV2.systemCalls?.currentCallID
         if observed == nil, let oldActive, cloudV2.snapshot?.online != true || cloudV2.snapshot?.snapshot == nil,
-           cloudV2.ownedCall?.callID == oldActive.id || cloudV2.systemCalls?.currentCallID == oldActive.id {
+           let preservedID, activeCallBackendID == preservedID || oldActive.id == preservedID || oldActive.id.hasSuffix(preservedID) {
             activeCall = oldActive
         } else {
             activeCall = observed
+            activeCallBackendID = observedItem?.call.call_id
         }
         // A call ringing in the App's own interface rings in the App.
         let ringingInApp = activeCall?.direction == "incoming" && activeCall?.state == "incoming" && cloudV2.systemCalls?.hasSystemCall != true && cloudV2.foreground

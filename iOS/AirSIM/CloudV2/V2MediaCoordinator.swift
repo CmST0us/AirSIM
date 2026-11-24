@@ -131,6 +131,7 @@ final class V2MediaCoordinator: ObservableObject {
     deinit { routeObserver.map(NotificationCenter.default.removeObserver) }
     /// CallKit activates the voice session; otherwise media activates it.
     func useCallKitAudioSession() { callKitManaged = true }
+    func prepareCallKitVoiceSession() { audio.prepareCallKitVoiceSession() }
     func callKitAudioActivated(_ session: AVAudioSession) { audio.callKitActivated(session) }
     func callKitAudioDeactivated(_ session: AVAudioSession) { audio.callKitDeactivated(session) }
 

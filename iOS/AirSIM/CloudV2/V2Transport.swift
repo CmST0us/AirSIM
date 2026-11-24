@@ -23,6 +23,10 @@ struct V2URLSessionTransport: V2HTTPTransport {
     }
 }
 
+private enum V2TransportRetryable: Error {
+    case staleConnection
+}
+
 private final class V2TaskState {
     let limit: Int
     var body = Data()
@@ -63,6 +67,23 @@ private final class V2SharedSession: NSObject, URLSessionDataDelegate, @unchecke
     }
 
     func send(_ request: URLRequest, limit: Int) async throws -> V2HTTPResponse {
+        do {
+            return try await sendOnce(request, limit: limit)
+        } catch is V2TransportRetryable {
+            // An idempotent GET can hit a dead pooled HTTP/2 socket right after iOS
+            // wakes from background suspension (e.g. VoIP PushKit); retry once cleanly.
+            guard request.httpMethod == "GET", request.httpBody == nil, !Task.isCancelled else {
+                throw V2Error.transport
+            }
+            do {
+                return try await sendOnce(request, limit: limit)
+            } catch is V2TransportRetryable {
+                throw V2Error.transport
+            }
+        }
+    }
+
+    private func sendOnce(_ request: URLRequest, limit: Int) async throws -> V2HTTPResponse {
         let state = V2TaskState(limit: limit)
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
@@ -155,7 +176,17 @@ private final class V2SharedSession: NSObject, URLSessionDataDelegate, @unchecke
         let body = state.body
         lock.unlock()
         guard error == nil, let status else {
-            finish(taskID: task.taskIdentifier, result: .failure(V2Error.transport), cancelTask: false)
+            let nsError = error as NSError?
+            let staleConnection = status == nil
+                && task.originalRequest?.httpMethod == "GET"
+                && task.originalRequest?.httpBody == nil
+                && nsError?.domain == NSURLErrorDomain
+                && nsError?.code == NSURLErrorNetworkConnectionLost
+            finish(
+                taskID: task.taskIdentifier,
+                result: .failure(staleConnection ? V2TransportRetryable.staleConnection : V2Error.transport),
+                cancelTask: false
+            )
             return
         }
         finish(taskID: task.taskIdentifier, result: .success(V2HTTPResponse(status: status, body: body)), cancelTask: false)

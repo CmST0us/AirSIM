@@ -62,6 +62,7 @@ struct V2AudioRoute: Identifiable, Equatable {
 /// the voice session; the audio unit never runs on an inactive session.
 @MainActor
 protocol V2MediaAudio: AnyObject {
+    func prepareCallKitVoiceSession()
     func activateVoice() throws
     func deactivateVoice()
     func callKitActivated(_ session: AVAudioSession)
@@ -69,6 +70,10 @@ protocol V2MediaAudio: AnyObject {
     var routes: [V2AudioRoute] { get }
     var currentRoute: V2AudioRoute? { get }
     func select(_ route: V2AudioRoute) throws
+}
+
+extension V2MediaAudio {
+    func prepareCallKitVoiceSession() {}
 }
 
 // The bundled SDK exposes field trials through this process-wide API. Initialize
@@ -132,11 +137,20 @@ final class V2WebRTCAudio: V2MediaAudio {
             if let port = audio.availableInputs?.first(where: { $0.uid == route.id }) { try session.setPreferredInput(port) }
         }
     }
+    func prepareCallKitVoiceSession() {
+        // Configure only category/mode and best-effort hints before CallKit activates
+        // the audio session. Never call overrideOutputAudioPort(.none) on an inactive
+        // session and never throw from CXAnswerCallAction preparation.
+        session.lockForConfiguration(); defer { session.unlockForConfiguration() }
+        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+        try? session.setPreferredSampleRate(48_000)
+        try? session.setPreferredIOBufferDuration(0.02)
+    }
     func activateVoice() throws {
         session.lockForConfiguration(); defer { session.unlockForConfiguration() }
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
-        try session.setPreferredSampleRate(48_000)
-        try session.setPreferredIOBufferDuration(0.02)
+        try? session.setPreferredSampleRate(48_000)
+        try? session.setPreferredIOBufferDuration(0.02)
         try session.setActive(true)
         session.isAudioEnabled = true
     }
@@ -146,6 +160,11 @@ final class V2WebRTCAudio: V2MediaAudio {
         try? session.setActive(false)
     }
     func callKitActivated(_ audio: AVAudioSession) {
+        session.lockForConfiguration()
+        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+        try? session.setPreferredSampleRate(48_000)
+        try? session.setPreferredIOBufferDuration(0.02)
+        session.unlockForConfiguration()
         session.audioSessionDidActivate(audio)
         session.isAudioEnabled = true
     }

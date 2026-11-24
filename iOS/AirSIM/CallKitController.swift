@@ -132,7 +132,7 @@ final class CallKitController: NSObject {
         let configuration = CXProviderConfiguration()
         configuration.maximumCallGroups = 1
         configuration.maximumCallsPerCallGroup = 1
-        configuration.supportedHandleTypes = [.phoneNumber]
+        configuration.supportedHandleTypes = [.phoneNumber, .generic]
         configuration.supportsVideo = false
         configuration.includesCallsInRecents = true
         self.init(configuration: configuration)
@@ -487,8 +487,8 @@ final class CallKitController: NSObject {
 
     private func update(number: String?, callerName: String?) -> CXCallUpdate {
         let update = CXCallUpdate()
-        let value = number?.isEmpty == false ? number! : "未知号码"
-        update.remoteHandle = CXHandle(type: .phoneNumber, value: value)
+        let hasNumber = number?.isEmpty == false
+        update.remoteHandle = CXHandle(type: hasNumber ? .phoneNumber : .generic, value: hasNumber ? number! : "未知号码")
         if let callerName, !callerName.isEmpty, callerName != number {
             update.localizedCallerName = callerName
         }
@@ -572,31 +572,43 @@ final class CallKitController: NSObject {
         handler?.callKitDidFail(error.localizedDescription)
     }
 
-    private func performAnswer(_ action: CXAnswerCallAction) async {
+    private func beginPerformAnswer(_ action: CXAnswerCallAction) {
         debugLog("performing answer action")
+        guard currentUUID == action.callUUID else {
+            fail(action, error: CallKitBridgeError.staleSystemCall)
+            return
+        }
+        guard let handler else {
+            fail(action, error: CallKitBridgeError.handlerUnavailable)
+            return
+        }
+        let origin: CallAnswerOrigin = appAnswerRequestUUID == action.callUUID ? .app : .system
+        appAnswerRequestUUID = nil
         do {
-            guard currentUUID == action.callUUID else { throw CallKitBridgeError.staleSystemCall }
-            guard let handler else { throw CallKitBridgeError.handlerUnavailable }
-            let origin: CallAnswerOrigin = appAnswerRequestUUID == action.callUUID ? .app : .system
-            appAnswerRequestUUID = nil
-            let backendError = try await CallKitActionCoordinator.perform(
-                prepare: { try handler.callKitPrepareAudioSession() },
-                fulfill: {
-                    self.currentState = "connecting"
-                    // 系统事务只确认“用户接受了接听”。公网 WebSocket、ATA 和 PCM
-                    // 在其后异步建立，不能阻塞 CallKit 激活 AVAudioSession。
-                    action.fulfill()
-                },
-                backend: { try await handler.callKitAnswer(origin: origin) }
-            )
-            if let backendError, currentUUID == action.callUUID, self.handler === handler {
-                let diagnostic = backendError as NSError
-                debugLog("backend action failed domain=\(diagnostic.domain) code=\(diagnostic.code)")
-                finishCurrentCall(previous: nil, reason: .failed)
-                handler.callKitDidFail(backendError.localizedDescription)
-            }
+            try handler.callKitPrepareAudioSession()
         } catch {
-            fail(action, error: error)
+            if handler is V2SystemCallController {
+                debugLog("v2 answer audio session prepare warning code=\((error as NSError).code)")
+            } else {
+                fail(action, error: error)
+                return
+            }
+        }
+        currentState = "connecting"
+        // 系统事务只确认“用户接受了接听”。公网控制、ATA 和 WebRTC 音频在其后异步建立，
+        // 同步 fulfill 让 CallKit 立即进入接通界面并激活 AVAudioSession。
+        action.fulfill()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await handler.callKitAnswer(origin: origin)
+            } catch {
+                guard self.currentUUID == action.callUUID, self.handler === handler else { return }
+                let diagnostic = error as NSError
+                self.debugLog("backend action failed domain=\(diagnostic.domain) code=\(diagnostic.code)")
+                self.finishCurrentCall(previous: nil, reason: .failed)
+                handler.callKitDidFail(error.localizedDescription)
+            }
         }
     }
 
@@ -750,10 +762,20 @@ extension CallKitController: CXProviderDelegate {
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
         let stamp = actionGate.generation
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                guard self.acceptsAction(stamp), self.currentUUID == action.callUUID else {
+                    action.fail()
+                    return
+                }
+                self.beginPerformAnswer(action)
+            }
+            return
+        }
         Task { @MainActor [weak self] in
             guard self?.acceptsAction(stamp) == true else { action.fail(); return }
             guard self?.currentUUID == action.callUUID else { action.fail(); return }
-            await self?.performAnswer(action) }
+            self?.beginPerformAnswer(action) }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXEndCallAction) {

@@ -972,12 +972,13 @@ extension CloudV2Tests {
     func close() { closed += 1; releaseOffer() }
 }
 @MainActor private final class V2TestAudio: V2MediaAudio {
-    var activations = 0, deactivations = 0, callKitActivations = 0, callKitDeactivations = 0
+    var activations = 0, deactivations = 0, callKitPreparations = 0, callKitActivations = 0, callKitDeactivations = 0
     var activateError: Error?
     var routes: [V2AudioRoute] = [.receiver, .speaker]
     var selected: V2AudioRoute?
     var speaker: Bool { selected?.kind == .speaker }
     var currentRoute: V2AudioRoute? { selected ?? routes.first }
+    func prepareCallKitVoiceSession() { callKitPreparations += 1 }
     func activateVoice() throws { if let activateError { throw activateError }; activations += 1 }
     func deactivateVoice() { deactivations += 1 }
     func callKitActivated(_ session: AVAudioSession) { callKitActivations += 1 }
@@ -2955,5 +2956,151 @@ extension CloudV2Tests {
         XCTAssertTrue(app.accountSMSThreads.first!.lastMessage.canRetry)
         XCTAssertEqual(fixture.writes, 0)
         await fixture.close()
+    }
+}
+
+private final class V2StaleSocketURLProtocol: URLProtocol {
+    static var attempts = 0
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.attempts += 1
+        if Self.attempts == 1 {
+            client?.urlProtocol(self, didFailWithError: NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost))
+            return
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("{}".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+extension CloudV2Tests {
+    func testTransportRetriesIdempotentGETOnceOnStaleSocketAndNeverRetriesPOST() async throws {
+        let transport = V2URLSessionTransport(protocolClasses: [V2StaleSocketURLProtocol.self])
+        V2StaleSocketURLProtocol.attempts = 0
+        var get = URLRequest(url: URL(string: "https://offline.invalid/v2/modules")!)
+        get.httpMethod = "GET"
+        let response = try await transport.send(get, limit: 64)
+        XCTAssertEqual(response.status, 200)
+        XCTAssertEqual(V2StaleSocketURLProtocol.attempts, 2)
+
+        V2StaleSocketURLProtocol.attempts = 0
+        var post = URLRequest(url: URL(string: "https://offline.invalid/v2/modules/test/commands")!)
+        post.httpMethod = "POST"
+        post.httpBody = Data("{}".utf8)
+        do { _ = try await transport.send(post, limit: 64); XCTFail("POST must never retry") }
+        catch { XCTAssertEqual(error as? V2Error, .transport) }
+        XCTAssertEqual(V2StaleSocketURLProtocol.attempts, 1)
+    }
+
+    @MainActor func testBackgroundPushAnswerSurvivesTransientDirectoryFailureAndStaleSnapshot() async throws {
+        let audio = V2TestAudio(), peer = V2TestPeer()
+        let media = v2Media(audio: audio, peers: [peer])
+        let fixture = try V2PollFixture(media: media, pushController: nil)
+        addTeardownBlock { await fixture.close() }
+        fixture.commandHTTPStatus = 200
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(5))
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.freshBinding != nil }
+        await fixture.model.sceneChanged(.background)
+
+        // Simulate a dead pooled socket on the first background directory fetch AND a transiently stale snapshot.
+        fixture.failed.insert("directory")
+        fixture.snapshotAge = 12
+        fixture.connectionEpoch = v2OtherID
+        var incoming = v2CallObject(state: "incoming")
+        incoming["direction"] = "incoming"
+        incoming["ownership"] = "incoming"
+        fixture.snapshotCalls = [incoming]
+
+        let uuid = UUID()
+        system.currentSystemCallUUID = uuid
+        let now = fixture.currentNow
+        let push = try IncomingVoIPCall(userInfo: [
+            "protocol_version": 2, "event": "incoming_call", "server_id": v2ID,
+            "client_installation_id": v2ID, "registration_id": v2OtherID, "module_id": v2ID,
+            "connection_epoch": v2OtherID, "agent_boot_id": v2ID, "backend_epoch": v2ID,
+            "call_id": v2OtherID, "call_uuid": uuid.uuidString,
+            "expires_at": V2Validation.timestamp(now.addingTimeInterval(25)), "number": "00000000001",
+        ], now: now)
+
+        let controller = try XCTUnwrap(fixture.model.systemCalls)
+        XCTAssertNoThrow(try controller.callKitPrepareAudioSession())
+        XCTAssertEqual(audio.callKitPreparations, 1)
+
+        controller.callKitDidReceiveIncoming(push)
+        let answer = Task { try await controller.callKitAnswer(origin: .system) }
+        // Let the first directory attempt fail, then recover network & fresh snapshot before deadline.
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(system.endings, 0)
+        fixture.failed.remove("directory")
+        try await Task.sleep(for: .milliseconds(350))
+        XCTAssertEqual(system.endings, 0)
+        fixture.snapshotAge = 0
+
+        try await answer.value
+        XCTAssertEqual(system.endings, 0)
+        XCTAssertEqual(fixture.writes, 1)
+        XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.answer")
+        XCTAssertEqual((fixture.commands.last?["args"] as? [String: String])?["call_id"], v2OtherID)
+    }
+
+    @MainActor func testDisconnectedPriorOwnerAfterReconnectDoesNotBlockNewIncomingCallKitAnswer() async throws {
+        let oldOwner = V2CallContext(binding: v2Binding(), callID: v2ID, generation: v2ID)
+        let fixture = try V2PollFixture(pushController: nil, restoredOwner: oldOwner)
+        addTeardownBlock { await fixture.close() }
+        fixture.commandHTTPStatus = 200
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4))
+        await fixture.model.sceneChanged(.background)
+
+        // Module reconnected under a new connection_epoch while old call ended and new call arrived.
+        fixture.connectionEpoch = v2OtherID
+        let endedOld = v2CallObject(id: v2ID, state: "disconnected")
+        var freshIncoming = v2CallObject(id: v2OtherID, state: "incoming")
+        freshIncoming["direction"] = "incoming"
+        freshIncoming["ownership"] = "incoming"
+        fixture.snapshotCalls = [endedOld, freshIncoming]
+
+        let uuid = UUID()
+        system.currentSystemCallUUID = uuid
+        let now = fixture.currentNow
+        let push = try IncomingVoIPCall(userInfo: [
+            "protocol_version": 2, "event": "incoming_call", "server_id": v2ID,
+            "client_installation_id": v2ID, "registration_id": v2OtherID, "module_id": v2ID,
+            "connection_epoch": v2OtherID, "agent_boot_id": v2ID, "backend_epoch": v2ID,
+            "call_id": v2OtherID, "call_uuid": uuid.uuidString,
+            "expires_at": V2Validation.timestamp(now.addingTimeInterval(25)), "number": "00000000001",
+        ], now: now)
+
+        let controller = try XCTUnwrap(fixture.model.systemCalls)
+        controller.callKitDidReceiveIncoming(push)
+        try await controller.callKitAnswer(origin: .system)
+        XCTAssertEqual(system.endings, 0)
+        XCTAssertEqual(fixture.writes, 1)
+        XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.answer")
+        XCTAssertEqual((fixture.commands.last?["args"] as? [String: String])?["call_id"], v2OtherID)
+        XCTAssertEqual(fixture.model.ownedCall?.callID, v2OtherID)
+    }
+
+    @MainActor func testAppModelPreservesActiveCallAcrossTransientSnapshotGapUsingBackendCallID() async throws {
+        let owned = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        let fixture = try V2PollFixture(pushController: nil, restoredOwner: owned)
+        addTeardownBlock { await fixture.close() }
+        fixture.snapshotCalls = [v2CallObject(id: v2OtherID, state: "active")]
+        let app = AppModel(cloudV2: fixture.model)
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { app.activeCall != nil }
+        XCTAssertEqual(app.activeCall?.state, "active")
+
+        fixture.offlineModules.insert(v2ID)
+        try await v2PollWait { fixture.model.snapshot?.online == false }
+        app.projectCloudState()
+        XCTAssertNotNil(app.activeCall)
+        XCTAssertNotNil(app.inAppPresentedCall)
     }
 }

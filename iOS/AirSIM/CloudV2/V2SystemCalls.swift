@@ -74,42 +74,71 @@ final class V2SystemCallController: CallKitActionHandling {
         if calls.handler === self { calls.handler = nil; calls.setEnabled(false) }
         clearContext()
     }
+    private func logPushVerifyFailure(_ push: V2PushEnvelope) {
+#if DEBUG
+        let response = model.snapshot
+        V2DebugTrace.record("pushVerifyFailed expiry=\(model.currentTime < push.expiresAt) deadline=\(incomingAssociationDeadline.map { ContinuousClock.now < $0 } == true) uuid=\(calls.currentSystemCallUUID == incomingSystemUUID) config=\(model.configuration != nil) module=\(model.selectedModuleID == push.domain.moduleID) server=\(response?.server_id == push.domain.serverID) responseModule=\(response?.module_id == push.domain.moduleID) connection=\(response.map { model.pushConnectionMatches(push, response: $0) } == true) boot=\(response?.snapshot?.agent_boot_id == push.domain.agentBootID) backend=\(response?.snapshot?.backend_epoch == push.domain.backendEpoch) call=\(response?.snapshot?.calls.calls.contains(where: { $0.call_id == push.callID && $0.state != "disconnected" }) == true) selected=\(model.selectedModule != nil)")
+        NSLog("[AirSIM Push] verification failed expiry=%d uuid=%d server=%d module=%d connection=%d boot=%d backend=%d call=%d fresh=%d",
+              model.currentTime < push.expiresAt,
+              calls.currentSystemCallUUID == incomingSystemUUID,
+              response?.server_id == push.domain.serverID,
+              response?.module_id == push.domain.moduleID,
+              response?.connection_epoch == push.domain.connectionEpoch,
+              response?.snapshot?.agent_boot_id == push.domain.agentBootID,
+              response?.snapshot?.backend_epoch == push.domain.backendEpoch,
+              response?.snapshot?.calls.calls.contains(where: { $0.call_id == push.callID && $0.state != "disconnected" }) == true,
+              model.freshBinding != nil)
+#endif
+    }
     func observeSnapshot() {
         if let push = incomingPush {
             if verifyingPush { return }
+            // Definitive expiry, UUID loss, or configuration/module mismatch ends the system call.
             guard model.currentTime < push.expiresAt,
                   incomingAssociationDeadline.map({ ContinuousClock.now < $0 }) == true,
                   calls.currentSystemCallUUID == incomingSystemUUID,
                   let configuration = model.configuration,
                   configuration.identity.serverID == push.domain.serverID,
-                  model.selectedModuleID == push.domain.moduleID,
-                  let response = model.snapshot,
-                  response.server_id == push.domain.serverID,
-                  response.module_id == push.domain.moduleID,
-                  model.pushConnectionMatches(push, response: response),
-                  let snapshot = response.snapshot,
-                  snapshot.agent_boot_id == push.domain.agentBootID,
-                  snapshot.backend_epoch == push.domain.backendEpoch,
-                  let call = snapshot.calls.calls.first(where: {
-                      $0.call_id == push.callID && $0.direction == "incoming" && $0.state != "disconnected"
-                  }),
-                  let selected = model.selectedModule,
-                  let binding = try? response.controlBinding(configuration: configuration, module: selected, now: model.currentTime, usbLocal: model.usingUSB) else {
-#if DEBUG
-                let response = model.snapshot
-                V2DebugTrace.record("pushVerifyFailed expiry=\(model.currentTime < push.expiresAt) deadline=\(incomingAssociationDeadline.map { ContinuousClock.now < $0 } == true) uuid=\(calls.currentSystemCallUUID == incomingSystemUUID) config=\(model.configuration != nil) module=\(model.selectedModuleID == push.domain.moduleID) server=\(response?.server_id == push.domain.serverID) responseModule=\(response?.module_id == push.domain.moduleID) connection=\(response.map { model.pushConnectionMatches(push, response: $0) } == true) boot=\(response?.snapshot?.agent_boot_id == push.domain.agentBootID) backend=\(response?.snapshot?.backend_epoch == push.domain.backendEpoch) call=\(response?.snapshot?.calls.calls.contains(where: { $0.call_id == push.callID && $0.state != "disconnected" }) == true) selected=\(model.selectedModule != nil)")
-                NSLog("[AirSIM Push] verification failed expiry=%d uuid=%d server=%d module=%d connection=%d boot=%d backend=%d call=%d fresh=%d",
-                      model.currentTime < push.expiresAt,
-                      calls.currentSystemCallUUID == incomingSystemUUID,
-                      response?.server_id == push.domain.serverID,
-                      response?.module_id == push.domain.moduleID,
-                      response?.connection_epoch == push.domain.connectionEpoch,
-                      response?.snapshot?.agent_boot_id == push.domain.agentBootID,
-                      response?.snapshot?.backend_epoch == push.domain.backendEpoch,
-                      response?.snapshot?.calls.calls.contains(where: { $0.call_id == push.callID && $0.state != "disconnected" }) == true,
-                      model.freshBinding != nil)
-#endif
+                  model.selectedModuleID == push.domain.moduleID else {
+                logPushVerifyFailure(push)
                 endSystemCall()
+                return
+            }
+            guard let response = model.snapshot else { return }
+            guard response.server_id == push.domain.serverID,
+                  response.module_id == push.domain.moduleID else {
+                logPushVerifyFailure(push)
+                endSystemCall()
+                return
+            }
+            // Wait for the next poll if the module is transiently offline or snapshot body is missing.
+            guard response.online, let snapshot = response.snapshot else { return }
+            // Different module boot or backend epoch definitively invalidates the pushed call.
+            guard snapshot.agent_boot_id == push.domain.agentBootID,
+                  snapshot.backend_epoch == push.domain.backendEpoch else {
+                logPushVerifyFailure(push)
+                endSystemCall()
+                return
+            }
+            // Transiently stale snapshot age (e.g. brief cellular upload stall right after push)
+            // waits for the next 1 s snapshot instead of terminating the ringing CallKit UI.
+            let age = model.currentTime.timeIntervalSince(snapshot.observedAt)
+            guard (-3...8).contains(age) else { return }
+            guard let call = snapshot.calls.calls.first(where: {
+                $0.call_id == push.callID && $0.direction == "incoming" && $0.state != "disconnected"
+            }) else {
+                logPushVerifyFailure(push)
+                endSystemCall()
+                return
+            }
+            // Wait for directory synchronization if selectedModule is still nil or behind the new epoch.
+            guard let selected = model.selectedModule,
+                  selected.online,
+                  selected.connection_epoch == response.connection_epoch,
+                  selected.agent_boot_id == snapshot.agent_boot_id,
+                  selected.backend_epoch == snapshot.backend_epoch else { return }
+            if model.usingUSB, !model.pushConnectionMatches(push, response: response) { return }
+            guard let binding = try? response.controlBinding(configuration: configuration, module: selected, now: model.currentTime, usbLocal: model.usingUSB) else {
                 return
             }
             verifiedBinding = binding
@@ -190,20 +219,10 @@ final class V2SystemCallController: CallKitActionHandling {
         endingUUID = nil
     }
     func callKitPrepareAudioSession() throws {
-        let audio = AVAudioSession.sharedInstance()
 #if DEBUG
-        NSLog("[AirSIM V2] preparing AVAudioSession category")
+        NSLog("[AirSIM V2] preparing CallKit RTCAudioSession")
 #endif
-        try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
-#if DEBUG
-        NSLog("[AirSIM V2] AVAudioSession category prepared")
-#endif
-        try audio.setPreferredSampleRate(48_000)
-        try audio.setPreferredIOBufferDuration(0.02)
-        try audio.overrideOutputAudioPort(.none)
-#if DEBUG
-        NSLog("[AirSIM V2] AVAudioSession buffer prepared")
-#endif
+        model.media.prepareCallKitVoiceSession()
     }
     private func isCurrent(_ uuid: UUID, binding: V2ControlBinding) -> Bool {
         calls.handler === self && calls.currentSystemCallUUID == uuid && authorizedBinding == binding
@@ -254,10 +273,13 @@ final class V2SystemCallController: CallKitActionHandling {
             calls.reportCurrentCallEnded(reason: .failed)
             return
         }
-        if model.usingUSB, currentCallID == push.callID, let binding = authorizedBinding,
+        if currentCallID == push.callID, let binding = authorizedBinding,
            binding.bootID == push.domain.agentBootID, binding.backendEpoch == push.domain.backendEpoch,
-           binding.moduleID == push.domain.moduleID, binding.identity.serverID == push.domain.serverID {
-            Task { [weak self] in await self?.model.verifyUSBPush(push) }
+           binding.moduleID == push.domain.moduleID, binding.identity.serverID == push.domain.serverID,
+           (model.usingUSB || controlledCall != nil || association != nil || binding.connectionEpoch == push.domain.connectionEpoch) {
+            if model.usingUSB {
+                Task { [weak self] in await self?.model.verifyUSBPush(push) }
+            }
             return
         }
         incomingPush = push
@@ -273,14 +295,31 @@ final class V2SystemCallController: CallKitActionHandling {
             self.verifyingPush = false
             if self.model.snapshot != nil { self.observeSnapshot() }
             guard self.incomingPush?.callUUID == expectedUUID else { return }
-            await self.model.systemCallScopeChanged()
+            await self.model.ensurePollingForSystemCall()
             try? await Task.sleep(for: self.associationTimeout)
             guard self.incomingPush?.callUUID == expectedUUID else { return }
             self.endSystemCall()
         }
     }
+    private func waitForAnswerReadiness(uuid: UUID, deadline: ContinuousClock.Instant) async throws -> (V2ControlBinding, String) {
+        while calls.handler === self && calls.currentSystemCallUUID == uuid {
+            if let verified = verifiedBinding, let id = currentCallID {
+                if !model.busy && model.telephonyReady, let fresh = model.freshBinding,
+                   fresh.identity == verified.identity, fresh.moduleID == verified.moduleID,
+                   fresh.bootID == verified.bootID, fresh.backendEpoch == verified.backendEpoch,
+                   fresh.usbLocal == verified.usbLocal {
+                    if fresh != verified { rebind(from: verified, to: fresh) }
+                    return (fresh, id)
+                }
+            }
+            guard ContinuousClock.now < deadline else { throw V2Error.stale }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        throw V2Error.stale
+    }
     func callKitAnswer(origin: CallAnswerOrigin) async throws {
         guard let uuid = calls.currentSystemCallUUID else { throw V2Error.stale }
+        let deadline = ContinuousClock.now.advanced(by: associationTimeout)
 #if DEBUG
         V2DebugTrace.record("answerStart verified=\(verifiedBinding != nil) pendingPush=\(incomingPush != nil)")
         do { try await waitForIncomingVerification(uuid: uuid) }
@@ -288,11 +327,25 @@ final class V2SystemCallController: CallKitActionHandling {
 #else
         try await waitForIncomingVerification(uuid: uuid)
 #endif
-        guard let binding = verifiedBinding, let id = currentCallID else { throw V2Error.stale }
-        let ticket = await model.systemCommand("call.answer", args: ["call_id": id], binding: binding) { self.association = $0 }
+        var binding: V2ControlBinding
+        var ticket: V2SystemCommandSubmission
+        while true {
+            let ready = try await waitForAnswerReadiness(uuid: uuid, deadline: deadline)
+            binding = ready.0
+            let id = ready.1
+            ticket = await model.systemCommand("call.answer", args: ["call_id": id], binding: binding) { self.association = $0 }
 #if DEBUG
-        V2DebugTrace.record("answerSubmitted outcome=\(ticket.outcome) command=\(ticket.commandID != nil)")
+            V2DebugTrace.record("answerSubmitted outcome=\(ticket.outcome) command=\(ticket.commandID != nil)")
 #endif
+            // Only retry waiting when no HTTP command was posted (e.g. momentary busy/freshness race).
+            if ticket.commandID == nil, ticket.outcome == .failed,
+               calls.handler === self, calls.currentSystemCallUUID == uuid,
+               !model.hasUnresolvedCommand, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(100))
+                continue
+            }
+            break
+        }
         do {
             let owned = try await waitForAssociation(ticket, uuid: uuid, binding: binding, timeout: associationTimeout)
             guard isCurrent(uuid, binding: binding) else { return }

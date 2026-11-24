@@ -1,5 +1,7 @@
 # AirSIM 全项目 Codex 部署辅助
 
+2026-11-24 22:17：SkySIM `0.9.6 (90)` 修复后台/锁屏 VoIP 来电在系统 CallKit 接听时报错并未能进入接通界面的 5 项根因（`CXAnswerCallAction` 同步 `fulfill` 并消除预配置错误回退、`RTCAudioSession` 加锁配置且不在未激活会话上强行改路由、支持 `.generic` Handle 类型、后台挂起恢复后对幂等 `GET` 的 stale socket 单次重试、后台 Push 目录/快照瞬态容错与 `AppModel` 改用后端 `call_id` 保留活跃通话）；全套 171 项 iOS 单元测试通过。Release 归档已补入 UUID 匹配的 WebRTC 155.0.0 dSYM（`4C4C44F0-5555-3144-A190-21F9C2A35CDA`）并通过三项 Target 严格签名及 production APNs 校验，于 22:17:10 上传 App Store Connect（`Upload succeeded`）。本轮仅更新 iOS App，ECS 与 EG25 Rust Engine `2.0.0-rs.3`（用户已确认通话质量 OK）未改动；Apple 处理完成、TestFlight 内部测试生效及真机锁屏/后台 CallKit 接听仍待验收。详见 [SkySIM TestFlight](docs/IOS_TESTFLIGHT.md)。
+
 2026-11-23 22:38：统一单二进制零 GC 实时 Rust 模块引擎已迭代至 `2.0.0-rs.3`（`rust-engine-20261123-rs3`，基于首通 2 分钟真实蜂窝通话的 `/v2/local/cloud/media-stats` 遥测，修复上行抖动缓冲 4 项缺陷：移除误触静音重同步的 talkspurt 阈值与 25 槽硬截断、改 128 槽 NetEq 空缓冲驻留实现零 late 丢帧、解除 `alsa_delay >= 56 ms` 对 WSOLA 加速的误触发与扩大蜂窝目标上限至 440 ms、放大 TURN UDP `SO_RCVBUF` 至 256 KiB），已原子发布至 `airsim.eric3u.cc`（源站 HTTPS 23 项资源哈希校验通过，ECS 容器未重启）并同步安装至本机 EG25 真机（移动 4G 已在线 `device_connected`，首通真实通话已确认 SkySIM 端清晰，待复拨验收对端上行连贯性）。SkySIM `0.9.6 (89)` 已于 21:40 上传 App Store Connect（`Upload succeeded`）。详见 [Rust Engine 发布](docs/RUST_ENGINE_DEPLOYMENT_20261123.md)。
 
 2026-11-05 23:31：云端音频重构已合入 main（`f2bb817`），通过 Workbench 发布 EG25／RM500 网页 Engine `2.0.0-dev.audio1` 与 helper `0.6.1-opus`；23 个资源的源站和公网哈希校验通过。SkySIM `0.9.6 (84)` 已于 11 月 6 日 01:10 确认进入原有 TestFlight 内部测试，可安装更新。用户选择直接发布，本轮未安装模块或验收真实通话；发布状态见 [云端音频发布](docs/CLOUD_AUDIO_DEPLOYMENT_20261105.md)。

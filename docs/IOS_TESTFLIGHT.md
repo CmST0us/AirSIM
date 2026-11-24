@@ -146,3 +146,20 @@ Apple 测试员页面已报告用户的 iPhone Duo / iOS 27.2 安装 `0.9.6 (82)
 - Release 归档、补入 UUID 完全匹配的 WebRTC 155.0.0 iOS arm64 dSYM（`4C4C44F0-5555-3144-A190-21F9C2A35CDA`）、App Store Connect 分发导出及三项 Target 严格签名校验均通过；主 App 与 Watch 为 production APNs（`get-task-allow=false`），`AirSIMV2PairingOrigin=https://airsim.eric3u.cc`，相机说明与三项 `PrivacyInfo.xcprivacy` 保留。
 - 分发产物保存在已忽略目录 `iOS/build/testflight-20261123-build89/`，导出 IPA SHA-256 为 `6fc2714d863d44ec949ed0fa3e686cd54ccfd9b37a49f11153ce8e36a436000c`。
 - 北京时间 21:40:36，`xcodebuild -exportArchive`（`destination=upload`）返回 `Uploaded package is processing`、`Upload succeeded` 与 `** EXPORT SUCCEEDED **`。Apple 处理完成与 TestFlight 内部测试群组分配待在 App Store Connect 在线确认，真实设备通话待验收。详情见 [Rust Engine 发布](RUST_ENGINE_DEPLOYMENT_20261123.md)。
+
+## 2026-11-24：系统 CallKit 接听修复（Build 90，已上传待处理）
+
+针对真实通话中后台/锁屏收到 VoIP 来电时系统 CallKit 点击接听报错且未进入接通界面的问题（已结合 ECS 日志确认接听动作在 iOS 本地失败，未发出 `call.answer`），修复 5 项根因后递增至 `0.9.6 (90)`：
+
+1. `V2WebRTC.swift` / `V2MediaCoordinator.swift`：新增 `prepareCallKitVoiceSession()`，在 `RTCAudioSession.sharedInstance().lockForConfiguration()` 保护下配置 `.playAndRecord` / `.voiceChat` / `[.allowBluetoothHFP]` 与尽力而为的 `48 kHz / 20 ms`，移除激活前对未激活会话调用 `overrideOutputAudioPort(.none)` 的错误路径；在 `callKitActivated(_:)` 中激活前同样加锁重试配置。
+2. `CallKitController.swift`：为 `CXProviderConfiguration` 增加 `.generic` Handle 支持；`provider(_:perform action: CXAnswerCallAction)` 在主线程通过 `MainActor.assumeIsolated` 同步完成状态校验与 `action.fulfill()`，不再因 v2 音频预提示错误而触发 `action.fail()`，随后异步执行后端接听。
+3. `V2Transport.swift`：`V2SharedSession` 仅对无请求体的幂等 `GET` 在 `NSURLErrorNetworkConnectionLost`（`-1005`）时自动单次重试，避免 iOS 后台唤醒复用陈旧连接导致目录/快照拉取失败；`POST`/`PUT`/`DELETE` 绝不重试。
+4. `CloudV2Model.swift` / `V2SystemCalls.swift`：`prepareForIncomingPush(_:)` 对瞬态错误/并发忙碌增加退避重试并预取快照；`observeSnapshot()` 区分明确终态与瞬态未同步，避免过早 `endSystemCall()`；保留重复 Push 的 `verifiedBinding`；重连后快照明确上报 `disconnected` 时自动释放残留 `ownedCall`；`callKitAnswer(origin:)` 增加就绪等待且仅在尚未发出命令（`commandID == nil`）时重试。
+5. `AppModel.swift`：新增 `activeCallBackendID`，在瞬态快照空窗期间按后端裸 `call_id` 保留活跃通话状态，避免与复合 `V2StoredCall.id` 比对失配导致接通界面闪退。
+
+验证与上传记录：
+- 单元测试：`AirSIMTests` 171/171 通过（含新增 4 项 CallKit/后台 Push/Transport/AppModel 回归测试）。
+- 继续使用 SkySIM / `com.eric3u.airsim2` / Team `2VQ94C2355` / App Store Connect `6829440499`。
+- Release 归档、补入 UUID 完全匹配的 WebRTC 155.0.0 iOS arm64 dSYM（`4C4C44F0-5555-3144-A190-21F9C2A35CDA`）、App Store Connect 分发导出及三项 Target（`AirSIM.app`、`AirSIMLiveActivityExtension.appex`、`AirSIMWatchApp.app`）严格签名校验通过；主 App 与 Watch 为 production APNs（`get-task-allow=false`），`AirSIMV2PairingOrigin=https://airsim.eric3u.cc`，相机/麦克风说明及四项 `PrivacyInfo.xcprivacy`（含 `WebRTC.framework`）保留。
+- 分发产物保存在已忽略目录 `iOS/build/testflight-20261124-build90/`，导出 IPA SHA-256 为 `2353a532609029ac6880b33d2fa058b49117e253e93a863a4df6796aaec499a2`。
+- 北京时间 22:17:10，`xcodebuild -exportArchive`（`destination=upload`）返回 `Uploaded package is processing`、`Upload succeeded` 与 `** EXPORT SUCCEEDED **`，无上传警告。本轮未修改 ECS 或 EG25 Rust Engine `2.0.0-rs.3`；Apple 处理完成、TestFlight 内部测试群组分配及真机锁屏/后台 CallKit 接听待验收。

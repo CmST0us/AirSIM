@@ -288,6 +288,14 @@ final class CloudV2Model: ObservableObject {
         await cancelPolling()
         if foreground || systemBinding != nil || systemCalls?.hasSystemCall == true { startPolling() }
     }
+    func ensurePollingForSystemCall() async {
+        guard systemCalls?.hasSystemCall == true else { return }
+        if !connected {
+            if !busy { await connect(allowBackground: true) }
+            return
+        }
+        if pollTasks.isEmpty && pollStopTask == nil { startPolling() }
+    }
     private var systemSubmission: V2SystemCommandSubmission?
     func systemCommand(_ action: String, args: [String: String], binding: V2ControlBinding? = nil,
                        submitted: ((V2SystemCommandSubmission) -> Void)? = nil) async -> V2SystemCommandSubmission {
@@ -499,25 +507,60 @@ final class CloudV2Model: ObservableObject {
         verifiedUSBPush = push
     }
     func prepareForIncomingPush(_ push: V2PushEnvelope? = nil) async {
+        // If a connection or foreground command is already in flight when PushKit wakes us,
+        // wait briefly for it to finish instead of silently skipping refresh.
+        if busy {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            while busy && systemCalls?.hasSystemCall == true && ContinuousClock.now < deadline {
+                if let task = connectionTask { await task.value; break }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+        let module = selectedModuleID
         if connected && !busy {
             await cancelPolling()
-            let stamp = generation, module = selectedModuleID
             snapshot = nil
-            do {
-                let directory = try await client.modules()
-                guard generation == stamp, selectedModuleID == module else { return }
-                modules = directory.modules
-                await verifyUSBPush(push)
-                startPolling()
-            } catch {
-                guard generation == stamp, selectedModuleID == module else { return }
-                syncStatus = "来电设备状态刷新失败，请检查连接。"
-                systemCalls?.endSystemCall()
+            var refreshed = false
+            let retryDelays: [Duration] = [.milliseconds(200), .milliseconds(500), .seconds(1)]
+            for attempt in 0...retryDelays.count {
+                guard connected, selectedModuleID == module, systemCalls?.hasSystemCall == true else { return }
+                do {
+                    let directory = try await client.modules()
+                    guard connected, selectedModuleID == module else { return }
+                    modules = directory.modules
+                    refreshed = true
+                    break
+                } catch {
+                    guard connected, selectedModuleID == module, systemCalls?.hasSystemCall == true else { return }
+                    let retryable = V2Client.isTransientConnectionError(error) || (error as? V2Error) == .busy
+                    if retryable && attempt < retryDelays.count {
+                        try? await Task.sleep(for: retryDelays[attempt])
+                        continue
+                    }
+                    syncStatus = "来电设备状态刷新失败，正在重试…"
+                    break
+                }
             }
+            guard connected, selectedModuleID == module, systemCalls?.hasSystemCall == true else { return }
+            await verifyUSBPush(push)
+            if refreshed, let module, let snap = try? await client.snapshot(moduleID: module, foreground: foreground),
+               connected, selectedModuleID == module {
+                self.snapshot = snap
+                try? self.consumeSnapshot(snap)
+                self.updateMediaEligibility()
+            }
+            startPolling()
             return
         }
         await connect(allowBackground: true)
+        guard connected, selectedModuleID == module, systemCalls?.hasSystemCall == true else { return }
         await verifyUSBPush(push)
+        if snapshot == nil, let module, let snap = try? await client.snapshot(moduleID: module, foreground: foreground),
+           connected, selectedModuleID == module {
+            self.snapshot = snap
+            try? self.consumeSnapshot(snap)
+            self.updateMediaEligibility()
+        }
     }
 
     private func connect(allowBackground: Bool) async {
@@ -535,7 +578,7 @@ final class CloudV2Model: ObservableObject {
                 guard self.connectionEpoch == stamp, allowBackground || self.foreground, !Task.isCancelled else { return }
                 let result = try await self.client.connect(configuration, requiredUSB: self.machine?.pending.map { $0.binding.usbLocal == true } ?? self.ownedCall.map { $0.binding.usbLocal == true })
                 guard self.connectionEpoch == stamp, allowBackground || self.foreground, !Task.isCancelled else { return }
-                if allowBackground {
+                if allowBackground || self.systemCalls?.hasSystemCall == true {
                     let directory = try await self.client.modules()
                     guard self.connectionEpoch == stamp, !Task.isCancelled else { return }
                     self.modules = directory.modules
@@ -662,11 +705,16 @@ final class CloudV2Model: ObservableObject {
                             if let module {
                                 let snapshot = try await self.client.snapshot(moduleID: module, foreground: self.foreground)
                                 guard self.acceptsPoll(stamp, module: module) else { return }
-                                if snapshot.online, let listed = self.selectedModule, listed.connection_epoch != snapshot.connection_epoch {
-                                    // The module reconnected; the directory lane may not run in the background.
-                                    let directory = try await self.client.modules()
-                                    guard self.acceptsPoll(stamp, module: module) else { return }
-                                    self.modules = directory.modules
+                                if snapshot.online,
+                                   (self.selectedModule == nil && (!self.foreground || self.systemCalls?.hasSystemCall == true))
+                                    || (self.selectedModule != nil && (self.selectedModule?.connection_epoch != snapshot.connection_epoch
+                                        || self.selectedModule?.agent_boot_id != snapshot.snapshot?.agent_boot_id
+                                        || self.selectedModule?.backend_epoch != snapshot.snapshot?.backend_epoch)) {
+                                    // The module reconnected or directory has not loaded yet; directory lane may not run in background.
+                                    if let directory = try? await self.client.modules() {
+                                        guard self.acceptsPoll(stamp, module: module) else { return }
+                                        self.modules = directory.modules
+                                    }
                                 }
                                 self.snapshot = snapshot
                                 self.debugLog("snapshot online=\(snapshot.online) body=\(snapshot.snapshot != nil) epoch=\(!snapshot.connection_epoch.isEmpty) control=\(snapshot.snapshot?.control.ready == true) telephony=\(snapshot.snapshot?.control.telephony_ready == true) audio=\(snapshot.snapshot?.audio.available == true)")
@@ -742,11 +790,18 @@ final class CloudV2Model: ObservableObject {
            let module = selectedModule, module.module_id == response.module_id,
            let fresh = try? response.controlBinding(configuration: config, module: module, now: now(), usbLocal: client.usingUSB),
            fresh.connectionEpoch != context.binding.connectionEpoch, fresh.bootID == context.binding.bootID,
-           fresh.backendEpoch == context.binding.backendEpoch, fresh.usbLocal == context.binding.usbLocal,
-           snapshot.calls.calls.contains(where: { $0.call_id == context.callID && $0.state != "disconnected" }) {
-            // The module reconnected to the server. Its call and the server's reservation are unchanged.
-            try machine?.rebindOwnedCall(V2CallContext(binding: fresh, callID: context.callID, generation: context.generation))
-            systemCalls?.rebind(from: context.binding, to: fresh)
+           fresh.backendEpoch == context.binding.backendEpoch, fresh.usbLocal == context.binding.usbLocal {
+            if let call = snapshot.calls.calls.first(where: { $0.call_id == context.callID }) {
+                if call.state == "disconnected" {
+                    // Explicit disconnected evidence after a module reconnect releases the ended owner.
+                    try machine?.clearOwnedCall()
+                    newlyOwnedCall = nil; attemptedAudioCall = nil
+                } else {
+                    // The module reconnected to the server. Its call and the server's reservation are unchanged.
+                    try machine?.rebindOwnedCall(V2CallContext(binding: fresh, callID: context.callID, generation: context.generation))
+                    systemCalls?.rebind(from: context.binding, to: fresh)
+                }
+            }
         }
         guard let context = ownedCall, context.binding.identity == config.identity,
               context.binding.moduleID == response.module_id, response.online,
@@ -895,7 +950,8 @@ final class CloudV2Model: ObservableObject {
         }
 #endif
         guard canAct, let machine else { return false }
-        guard foreground || (systemCalls?.hasSystemCall == true && ["call.answer", "call.hangup", "call.dtmf"].contains(action) && args["call_id"] == (ownedCall?.callID ?? systemCalls?.currentCallID)) else { return false }
+        let targetCallID = action == "call.answer" ? systemCalls?.currentCallID : (ownedCall?.callID ?? systemCalls?.currentCallID)
+        guard foreground || (systemCalls?.hasSystemCall == true && ["call.answer", "call.hangup", "call.dtmf"].contains(action) && args["call_id"] == targetCallID) else { return false }
         let binding: V2ControlBinding
         if action == "call.dtmf" || (action == "call.hangup" && ownedCall != nil) {
             guard ownedControlReady, let context = ownedCall else { error = "原通话状态尚未核对，不能控制。"; return false }; binding = context.binding
