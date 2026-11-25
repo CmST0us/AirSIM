@@ -138,7 +138,7 @@ struct IncomingVoIPCall: Equatable, Sendable {
             return Date(timeIntervalSince1970: number.doubleValue)
         }
         guard let text = value as? String else { return nil }
-        return ISO8601DateFormatter().date(from: text)
+        return ISO8601DateFormatter().date(from: text) ?? (try? V2Validation.date(text))
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

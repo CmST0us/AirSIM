@@ -568,6 +568,10 @@ final class AppModel: ObservableObject {
         self.api = api
         self.cloudV2 = cloudV2
         if let cloudV2 {
+            cloudV2.resolveCallerName = { [weak contacts] number in
+                guard let number, !number.isEmpty else { return nil }
+                return contacts?.contact(for: number)?.name
+            }
             cloudObservation = cloudV2.objectWillChange.sink { [weak self] _ in
                 guard let self, self.cloudProjectionTask == nil else { return }
                 self.cloudProjectionTask = Task { @MainActor [weak self] in
@@ -1382,15 +1386,65 @@ final class AppModel: ObservableObject {
         await call(number: number, moduleID: originalModuleID)
     }
 
+    /// Strips spaces, dashes, parentheses, and Unicode bidi marks before validating for v2 `call.dial`.
+    nonisolated static func normalizedV2DialNumber(_ input: String) -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        var out = ""
+        for scalar in trimmed.unicodeScalars {
+            if scalar == "+" && out.isEmpty {
+                out.append("+")
+            } else if scalar.value >= 48 && scalar.value <= 57 {
+                out.append(Character(scalar))
+            }
+        }
+        return V2Validation.matches(out, "^\\+?[0-9]{6,15}$") ? out : ""
+    }
+
+    /// Handles iOS Phone Recents / Siri `INStartCallIntent` callbacks, waiting briefly
+    /// for v2 connection and snapshot sync after a cold launch or background wake.
+    func callFromSystemActivity(number: String) async {
+        let cleaned = Self.normalizedV2DialNumber(number)
+        guard !cleaned.isEmpty else {
+            errorMessage = "请输入 6–15 位有效电话号码。"
+            return
+        }
+        guard let cloudV2 else {
+            numberInput = cleaned
+            await dial()
+            return
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(8))
+        while ContinuousClock.now < deadline {
+            if cloudV2.canAct && cloudV2.telephonyReady {
+                if cloudV2.activeCall != nil { return }
+                numberInput = cleaned
+                await dial()
+                return
+            }
+            if cloudV2.configuration == nil { break }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        numberInput = cleaned
+        errorMessage = "设备尚未连接就绪，请连接后重试。"
+    }
+
     func dial() async {
         if let cloudV2 {
+            let cleaned = Self.normalizedV2DialNumber(numberInput)
+            guard !cleaned.isEmpty else {
+                errorMessage = "请输入 6–15 位有效电话号码。"
+                return
+            }
+            numberInput = cleaned
 #if targetEnvironment(simulator)
-            cloudV2.number = numberInput
+            cloudV2.number = cleaned
             await cloudV2.dial()
 #else
             if cloudV2.systemCalls != nil {
-                do { try await callKit.startOutgoingCall(number: numberInput) } catch { errorMessage = "无法发起系统通话，请检查权限与连接。" }
-            } else { cloudV2.number = numberInput; await cloudV2.dial() }
+                let callerName = contacts.contact(for: cleaned)?.name
+                do { try await callKit.startOutgoingCall(number: cleaned, callerName: callerName) }
+                catch { errorMessage = "无法发起系统通话，请检查权限与连接。" }
+            } else { cloudV2.number = cleaned; await cloudV2.dial() }
 #endif
             projectCloudState(); return
         }
@@ -1591,8 +1645,15 @@ final class AppModel: ObservableObject {
 
     func toggleMute() async {
         if let cloudV2 {
-            if cloudV2.systemCalls?.hasSystemCall == true { do { try await callKit.setMuted(!cloudV2.media.muted) } catch { errorMessage = "无法切换系统静音。" } }
-            else { cloudV2.media.setMuted(!cloudV2.media.muted) }; projectCloudState(); return
+            let target = !cloudV2.media.muted
+            if cloudV2.systemCalls?.hasSystemCall == true {
+                do { try await callKit.setMuted(target) }
+                catch CallKitBridgeError.noSystemCall, CallKitBridgeError.staleSystemCall {
+                    // System call is still setting up; apply locally and preserve it once WebRTC starts.
+                    cloudV2.media.setMuted(target)
+                } catch { errorMessage = "无法切换系统静音。" }
+            }
+            else { cloudV2.media.setMuted(target) }; projectCloudState(); return
         }
         let target = !isMuted
         if callKit.managesCurrentCall {

@@ -48,6 +48,7 @@ final class CloudV2Model: ObservableObject {
     private var attemptedAudioCall: V2CallContext?
     private var audioRetry: (call: V2CallContext, attempt: Int)?
     private var adoptionCallID: String?
+    private var adoptionTask: Task<Void, Never>?
     private var audioRetryTask: Task<Void, Never>?
 #if DEBUG
     private var lastMediaEligibilityLog: String?
@@ -63,6 +64,7 @@ final class CloudV2Model: ObservableObject {
     private let tokens: V2TokenStore
     private let pairingClient: V2PairingClient?
     private(set) var systemCalls: V2SystemCallController?
+    var resolveCallerName: ((String?) -> String?)?
     var systemAudioActive = false
     private var systemBinding: V2ControlBinding? { systemCalls?.hasSystemCall == true ? systemCalls?.authorizedBinding : nil }
     private var machine: V2CommandMachine?
@@ -296,6 +298,33 @@ final class CloudV2Model: ObservableObject {
         }
         if pollTasks.isEmpty && pollStopTask == nil { startPolling() }
     }
+    /// Proactively refreshes module snapshot (and directory if epochs drifted) before
+    /// a background CallKit hangup/answer when cached state is missing or stale.
+    func refreshForSystemCallControl() async {
+        guard systemCalls?.hasSystemCall == true else { return }
+        if !connected {
+            if !busy { await connect(allowBackground: true) }
+            return
+        }
+        guard !busy, let module = selectedModuleID else { return }
+        if pollTasks.isEmpty && pollStopTask == nil { startPolling() }
+        guard let snap = try? await client.snapshot(moduleID: module, foreground: foreground),
+              connected, selectedModuleID == module else { return }
+        if snap.online,
+           selectedModule == nil
+            || selectedModule?.connection_epoch != snap.connection_epoch
+            || selectedModule?.agent_boot_id != snap.snapshot?.agent_boot_id
+            || selectedModule?.backend_epoch != snap.snapshot?.backend_epoch {
+            if let directory = try? await client.modules(),
+               connected, selectedModuleID == module {
+                modules = directory.modules
+            }
+        }
+        snapshot = snap
+        try? consumeSnapshot(snap)
+        updateMediaEligibility()
+        systemCalls?.observeSnapshot()
+    }
     private var systemSubmission: V2SystemCommandSubmission?
     func systemCommand(_ action: String, args: [String: String], binding: V2ControlBinding? = nil,
                        submitted: ((V2SystemCommandSubmission) -> Void)? = nil) async -> V2SystemCommandSubmission {
@@ -309,6 +338,7 @@ final class CloudV2Model: ObservableObject {
     var ownedCall: V2CallContext? { machine?.ownedCall }
     var currentTime: Date { now() }
     var hasUnresolvedCommand: Bool { machine?.pending != nil }
+    var pendingHangupCallID: String? { machine?.pending?.action == "call.hangup" ? machine?.pending?.callID : nil }
     var pendingSMSCommandID: String? { machine?.pending?.action == "sms.send" ? machine?.pending?.commandID : nil }
     private(set) var lastSMSResolution: (commandID: String, succeeded: Bool)?
     var activeCall: V2Call? {
@@ -669,11 +699,16 @@ final class CloudV2Model: ObservableObject {
             // Calls ringing or answered in the App's own interface move to the system interface.
             systemCalls?.handOverRingingCall()
             adoptAnsweredCall()
+            await adoptionTask?.value
             foreground = false
-            cancelReconnect()
-            await cancelConnection(); await cancelPolling()
-            if systemCalls?.hasSystemCall == true { startPolling() }
-            else { ringback.stop(); await media.stop() }
+            if systemCalls?.hasSystemCall == true {
+                await cancelPolling()
+                await ensurePollingForSystemCall()
+            } else {
+                cancelReconnect()
+                await cancelConnection(); await cancelPolling()
+                ringback.stop(); await media.stop()
+            }
         default: break
         }
     }
@@ -950,10 +985,18 @@ final class CloudV2Model: ObservableObject {
         }
 #endif
         guard canAct, let machine else { return false }
-        let targetCallID = action == "call.answer" ? systemCalls?.currentCallID : (ownedCall?.callID ?? systemCalls?.currentCallID)
-        guard foreground || (systemCalls?.hasSystemCall == true && ["call.answer", "call.hangup", "call.dtmf"].contains(action) && args["call_id"] == targetCallID) else { return false }
+        let isSystemCallAction: Bool = {
+            guard systemCalls?.hasSystemCall == true, let callID = args["call_id"] else { return false }
+            switch action {
+            case "call.answer": return callID == systemCalls?.currentCallID
+            case "call.hangup": return callID == systemCalls?.currentCallID || callID == ownedCall?.callID
+            case "call.dtmf": return callID == (ownedCall?.callID ?? systemCalls?.currentCallID)
+            default: return false
+            }
+        }()
+        guard foreground || isSystemCallAction else { return false }
         let binding: V2ControlBinding
-        if action == "call.dtmf" || (action == "call.hangup" && ownedCall != nil) {
+        if action == "call.dtmf" || (action == "call.hangup" && ownedCall != nil && ownedCall?.callID == args["call_id"]) {
             guard ownedControlReady, let context = ownedCall else { error = "原通话状态尚未核对，不能控制。"; return false }; binding = context.binding
         } else {
             guard let freshBinding, action == "sms.send" ? messagingReady : telephonyReady else {
@@ -965,8 +1008,8 @@ final class CloudV2Model: ObservableObject {
         busy = true; actionInFlight = true
         defer { busy = false; actionInFlight = false; objectWillChange.send() }
         do {
-            if action == "call.hangup" { await media.stop() }
             let command = try V2Command(binding: binding, action: action, args: args, now: now())
+            if action == "call.hangup" { await media.stop() }
             if let outgoingMessageID { try attachOutgoingCommand(outgoingMessageID, command: command) }
             if action == "call.dial" || action == "call.answer" { runtimeCallCommandID = command.command_id }
             submitted?(V2SystemCommandSubmission(commandID: command.command_id, binding: binding, outcome: .pending))
@@ -1051,6 +1094,7 @@ final class CloudV2Model: ObservableObject {
         case .receipt, .rejected: try machine.acknowledgeResolved()
         default: break
         }
+        if ownedCall != nil { updateMediaEligibility() }
         objectWillChange.send()
     }
 #if DEBUG
@@ -1089,7 +1133,10 @@ final class CloudV2Model: ObservableObject {
         guard let owned = ownedCall, owned.callID == id, ownedControlReady, activeCall?.state == "active" else { return }
         adoptionCallID = nil
         let number = activeCall?.number
-        Task { await systemCalls.adopt(owned, number: number) }
+        adoptionTask = Task { @MainActor [weak self] in
+            await systemCalls.adopt(owned, number: number)
+            self?.adoptionTask = nil
+        }
     }
     /// Our outgoing call is ringing and its audio can be heard.
     var ringbackAudible: Bool {

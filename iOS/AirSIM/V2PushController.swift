@@ -382,6 +382,42 @@ extension V2PushController: PKPushRegistryDelegate {
         }
     }
 
+    private func handleIncomingVoIPPush(
+        userInfo: [AnyHashable: Any],
+        completion: @escaping () -> Void
+    ) {
+        do {
+            let call = try IncomingVoIPCall(userInfo: userInfo)
+            guard acceptsIncomingPush(call) else {
+                recordIncomingDiagnostic("domain_mismatch")
+                ExpiredLegacyPushReporter.shared.report(reason: "v2_domain_mismatch", completion: completion)
+                return
+            }
+            self.model?.activateSystemIntegration()
+            let callerName = call.callerName ?? self.model?.resolveCallerName?(call.number)
+            CallKitController.shared.reportIncomingPush(call, callerName: callerName) { error in
+                if let error {
+                    self.recordIncomingDiagnostic("callkit_rejected:\((error as NSError).code)")
+                    switch error as? CallKitBridgeError {
+                    case .unavailable:
+                        ExpiredLegacyPushReporter.shared.report(reason: "v2_report_unavailable", completion: completion)
+                    case .callInProgress:
+                        // 已有系统通话在进行，满足 PushKit 上报要求，不再插入占位来电。
+                        completion()
+                    default:
+                        completion()
+                    }
+                } else {
+                    self.recordIncomingDiagnostic("reported")
+                    completion()
+                }
+            }
+        } catch {
+            recordIncomingDiagnostic((error as? VoIPPushPayloadError) == .expired ? "payload_expired" : "payload_invalid")
+            ExpiredLegacyPushReporter.shared.report(reason: "v2_payload_invalid", completion: completion)
+        }
+    }
+
     nonisolated func pushRegistry(
         _ registry: PKPushRegistry,
         didReceiveIncomingPushWith payload: PKPushPayload,
@@ -390,40 +426,19 @@ extension V2PushController: PKPushRegistryDelegate {
     ) {
         guard type == .voIP else { completion(); return }
         let userInfo = payload.dictionaryPayload
+        // iOS 13+ 要求 VoIP 推送在代理方法返回前同步调用 CXProvider.reportNewIncomingCall。
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                self.handleIncomingVoIPPush(userInfo: userInfo, completion: completion)
+            }
+            return
+        }
         Task { @MainActor [weak self] in
             guard let self else {
                 ExpiredLegacyPushReporter.shared.report(reason: "v2_controller_unavailable", completion: completion)
                 return
             }
-            do {
-                let call = try IncomingVoIPCall(userInfo: userInfo)
-                guard acceptsIncomingPush(call) else {
-                    recordIncomingDiagnostic("domain_mismatch")
-                    ExpiredLegacyPushReporter.shared.report(reason: "v2_domain_mismatch", completion: completion)
-                    return
-                }
-                self.model?.activateSystemIntegration()
-                CallKitController.shared.reportIncomingPush(call) { error in
-                    if let error {
-                        self.recordIncomingDiagnostic("callkit_rejected:\((error as NSError).code)")
-                        switch error as? CallKitBridgeError {
-                        case .unavailable:
-                            ExpiredLegacyPushReporter.shared.report(reason: "v2_report_unavailable", completion: completion)
-                        case .callInProgress:
-                            // 已有系统通话在进行，满足 PushKit 上报要求，不再插入占位来电。
-                            completion()
-                        default:
-                            completion()
-                        }
-                    } else {
-                        self.recordIncomingDiagnostic("reported")
-                        completion()
-                    }
-                }
-            } catch {
-                recordIncomingDiagnostic((error as? VoIPPushPayloadError) == .expired ? "payload_expired" : "payload_invalid")
-                ExpiredLegacyPushReporter.shared.report(reason: "v2_payload_invalid", completion: completion)
-            }
+            self.handleIncomingVoIPPush(userInfo: userInfo, completion: completion)
         }
     }
 }

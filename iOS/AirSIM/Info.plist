@@ -51,6 +51,11 @@
 	</dict>
 	<key>NSContactsUsageDescription</key>
 	<string>用于显示来电与短信联系人、从通讯录呼叫，以及添加和编辑本机联系人。</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INStartCallIntent</string>
+		<string>INStartAudioCallIntent</string>
+	</array>
 	<!-- WebRTC 引用相机 API；App 仅创建音轨，Apple 90683 仍要求提供用途说明。 -->
 	<key>NSCameraUsageDescription</key>
 	<string>SkySIM 当前仅提供语音通话，不会请求相机权限、启用相机或采集视频。</string>

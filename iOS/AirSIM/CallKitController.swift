@@ -1,6 +1,7 @@
 import AVFoundation
 import CallKit
 import Foundation
+import UIKit
 
 /// 把系统 CallKit 操作转发给模块控制层，协议限定在主线程以保护 AppModel 状态。
 @MainActor
@@ -113,11 +114,15 @@ final class CallKitController: NSObject {
     private var currentBackendID: String?
     private var currentState: String?
     private var currentNumber: String?
+    private var currentCallerName: String?
     private var currentDirection: String?
     private var incomingReportRequested = false
     private var incomingReportFailed = false
     private var systemCallReported = false
     private var endActionFulfilled = false
+    private var endingActionUUID: UUID?
+    private var dtmfQueue: [String] = []
+    private var dtmfDrainTask: Task<Void, Never>?
     private var missingCallPolls = 0
     private var outgoingStartInFlight = false
     private var handledOutgoingActions: Set<ObjectIdentifier> = []
@@ -208,8 +213,10 @@ final class CallKitController: NSObject {
     /// call_id/UUID，不会再生成第二个系统来电。
     func reportIncomingPush(
         _ call: IncomingVoIPCall,
+        callerName: String? = nil,
         completion: @escaping (Error?) -> Void
     ) {
+        let resolvedName = callerName ?? call.callerName
         guard isAvailable else {
             completion(CallKitBridgeError.unavailable)
             return
@@ -234,13 +241,19 @@ final class CallKitController: NSObject {
             currentIncomingPush = call
             currentBackendID = call.callID
             currentNumber = call.number ?? currentNumber
+            if let resolvedName, !resolvedName.isEmpty, resolvedName != currentCallerName {
+                currentCallerName = resolvedName
+                if systemCallReported, let uuid = currentUUID {
+                    provider.reportCall(with: uuid, updated: update(number: currentNumber, callerName: resolvedName))
+                }
+            }
             if systemCallReported {
                 handler?.callKitDidReceiveIncoming(call)
                 completion(nil)
                 return
             }
             incomingReportCompletions.append(completion)
-            reportIncomingIfNeeded(number: currentNumber, callerName: call.callerName, source: "PushKit 重投")
+            reportIncomingIfNeeded(number: currentNumber, callerName: currentCallerName, source: "PushKit 重投")
             handler?.callKitDidReceiveIncoming(call)
             return
         }
@@ -251,15 +264,16 @@ final class CallKitController: NSObject {
         currentDirection = "incoming"
         currentState = "incoming"
         currentNumber = call.number
+        currentCallerName = resolvedName
         missingCallPolls = 0
         endActionFulfilled = false
         incomingReportCompletions.append(completion)
-        reportIncomingIfNeeded(number: call.number, callerName: call.callerName, source: "PushKit")
+        reportIncomingIfNeeded(number: call.number, callerName: resolvedName, source: "PushKit")
         handler?.callKitDidReceiveIncoming(call)
     }
 
     /// 先让系统接管呼出事务；真正的模块 ATD 只能在 CXProvider delegate 回调中执行。
-    func startOutgoingCall(number: String) async throws {
+    func startOutgoingCall(number: String, callerName: String? = nil) async throws {
         guard isAvailable else { throw CallKitBridgeError.unavailable }
         guard currentUUID == nil else { throw CallKitBridgeError.callInProgress }
 
@@ -267,13 +281,18 @@ final class CallKitController: NSObject {
         currentUUID = uuid
         currentDirection = "outgoing"
         currentNumber = number
+        currentCallerName = callerName
         currentState = "dialing"
         missingCallPolls = 0
         endActionFulfilled = false
 
         do {
             let handle = CXHandle(type: .phoneNumber, value: number)
-            try await request(CXStartCallAction(call: uuid, handle: handle))
+            let action = CXStartCallAction(call: uuid, handle: handle)
+            if let callerName, !callerName.isEmpty, callerName != number {
+                action.contactIdentifier = callerName
+            }
+            try await request(action)
         } catch {
             let unavailable = disableCallKitIfUnentitled(error)
             resetCurrentCall()
@@ -326,6 +345,7 @@ final class CallKitController: NSObject {
         guard let uuid = currentUUID, systemCallReported || currentDirection == "outgoing" else {
             throw CallKitBridgeError.noSystemCall
         }
+        if endActionFulfilled || endingActionUUID == uuid { return }
         debugLog("requesting end action from app")
         try await requestSystemAction(CXEndCallAction(call: uuid))
     }
@@ -372,6 +392,13 @@ final class CallKitController: NSObject {
             return
         }
 
+        // CXEndCallAction 已 fulfill 且正在等待后端 call.hangup 完成，不再把这通
+        // 正在挂断的通话重新同步回 CallKit。
+        if endActionFulfilled, currentUUID != nil,
+           currentBackendID == nil || currentBackendID == call.id {
+            return
+        }
+
         if call.direction == "outgoing" {
             // 只同步由 startOutgoingCall 建立的系统呼出；不为外部 ATD 伪造 UUID。
             guard currentDirection == "outgoing", let uuid = currentUUID else { return }
@@ -381,6 +408,12 @@ final class CallKitController: NSObject {
             }
             currentBackendID = call.id
             currentNumber = call.number ?? currentNumber
+            if let callerName, !callerName.isEmpty, callerName != currentCallerName {
+                currentCallerName = callerName
+                if systemCallReported {
+                    provider.reportCall(with: uuid, updated: update(number: currentNumber, callerName: callerName))
+                }
+            }
             missingCallPolls = 0
             if call.state == "active", currentState != "active", systemCallReported {
                 provider.reportOutgoingCall(with: uuid, connectedAt: call.updatedAt)
@@ -408,9 +441,15 @@ final class CallKitController: NSObject {
         currentDirection = "incoming"
         currentBackendID = call.id
         currentNumber = call.number
+        if let callerName, !callerName.isEmpty, callerName != currentCallerName {
+            currentCallerName = callerName
+            if systemCallReported, let uuid = currentUUID {
+                provider.reportCall(with: uuid, updated: update(number: currentNumber, callerName: callerName))
+            }
+        }
 
         if ["incoming", "waiting"].contains(call.state) {
-            reportIncomingIfNeeded(number: call.number, callerName: callerName, source: "模块状态")
+            reportIncomingIfNeeded(number: call.number, callerName: currentCallerName ?? callerName, source: "模块状态")
         }
         currentState = call.state
     }
@@ -553,16 +592,37 @@ final class CallKitController: NSObject {
         currentBackendID = nil
         currentState = nil
         currentNumber = nil
+        currentCallerName = nil
         currentDirection = nil
         currentIncomingPush = nil
         incomingReportRequested = false
         incomingReportFailed = false
         systemCallReported = false
         endActionFulfilled = false
+        endingActionUUID = nil
+        dtmfQueue.removeAll()
+        dtmfDrainTask?.cancel()
+        dtmfDrainTask = nil
         missingCallPolls = 0
         outgoingStartInFlight = false
         appAnswerRequestUUID = nil
         adoptingUUID = nil
+    }
+
+    private func beginCallControlBackgroundTask(name: String) -> UIBackgroundTaskIdentifier {
+        var taskID: UIBackgroundTaskIdentifier = .invalid
+        taskID = UIApplication.shared.beginBackgroundTask(withName: name) {
+            guard taskID != .invalid else { return }
+            let expiring = taskID
+            taskID = .invalid
+            UIApplication.shared.endBackgroundTask(expiring)
+        }
+        return taskID
+    }
+
+    private func endCallControlBackgroundTask(_ taskID: UIBackgroundTaskIdentifier) {
+        guard taskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(taskID)
     }
 
     private func fail(_ action: CXAction, error: Error) {
@@ -598,12 +658,16 @@ final class CallKitController: NSObject {
         // 系统事务只确认“用户接受了接听”。公网控制、ATA 和 WebRTC 音频在其后异步建立，
         // 同步 fulfill 让 CallKit 立即进入接通界面并激活 AVAudioSession。
         action.fulfill()
+        let callUUID = action.callUUID
+        let backgroundTaskID = beginCallControlBackgroundTask(name: "AirSIMCallAnswer")
         Task { @MainActor [weak self] in
+            defer { self?.endCallControlBackgroundTask(backgroundTaskID) }
             guard let self else { return }
             do {
                 try await handler.callKitAnswer(origin: origin)
             } catch {
-                guard self.currentUUID == action.callUUID, self.handler === handler else { return }
+                guard self.currentUUID == callUUID, self.handler === handler,
+                      self.endingActionUUID != callUUID else { return }
                 let diagnostic = error as NSError
                 self.debugLog("backend action failed domain=\(diagnostic.domain) code=\(diagnostic.code)")
                 self.finishCurrentCall(previous: nil, reason: .failed)
@@ -646,6 +710,7 @@ final class CallKitController: NSObject {
                 currentUUID = action.callUUID
                 currentDirection = "outgoing"
                 currentNumber = action.handle.value
+                currentCallerName = action.contactIdentifier
                 currentState = "dialing"
             }
             guard currentUUID == action.callUUID, currentDirection == "outgoing" else {
@@ -653,6 +718,8 @@ final class CallKitController: NSObject {
             }
             dialedOutgoingUUIDs.insert(action.callUUID)
             trimOutgoingDeduplicationState(keeping: action)
+            let backgroundTaskID = beginCallControlBackgroundTask(name: "AirSIMCallStart")
+            defer { endCallControlBackgroundTask(backgroundTaskID) }
             let backendError = try await CallKitActionCoordinator.perform(
                 prepare: {
                     self.debugLog("preparing outgoing audio session")
@@ -663,6 +730,9 @@ final class CallKitController: NSObject {
                     self.debugLog("fulfilling outgoing start action")
                     self.provider.reportOutgoingCall(with: action.callUUID, startedConnectingAt: Date())
                     self.systemCallReported = true
+                    if let name = self.currentCallerName, !name.isEmpty, name != self.currentNumber {
+                        self.provider.reportCall(with: action.callUUID, updated: self.update(number: self.currentNumber, callerName: name))
+                    }
                     // 先让 CallKit 建立系统通话和音频会话；云端拨号轮询最长 25 秒，
                     // 不能占住 CXStartCallAction，否则系统 UI 和 didActivate 都会滞后。
                     action.fulfill()
@@ -674,14 +744,16 @@ final class CallKitController: NSObject {
                     self.debugLog("backend dial accepted")
                 }
             )
-            if let backendError, currentUUID == action.callUUID, self.handler === handler {
+            if let backendError, currentUUID == action.callUUID, self.handler === handler,
+               endingActionUUID != action.callUUID {
                 let diagnostic = backendError as NSError
                 debugLog("backend action failed domain=\(diagnostic.domain) code=\(diagnostic.code)")
                 finishCurrentCall(previous: nil, reason: .failed)
                 handler.callKitDidFail(backendError.localizedDescription)
                 return
             }
-            if currentUUID == action.callUUID, self.handler === handler, currentState == "active" {
+            if currentUUID == action.callUUID, self.handler === handler, currentState == "active",
+               endingActionUUID != action.callUUID {
                 provider.reportOutgoingCall(with: action.callUUID, connectedAt: Date())
             }
         } catch {
@@ -698,7 +770,7 @@ final class CallKitController: NSObject {
         dialedOutgoingUUIDs = [action.callUUID]
     }
 
-    private func performEnd(_ action: CXEndCallAction) async {
+    private func beginPerformEnd(_ action: CXEndCallAction) {
         debugLog("performing outgoing/system end action")
         let currentHandler = handler
         // reportCall(ended:) may be followed by a delayed CXEndCallAction after
@@ -706,33 +778,43 @@ final class CallKitController: NSObject {
         // is cleanup, not a new user hangup whose missing transport needs an alert.
         let systemCallWasCurrent = currentUUID == action.callUUID
         guard systemCallWasCurrent else { action.fulfill(); return }
-        var backendError: Error?
-        if CallKitEndActionPolicy.shouldForwardToBackend(
-            systemCallWasCurrent: systemCallWasCurrent
-        ) {
-            do {
-                guard let currentHandler else { throw CallKitBridgeError.handlerUnavailable }
-                try await currentHandler.callKitEnd()
-            } catch {
-                backendError = error
-            }
-        }
-
-        // CallKit owns the local system-call lifecycle. A temporarily missing
-        // module must not leave the UUID registered after the user hangs up.
-        guard currentUUID == action.callUUID, handler === currentHandler else { action.fulfill(); return }
+        guard endingActionUUID != action.callUUID else { action.fulfill(); return }
+        endingActionUUID = action.callUUID
         endActionFulfilled = true
-        action.fulfill()
         incomingDeduplicator.recordEnded(
             callID: currentBackendID,
-            uuid: currentUUID,
+            uuid: action.callUUID,
             at: Date()
         )
-        currentHandler?.callKitCallDidEnd()
-        resetCurrentCall()
+        // 同步 fulfill 避免 CallKit 挂断界面卡死或触发系统动作超时；
+        // 保留当前 UUID 并在后台任务保活期间完成后端 call.hangup，再释放系统通话上下文。
+        action.fulfill()
+        let callUUID = action.callUUID
+        let backgroundTaskID = beginCallControlBackgroundTask(name: "AirSIMCallEnd")
+        Task { @MainActor [weak self] in
+            defer { self?.endCallControlBackgroundTask(backgroundTaskID) }
+            guard let self else { return }
+            var backendError: Error?
+            if CallKitEndActionPolicy.shouldForwardToBackend(
+                systemCallWasCurrent: systemCallWasCurrent
+            ) {
+                do {
+                    guard let currentHandler else { throw CallKitBridgeError.handlerUnavailable }
+                    try await currentHandler.callKitEnd()
+                } catch {
+                    backendError = error
+                }
+            }
 
-        if let backendError {
-            currentHandler?.callKitDidFail(backendError.localizedDescription)
+            // CallKit owns the local system-call lifecycle. A temporarily missing
+            // module must not leave the UUID registered after the user hangs up.
+            guard self.currentUUID == callUUID, self.handler === currentHandler else { return }
+            currentHandler?.callKitCallDidEnd()
+            self.resetCurrentCall()
+
+            if let backendError {
+                currentHandler?.callKitDidFail(backendError.localizedDescription)
+            }
         }
     }
 }
@@ -750,6 +832,12 @@ extension CallKitController: CXProviderDelegate {
             guard self.actionGate.accepts(stamp), self.currentUUID == uuid else { return }
             self.resetCurrentCall()
             if handler is V2SystemCallController { handler?.callKitCallDidEnd() }
+        }
+    }
+
+    nonisolated func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
+        Task { @MainActor [weak self] in
+            self?.debugLog("system action timed out type=\(type(of: action))")
         }
     }
 
@@ -780,38 +868,129 @@ extension CallKitController: CXProviderDelegate {
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         let stamp = actionGate.generation
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                guard self.acceptsAction(stamp) else {
+                    if self.currentUUID != action.callUUID { action.fulfill() } else { action.fail() }
+                    return
+                }
+                guard self.currentUUID == action.callUUID else { action.fulfill(); return }
+                self.beginPerformEnd(action)
+            }
+            return
+        }
         Task { @MainActor [weak self] in
-            guard self?.acceptsAction(stamp) == true else { action.fail(); return }
-            guard self?.currentUUID == action.callUUID else { action.fulfill(); return }
-            await self?.performEnd(action) }
+            guard let self else { action.fulfill(); return }
+            guard self.acceptsAction(stamp) else {
+                if self.currentUUID != action.callUUID { action.fulfill() } else { action.fail() }
+                return
+            }
+            guard self.currentUUID == action.callUUID else { action.fulfill(); return }
+            self.beginPerformEnd(action)
+        }
     }
 
-    nonisolated func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
-        let stamp = actionGate.generation
+    private func enqueueSystemDTMF(digits: String, callUUID: UUID, handler: any CallKitActionHandling) {
+        let sanitized = String(digits.uppercased().filter { "0123456789ABCD*#".contains($0) })
+        guard !sanitized.isEmpty else { return }
+        dtmfQueue.append(sanitized)
+        guard dtmfDrainTask == nil else { return }
+        let backgroundTaskID = beginCallControlBackgroundTask(name: "AirSIMCallDTMF")
+        dtmfDrainTask = Task { @MainActor [weak self] in
+            defer {
+                self?.dtmfDrainTask = nil
+                self?.endCallControlBackgroundTask(backgroundTaskID)
+            }
+            while let self, !Task.isCancelled, !self.dtmfQueue.isEmpty,
+                  self.currentUUID == callUUID, self.handler === handler,
+                  self.endingActionUUID != callUUID {
+                let nextDigits = self.dtmfQueue.removeFirst()
+                do {
+                    try await handler.callKitPlayDTMF(nextDigits)
+                } catch {
+                    guard self.currentUUID == callUUID, self.handler === handler,
+                          self.endingActionUUID != callUUID else { break }
+                    self.dtmfQueue.removeAll()
+                    handler.callKitDidFail(error.localizedDescription)
+                    break
+                }
+            }
+        }
+    }
+
+    private func beginPerformMute(_ action: CXSetMutedCallAction) {
+        guard currentUUID == action.callUUID, let handler else {
+            action.fail()
+            return
+        }
+        if let v2 = handler as? V2SystemCallController {
+            v2.callKitSetMutedSync(action.isMuted)
+            action.fulfill()
+            return
+        }
         Task { @MainActor [weak self] in
-            guard self?.acceptsAction(stamp) == true else { action.fail(); return }
-            guard let self, let handler = self.handler else {
+            guard let self, self.currentUUID == action.callUUID, self.handler === handler else {
                 action.fail()
                 return
             }
-            guard self.currentUUID == action.callUUID else { action.fail(); return }
             await handler.callKitSetMuted(action.isMuted)
             action.fulfill()
         }
     }
 
-    nonisolated func provider(_ provider: CXProvider, perform action: CXPlayDTMFCallAction) {
-        let stamp = actionGate.generation
+    private func beginPerformDTMF(_ action: CXPlayDTMFCallAction) {
+        guard currentUUID == action.callUUID, endingActionUUID != action.callUUID else {
+            fail(action, error: CallKitBridgeError.staleSystemCall)
+            return
+        }
+        guard let handler else {
+            fail(action, error: CallKitBridgeError.handlerUnavailable)
+            return
+        }
+        if handler is V2SystemCallController {
+            // 同步 fulfill 避免 CallKit 按键界面阻塞，串行队列按顺序发送连续按键。
+            action.fulfill()
+            enqueueSystemDTMF(digits: action.digits, callUUID: action.callUUID, handler: handler)
+            return
+        }
         Task { @MainActor [weak self] in
-            guard self?.acceptsAction(stamp) == true else { action.fail(); return }
             do {
                 guard self?.currentUUID == action.callUUID else { throw CallKitBridgeError.staleSystemCall }
-                guard let handler = self?.handler else { throw CallKitBridgeError.handlerUnavailable }
                 try await handler.callKitPlayDTMF(action.digits)
                 action.fulfill()
             } catch {
                 self?.fail(action, error: error)
             }
+        }
+    }
+
+    nonisolated func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
+        let stamp = actionGate.generation
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                guard self.acceptsAction(stamp) else { action.fail(); return }
+                self.beginPerformMute(action)
+            }
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self, self.acceptsAction(stamp) else { action.fail(); return }
+            self.beginPerformMute(action)
+        }
+    }
+
+    nonisolated func provider(_ provider: CXProvider, perform action: CXPlayDTMFCallAction) {
+        let stamp = actionGate.generation
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                guard self.acceptsAction(stamp) else { action.fail(); return }
+                self.beginPerformDTMF(action)
+            }
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self, self.acceptsAction(stamp) else { action.fail(); return }
+            self.beginPerformDTMF(action)
         }
     }
 
@@ -825,7 +1004,7 @@ extension CallKitController: CXProviderDelegate {
         let stamp = actionGate.generation
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard self.acceptsAction(stamp) else {
+            guard self.acceptsAction(stamp), !self.endActionFulfilled, self.endingActionUUID == nil else {
 #if DEBUG
                 self.logAudioGateRejection(stage: "providerActivateRejected", stamp: stamp)
 #endif
@@ -839,7 +1018,8 @@ extension CallKitController: CXProviderDelegate {
                 title: "CallKit 音频会话已激活",
                 fields: self.audioTraceFields(audioSession)
             )
-            guard self.acceptsAction(stamp), self.audioSessionIsActive else {
+            guard self.acceptsAction(stamp), self.audioSessionIsActive,
+                  !self.endActionFulfilled, self.endingActionUUID == nil else {
 #if DEBUG
                 self.logAudioGateRejection(stage: "providerActivateDeliverySkipped", stamp: stamp)
 #endif

@@ -50,6 +50,8 @@ protocol V2PendingStore {
     func clear() throws
 }
 struct V2FilePendingStore: V2PendingStore {
+    static let fileProtection: FileProtectionType = .completeUntilFirstUserAuthentication
+    static let writeOptions: Data.WritingOptions = [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
     let url: URL
     func load() throws -> V2PendingCommand? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
@@ -57,14 +59,17 @@ struct V2FilePendingStore: V2PendingStore {
             let handle = try FileHandle(forReadingFrom: url); defer { try? handle.close() }
             let data = try handle.read(upToCount: 16 * 1024 + 1) ?? Data()
             let pending = try V2JSON.decode(V2PendingCommand.self, from: data, limit: 16 * 1024)
-            try pending.validate(); return pending
+            try pending.validate()
+            try? FileManager.default.setAttributes([.protectionKey: Self.fileProtection], ofItemAtPath: url.path)
+            return pending
         } catch { throw V2Error.persistence }
     }
     func save(_ pending: V2PendingCommand) throws {
         do {
             try pending.validate()
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try JSONEncoder().encode(pending).write(to: url, options: [.atomic, .completeFileProtection])
+            // CallKit answer/hangup runs while the iPhone screen is locked; match V2ProtectedFile & Keychain (AfterFirstUnlock).
+            try JSONEncoder().encode(pending).write(to: url, options: Self.writeOptions)
             var destination = url; var values = URLResourceValues(); values.isExcludedFromBackup = true
             try destination.setResourceValues(values)
         } catch { throw V2Error.persistence }

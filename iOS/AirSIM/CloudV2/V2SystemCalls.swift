@@ -150,7 +150,7 @@ final class V2SystemCallController: CallKitActionHandling {
                 call: CallRecord(id: call.call_id, index: 0, direction: "incoming", state: call.state,
                                  number: call.number, startedAt: call.observedAt, updatedAt: call.observedAt,
                                  endedAt: nil, missed: false),
-                previous: nil, callerName: nil
+                previous: nil, callerName: model.resolveCallerName?(call.number)
             )
         }
         // The cellular call outlives a module or App outage, so the system call
@@ -168,7 +168,7 @@ final class V2SystemCallController: CallKitActionHandling {
         if let call {
             if call.state == "disconnected" { endSystemCall() }
             else {
-                calls.synchronize(call: CallRecord(id: call.call_id, index: 0, direction: call.direction, state: call.state, number: call.number, startedAt: call.observedAt, updatedAt: call.observedAt, endedAt: nil, missed: false), previous: nil, callerName: nil)
+                calls.synchronize(call: CallRecord(id: call.call_id, index: 0, direction: call.direction, state: call.state, number: call.number, startedAt: call.observedAt, updatedAt: call.observedAt, endedAt: nil, missed: false), previous: nil, callerName: model.resolveCallerName?(call.number))
             }
         }
     }
@@ -179,7 +179,7 @@ final class V2SystemCallController: CallKitActionHandling {
         guard !hasSystemCall, let binding = model.freshBinding, let call = model.activeCall, call.direction == "incoming",
               ["incoming", "ringing", "waiting"].contains(call.state) else { return }
         verifiedBinding = binding; incomingID = call.call_id
-        calls.synchronize(call: CallRecord(id: call.call_id, index: 0, direction: "incoming", state: "incoming", number: call.number, startedAt: call.observedAt, updatedAt: call.observedAt, endedAt: nil, missed: false), previous: nil, callerName: nil)
+        calls.synchronize(call: CallRecord(id: call.call_id, index: 0, direction: "incoming", state: "incoming", number: call.number, startedAt: call.observedAt, updatedAt: call.observedAt, endedAt: nil, missed: false), previous: nil, callerName: model.resolveCallerName?(call.number))
     }
     /// A call answered in the App's own interface joins CallKit without any
     /// system interface, so the system can present it in the background.
@@ -217,6 +217,7 @@ final class V2SystemCallController: CallKitActionHandling {
         incomingAssociationDeadline = nil
         association = nil
         endingUUID = nil
+        model.media.resetCallPreferences()
     }
     func callKitPrepareAudioSession() throws {
 #if DEBUG
@@ -224,35 +225,56 @@ final class V2SystemCallController: CallKitActionHandling {
 #endif
         model.media.prepareCallKitVoiceSession()
     }
+    private func sameCallDomain(_ lhs: V2ControlBinding, _ rhs: V2ControlBinding) -> Bool {
+        lhs.identity == rhs.identity && lhs.moduleID == rhs.moduleID
+            && lhs.bootID == rhs.bootID && lhs.backendEpoch == rhs.backendEpoch
+            && lhs.usbLocal == rhs.usbLocal
+    }
     private func isCurrent(_ uuid: UUID, binding: V2ControlBinding) -> Bool {
-        calls.handler === self && calls.currentSystemCallUUID == uuid && authorizedBinding == binding
+        guard calls.handler === self, calls.currentSystemCallUUID == uuid, let current = authorizedBinding else { return false }
+        return sameCallDomain(current, binding)
     }
     private func waitForAssociation(_ ticket: V2SystemCommandSubmission, uuid: UUID,
                                     binding: V2ControlBinding, timeout: Duration) async throws -> V2CallContext? {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while isCurrent(uuid, binding: binding) {
-            if let owned = ticket.ownedCall, owned.binding == binding { return owned }
+            if let owned = ticket.ownedCall, sameCallDomain(owned.binding, binding) { return owned }
             if ticket.outcome == .failed { throw V2Error.stale }
             if ContinuousClock.now >= deadline { throw V2Error.stale }
             try await Task.sleep(for: .milliseconds(50))
         }
         return nil
     }
-    private func waitForIncomingVerification(uuid: UUID) async throws {
+    private func waitForIncomingVerification(
+        uuid: UUID,
+        deadline overrideDeadline: ContinuousClock.Instant? = nil,
+        abortOnEnding: Bool = false
+    ) async throws {
         guard incomingPush != nil, verifiedBinding == nil else { return }
         while verifiedBinding == nil {
+            if abortOnEnding && endingUUID == uuid { throw V2Error.stale }
+            let effectiveDeadline: ContinuousClock.Instant? = {
+                switch (incomingAssociationDeadline, overrideDeadline) {
+                case let (a?, b?): return a < b ? a : b
+                case let (a?, nil): return a
+                case let (nil, b?): return b
+                case (nil, nil): return nil
+                }
+            }()
             guard incomingSystemUUID == uuid, calls.currentSystemCallUUID == uuid,
-                  let deadline = incomingAssociationDeadline, ContinuousClock.now < deadline else {
+                  let deadline = effectiveDeadline, ContinuousClock.now < deadline else {
                 throw V2Error.stale
             }
             try await Task.sleep(for: .milliseconds(50))
         }
     }
     func callKitStart(number: String) async throws {
+        let normalized = AppModel.normalizedV2DialNumber(number)
+        guard !normalized.isEmpty else { throw V2Error.invalidValue }
         guard model.foreground, let binding = model.freshBinding, let uuid = calls.currentSystemCallUUID,
-              calls.handler === self else { throw V2Error.stale }
+              calls.handler === self, endingUUID != uuid else { throw V2Error.stale }
         verifiedBinding = binding
-        let ticket = await model.systemCommand("call.dial", args: ["number": number], binding: binding) { self.association = $0 }
+        let ticket = await model.systemCommand("call.dial", args: ["number": normalized], binding: binding) { self.association = $0 }
         guard isCurrent(uuid, binding: binding) else { return }
         await model.systemCallScopeChanged()
         do {
@@ -303,11 +325,10 @@ final class V2SystemCallController: CallKitActionHandling {
     }
     private func waitForAnswerReadiness(uuid: UUID, deadline: ContinuousClock.Instant) async throws -> (V2ControlBinding, String) {
         while calls.handler === self && calls.currentSystemCallUUID == uuid {
+            if endingUUID == uuid { throw V2Error.stale }
             if let verified = verifiedBinding, let id = currentCallID {
                 if !model.busy && model.telephonyReady, let fresh = model.freshBinding,
-                   fresh.identity == verified.identity, fresh.moduleID == verified.moduleID,
-                   fresh.bootID == verified.bootID, fresh.backendEpoch == verified.backendEpoch,
-                   fresh.usbLocal == verified.usbLocal {
+                   sameCallDomain(fresh, verified) {
                     if fresh != verified { rebind(from: verified, to: fresh) }
                     return (fresh, id)
                 }
@@ -320,75 +341,163 @@ final class V2SystemCallController: CallKitActionHandling {
     func callKitAnswer(origin: CallAnswerOrigin) async throws {
         guard let uuid = calls.currentSystemCallUUID else { throw V2Error.stale }
         let deadline = ContinuousClock.now.advanced(by: associationTimeout)
-#if DEBUG
-        V2DebugTrace.record("answerStart verified=\(verifiedBinding != nil) pendingPush=\(incomingPush != nil)")
-        do { try await waitForIncomingVerification(uuid: uuid) }
-        catch { V2DebugTrace.record("answerVerificationTimeout"); throw error }
-#else
-        try await waitForIncomingVerification(uuid: uuid)
-#endif
-        var binding: V2ControlBinding
-        var ticket: V2SystemCommandSubmission
-        while true {
-            let ready = try await waitForAnswerReadiness(uuid: uuid, deadline: deadline)
-            binding = ready.0
-            let id = ready.1
-            ticket = await model.systemCommand("call.answer", args: ["call_id": id], binding: binding) { self.association = $0 }
-#if DEBUG
-            V2DebugTrace.record("answerSubmitted outcome=\(ticket.outcome) command=\(ticket.commandID != nil)")
-#endif
-            // Only retry waiting when no HTTP command was posted (e.g. momentary busy/freshness race).
-            if ticket.commandID == nil, ticket.outcome == .failed,
-               calls.handler === self, calls.currentSystemCallUUID == uuid,
-               !model.hasUnresolvedCommand, ContinuousClock.now < deadline {
-                try await Task.sleep(for: .milliseconds(100))
-                continue
-            }
-            break
-        }
         do {
+#if DEBUG
+            V2DebugTrace.record("answerStart verified=\(verifiedBinding != nil) pendingPush=\(incomingPush != nil)")
+            do { try await waitForIncomingVerification(uuid: uuid, abortOnEnding: true) }
+            catch { V2DebugTrace.record("answerVerificationTimeout"); throw error }
+#else
+            try await waitForIncomingVerification(uuid: uuid, abortOnEnding: true)
+#endif
+            var binding: V2ControlBinding
+            var ticket: V2SystemCommandSubmission
+            while true {
+                let ready = try await waitForAnswerReadiness(uuid: uuid, deadline: deadline)
+                if endingUUID == uuid { return }
+                binding = ready.0
+                let id = ready.1
+                ticket = await model.systemCommand("call.answer", args: ["call_id": id], binding: binding) { self.association = $0 }
+#if DEBUG
+                V2DebugTrace.record("answerSubmitted outcome=\(ticket.outcome) command=\(ticket.commandID != nil)")
+#endif
+                // Only retry waiting when no HTTP command was posted (e.g. momentary busy/freshness race).
+                if ticket.commandID == nil, ticket.outcome == .failed,
+                   calls.handler === self, calls.currentSystemCallUUID == uuid,
+                   endingUUID != uuid, !model.hasUnresolvedCommand, ContinuousClock.now < deadline {
+                    try await Task.sleep(for: .milliseconds(100))
+                    continue
+                }
+                break
+            }
             let owned = try await waitForAssociation(ticket, uuid: uuid, binding: binding, timeout: associationTimeout)
             guard isCurrent(uuid, binding: binding) else { return }
             controlledCall = owned
         } catch {
-            guard isCurrent(uuid, binding: binding), endingUUID != uuid else { return }
+            guard calls.handler === self, calls.currentSystemCallUUID == uuid, endingUUID != uuid else { return }
             throw error
         }
     }
+    private enum EndReadiness {
+        case ready(V2ControlBinding, String)
+        case alreadyEnded
+        case timedOut
+    }
+    private func waitForEndReadiness(uuid: UUID, deadline: ContinuousClock.Instant) async throws -> EndReadiness {
+        var lastRefresh: ContinuousClock.Instant?
+        while calls.handler === self && calls.currentSystemCallUUID == uuid {
+            guard let expected = authorizedBinding, let id = currentCallID else { return .alreadyEnded }
+            if model.pendingHangupCallID == id { return .alreadyEnded }
+            if let response = model.snapshot, response.online, let snap = response.snapshot,
+               response.server_id == expected.identity.serverID, response.module_id == expected.moduleID {
+                if snap.agent_boot_id != expected.bootID || snap.backend_epoch != expected.backendEpoch {
+                    return .alreadyEnded
+                }
+                if snap.calls.calls.contains(where: { $0.call_id == id && $0.state == "disconnected" }) {
+                    return .alreadyEnded
+                }
+            }
+            let needOwned = model.ownedCall?.callID == id
+            if !model.busy && !model.hasUnresolvedCommand,
+               let fresh = model.freshBinding, sameCallDomain(fresh, expected) {
+                if fresh != expected { rebind(from: expected, to: fresh) }
+                let ready = needOwned ? model.ownedControlReady : model.telephonyReady
+                if ready { return .ready(fresh, id) }
+            }
+            guard ContinuousClock.now < deadline else { return .timedOut }
+            let needsRefresh = !model.connected || model.freshBinding == nil || (needOwned && !model.ownedControlReady)
+            if needsRefresh && !model.busy {
+                let now = ContinuousClock.now
+                if lastRefresh == nil || now - lastRefresh! >= .milliseconds(400) {
+                    lastRefresh = now
+                    await model.refreshForSystemCallControl()
+                    continue
+                }
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return .alreadyEnded
+    }
     func callKitEnd() async throws {
         guard let uuid = calls.currentSystemCallUUID else { return }
-        try await waitForIncomingVerification(uuid: uuid)
-        guard let binding = authorizedBinding else { return }
         endingUUID = uuid
         let deadline = ContinuousClock.now.advanced(by: endAssociationTimeout)
+        if incomingPush != nil && verifiedBinding == nil {
+            try await waitForIncomingVerification(uuid: uuid, deadline: deadline)
+        }
+        guard let initialBinding = authorizedBinding else { return }
+        var waitedForAssociation = false
         if let ticket = association, ticket.ownedCall == nil {
-            guard let owned = try? await waitForAssociation(ticket, uuid: uuid, binding: binding, timeout: endAssociationTimeout),
-                  isCurrent(uuid, binding: binding) else { return }
+            waitedForAssociation = true
+            guard let owned = try? await waitForAssociation(ticket, uuid: uuid, binding: initialBinding, timeout: endAssociationTimeout),
+                  isCurrent(uuid, binding: initialBinding) else { return }
             controlledCall = owned
-            // The receipt identifies the call; a fresh snapshot still authorizes control.
-            while isCurrent(uuid, binding: binding), !model.ownedControlReady || model.busy {
-                guard ContinuousClock.now < deadline else { return }
-                try await Task.sleep(for: .milliseconds(50))
+        }
+        while calls.handler === self && calls.currentSystemCallUUID == uuid {
+            switch try await waitForEndReadiness(uuid: uuid, deadline: deadline) {
+            case .alreadyEnded:
+                return
+            case .timedOut:
+                if waitedForAssociation { return }
+                throw V2Error.stale
+            case let .ready(binding, id):
+                let result = await model.systemCommand("call.hangup", args: ["call_id": id], binding: binding)
+                // Only retry waiting when no HTTP POST was sent (e.g. momentary busy/freshness race).
+                if result.commandID == nil, result.outcome == .failed,
+                   calls.handler === self, calls.currentSystemCallUUID == uuid,
+                   !model.hasUnresolvedCommand, ContinuousClock.now < deadline {
+                    try await Task.sleep(for: .milliseconds(100))
+                    continue
+                }
+                if result.outcome == .failed { throw V2Error.stale }
+                return
             }
         }
-        guard isCurrent(uuid, binding: binding), let id = currentCallID else { return }
-        let result = await model.systemCommand("call.hangup", args: ["call_id": id], binding: binding)
-        if result.outcome == .failed { throw V2Error.stale }
     }
-    func callKitSetMuted(_ muted: Bool) async { model.media.setMuted(muted) }
+    func callKitSetMutedSync(_ muted: Bool) { model.media.setMuted(muted) }
+    func callKitSetMuted(_ muted: Bool) async { callKitSetMutedSync(muted) }
     func callKitPlayDTMF(_ digits: String) async throws {
-        guard let owned = model.ownedCall else { throw V2Error.stale }
-        let result = await model.systemCommand("call.dtmf", args: ["call_id": owned.callID, "tones": digits], binding: owned.binding)
-        if result.outcome == .failed { throw V2Error.stale }
+        let sanitized = String(digits.uppercased().filter { "0123456789ABCD*#".contains($0) }.prefix(16))
+        guard !sanitized.isEmpty else { return }
+        guard let uuid = calls.currentSystemCallUUID else { throw V2Error.stale }
+        let deadline = ContinuousClock.now.advanced(by: endAssociationTimeout)
+        var lastRefresh: ContinuousClock.Instant?
+        while calls.handler === self && calls.currentSystemCallUUID == uuid && endingUUID != uuid {
+            if !model.busy && !model.hasUnresolvedCommand,
+               model.ownedControlReady, let owned = model.ownedCall {
+                let result = await model.systemCommand("call.dtmf", args: ["call_id": owned.callID, "tones": sanitized], binding: owned.binding)
+                if result.commandID == nil, result.outcome == .failed,
+                   calls.handler === self, calls.currentSystemCallUUID == uuid,
+                   endingUUID != uuid, !model.hasUnresolvedCommand, ContinuousClock.now < deadline {
+                    try await Task.sleep(for: .milliseconds(100))
+                    continue
+                }
+                if result.outcome == .failed { throw V2Error.stale }
+                return
+            }
+            guard ContinuousClock.now < deadline else { throw V2Error.stale }
+            let needsRefresh = !model.connected || model.freshBinding == nil || (model.ownedCall != nil && !model.ownedControlReady)
+            if needsRefresh && !model.busy {
+                let now = ContinuousClock.now
+                if lastRefresh == nil || now - lastRefresh! >= .milliseconds(400) {
+                    lastRefresh = now
+                    await model.refreshForSystemCallControl()
+                    continue
+                }
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        throw V2Error.stale
     }
     func callKitAudioSessionDidActivate() async {
 #if DEBUG
         NSLog("[AirSIM Media] stage=callKitActivate")
 #endif
+        guard hasSystemCall, endingUUID == nil else { return }
         audioGeneration &+= 1; let stamp = audioGeneration
         await model.media.stop()
+        guard hasSystemCall, endingUUID == nil, audioGeneration == stamp else { return }
         model.media.callKitAudioActivated(AVAudioSession.sharedInstance())
-        guard hasSystemCall, audioGeneration == stamp else {
+        guard hasSystemCall, endingUUID == nil, audioGeneration == stamp else {
 #if DEBUG
             NSLog("[AirSIM Media] stage=callKitActivateSkipped hasSystemCall=%d currentGeneration=%d", hasSystemCall ? 1 : 0, audioGeneration == stamp ? 1 : 0)
 #endif

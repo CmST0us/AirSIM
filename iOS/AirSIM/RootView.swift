@@ -1,4 +1,21 @@
+import Intents
 import SwiftUI
+
+enum SystemCallActivityParser {
+    static func phoneNumber(from userActivity: NSUserActivity) -> String? {
+        if let startCall = userActivity.interaction?.intent as? INStartCallIntent,
+           let raw = startCall.contacts?.first?.personHandle?.value {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let legacyCall = userActivity.interaction?.intent as? INStartAudioCallIntent,
+           let raw = legacyCall.contacts?.first?.personHandle?.value {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return nil
+    }
+}
 
 enum SystemCommunicationDestination: Equatable {
     case call(String)
@@ -90,6 +107,8 @@ struct RootView: View {
             pendingSMSRecipient = nil; pendingSMSConversation = nil; model.numberInput = ""
         }
         .onOpenURL(perform: handleSystemCommunicationURL)
+        .onContinueUserActivity("INStartCallIntent", perform: handleStartCallActivity)
+        .onContinueUserActivity("INStartAudioCallIntent", perform: handleStartCallActivity)
         .onAppear {
             if !UITestScenario.active, let sender = IncomingSMSPresentationRequest.consume() { openSMSConversation(sender) }
         }
@@ -141,6 +160,10 @@ struct RootView: View {
         case let .message(recipient): composeMessage(recipient, nil)
         case nil: break
         }
+    }
+    private func handleStartCallActivity(_ userActivity: NSUserActivity) {
+        guard let number = SystemCallActivityParser.phoneNumber(from: userActivity) else { return }
+        Task { await model.callFromSystemActivity(number: number) }
     }
 }
 

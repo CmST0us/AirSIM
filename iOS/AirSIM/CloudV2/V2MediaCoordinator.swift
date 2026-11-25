@@ -102,6 +102,8 @@ final class V2MediaCoordinator: ObservableObject {
     private(set) var context: V2CallContext?
     private var lastContext: V2CallContext?
     private var chosenRoute: V2AudioRoute?
+    private var applyingChosenRoute = false
+    private var preStartMuted: Bool?
     private var routeObserver: NSObjectProtocol?
     private var callKitManaged = false
     private var ownsVoiceSession = false
@@ -124,8 +126,10 @@ final class V2MediaCoordinator: ObservableObject {
         self.audio = audio ?? V2WebRTCAudio()
         self.peerFactory = peerFactory ?? { try V2WebRTCPeer(servers: $0) }
         self.timing = timing; self.create = create; self.offer = offer; self.delete = delete
-        routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshRoutes() }
+        routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
+            let reason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
+                .flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            MainActor.assumeIsolated { self?.handleRouteChange(reason: reason) }
         }
     }
     deinit { routeObserver.map(NotificationCenter.default.removeObserver) }
@@ -134,6 +138,12 @@ final class V2MediaCoordinator: ObservableObject {
     func prepareCallKitVoiceSession() { audio.prepareCallKitVoiceSession() }
     func callKitAudioActivated(_ session: AVAudioSession) { audio.callKitActivated(session) }
     func callKitAudioDeactivated(_ session: AVAudioSession) { audio.callKitDeactivated(session) }
+    /// Clears per-call user controls when a system call finishes so the next call starts fresh.
+    func resetCallPreferences() {
+        muted = false
+        preStartMuted = nil
+        chosenRoute = nil
+    }
 
     func start(context: V2CallContext, validate: @escaping () -> Bool) {
         guard !active else { return }
@@ -141,7 +151,12 @@ final class V2MediaCoordinator: ObservableObject {
         let stamp = UUID(); generation = stamp; self.context = context; lastContext = context
         lastFailure = nil; statistics = V2MediaStatistics(); statisticsFrozen = false
         connectedAt = nil; disconnectedAt = nil; lastReceivedAt = nil
-        if !resuming { muted = false; chosenRoute = nil }
+        if !resuming {
+            // Preserve a mute choice toggled in CallKit before WebRTC media finished starting.
+            muted = preStartMuted ?? false
+            preStartMuted = nil
+            chosenRoute = nil
+        }
         refreshRoutes()
         recovering = resuming
         state = .preparing
@@ -184,7 +199,11 @@ final class V2MediaCoordinator: ObservableObject {
             if connectedAt == nil {
                 connectedAt = timing.now(); lastReceivedAt = connectedAt
                 // Starting the audio unit can reset the route the user chose.
-                if let chosenRoute { try? audio.select(chosenRoute) }
+                if let chosenRoute {
+                    applyingChosenRoute = true
+                    defer { applyingChosenRoute = false }
+                    try? audio.select(chosenRoute)
+                }
                 refreshRoutes()
             }
             if state == .waiting || state == .authenticating { state = .paired; recovering = false }
@@ -259,12 +278,12 @@ final class V2MediaCoordinator: ObservableObject {
         let tasks = [startTask, monitorTask].compactMap { $0 }
         startTask = nil; monitorTask = nil
         tasks.forEach { $0.cancel() }
-        if let peer {
-            let last = await peer.statistics()
+        if let closingPeer = peer {
+            peer = nil
+            let last = await closingPeer.statistics()
             record(last)
-            peer.close()
+            closingPeer.close()
         }
-        peer = nil
 #if DEBUG
         if !statisticsFrozen, statistics.peer.packetsReceived > 0 || statistics.peer.packetsSent > 0 { recordLastCallStatistics() }
 #endif
@@ -281,13 +300,31 @@ final class V2MediaCoordinator: ObservableObject {
         stopTask = task
         await task.value
     }
-    func setMuted(_ value: Bool) { muted = value; peer?.setMuted(value) }
+    func setMuted(_ value: Bool) {
+        muted = value
+        if !active { preStartMuted = value }
+        peer?.setMuted(value)
+    }
     func setSpeaker(_ value: Bool) { select(value ? .speaker : routes.first { $0.kind == .receiver } ?? .speaker) }
     func select(_ route: V2AudioRoute) {
+        applyingChosenRoute = true
+        defer { applyingChosenRoute = false }
         do { try audio.select(route); chosenRoute = route } catch {
             lastFailure = V2MediaFailureDiagnostic(error: error, stage: .speaker)
         }
         refreshRoutes()
+    }
+    func handleRouteChange(reason: AVAudioSession.RouteChangeReason?) {
+        refreshRoutes()
+        guard !applyingChosenRoute, let reason else { return }
+        switch reason {
+        case .override, .newDeviceAvailable, .oldDeviceUnavailable:
+            // Respect route changes made directly in System CallKit or by plugging/unplugging audio hardware
+            // so a later WebRTC reconnect does not revert to a stale in-app speaker selection.
+            chosenRoute = route
+        default:
+            break
+        }
     }
     func refreshRoutes() { routes = audio.routes; route = audio.currentRoute }
 #if DEBUG

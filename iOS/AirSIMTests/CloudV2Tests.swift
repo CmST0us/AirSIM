@@ -3103,4 +3103,272 @@ extension CloudV2Tests {
         XCTAssertNotNil(app.activeCall)
         XCTAssertNotNil(app.inAppPresentedCall)
     }
+
+    func testPendingStoreUsesAfterFirstUnlockProtectionForLockedScreenCallKit() throws {
+        XCTAssertEqual(V2FilePendingStore.fileProtection, .completeUntilFirstUserAuthentication)
+        XCTAssertTrue(V2FilePendingStore.writeOptions.contains(.completeFileProtectionUntilFirstUserAuthentication))
+        XCTAssertFalse(V2FilePendingStore.writeOptions.contains(.completeFileProtection))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("airsim-pending-prot-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("pending.json")
+        let store = V2FilePendingStore(url: url)
+        let pending = V2PendingCommand(
+            binding: v2Binding(),
+            commandID: v2ID,
+            action: "call.hangup",
+            generation: nil,
+            callID: v2OtherID
+        )
+        try store.save(pending)
+        XCTAssertEqual(try store.load(), pending)
+        let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+        if let protection = attrs[.protectionKey] as? FileProtectionType {
+            XCTAssertEqual(protection, .completeUntilFirstUserAuthentication)
+        }
+    }
+
+    @MainActor func testCallKitEndRefreshesStaleSnapshotAndSucceedsInBackground() async throws {
+        let fixture = try V2PollFixture(pushController: nil)
+        addTeardownBlock { await fixture.close() }
+        fixture.commandHTTPStatus = 200
+        var incoming = v2CallObject(state: "incoming")
+        incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+        fixture.snapshotCalls = [incoming]
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4), endAssociationTimeout: .seconds(4))
+        await fixture.model.sceneChanged(.active)
+        try await v2SystemRinging(fixture)
+        let controller = try XCTUnwrap(fixture.model.systemCalls)
+        try await controller.callKitAnswer(origin: .system)
+        incoming["state"] = "active"; incoming["ownership"] = "managed"
+        fixture.snapshotCalls = [incoming]
+        try await v2PollWait { fixture.model.ownedControlReady }
+
+        // Move to background and let snapshot age past 8 s so freshBinding / ownedControlReady drop to nil/false.
+        await fixture.model.sceneChanged(.background)
+        fixture.snapshotAge = 15
+        try await v2PollWait { fixture.model.freshBinding == nil && !fixture.model.ownedControlReady }
+
+        let endTask = Task { try await controller.callKitEnd() }
+        try await Task.sleep(for: .milliseconds(120))
+        // Once fresh snapshot returns, proactive refresh must recover readiness and submit call.hangup.
+        fixture.snapshotAge = 0
+        try await endTask.value
+        XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.hangup")
+        XCTAssertEqual((fixture.commands.last?["args"] as? [String: String])?["call_id"], v2OtherID)
+    }
+
+    @MainActor func testCallKitEndRebindsAcrossMidCallConnectionEpochChange() async throws {
+        let fixture = try V2PollFixture(pushController: nil)
+        addTeardownBlock { await fixture.close() }
+        fixture.commandHTTPStatus = 200
+        var incoming = v2CallObject(state: "incoming")
+        incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+        fixture.snapshotCalls = [incoming]
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4), endAssociationTimeout: .seconds(4))
+        await fixture.model.sceneChanged(.active)
+        try await v2SystemRinging(fixture)
+        let controller = try XCTUnwrap(fixture.model.systemCalls)
+        try await controller.callKitAnswer(origin: .system)
+        incoming["state"] = "active"; incoming["ownership"] = "managed"
+        fixture.snapshotCalls = [incoming]
+        try await v2PollWait { fixture.model.ownedControlReady }
+        await fixture.model.sceneChanged(.background)
+
+        // Module reconnects under a new connection_epoch while the call stays active.
+        let newEpoch = "12345678-1234-4234-8234-1234567890ab"
+        fixture.connectionEpoch = newEpoch
+        try await controller.callKitEnd()
+        XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.hangup")
+        XCTAssertEqual((fixture.commands.last?["args"] as? [String: String])?["call_id"], v2OtherID)
+        XCTAssertEqual(fixture.model.ownedCall?.binding.connectionEpoch, newEpoch)
+    }
+
+    @MainActor func testCallKitEndCancelsInFlightAnswerBeforePostingAnswer() async throws {
+        let fixture = try V2PollFixture(pushController: nil)
+        addTeardownBlock { await fixture.close() }
+        fixture.commandHTTPStatus = 200
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4), endAssociationTimeout: .seconds(4))
+        await fixture.model.sceneChanged(.active)
+        try await v2PollWait { fixture.model.freshBinding != nil }
+        await fixture.model.sceneChanged(.background)
+
+        // Delay verification via stale snapshot so callKitAnswer waits while user immediately taps Hangup.
+        fixture.snapshotAge = 15
+        fixture.connectionEpoch = v2OtherID
+        var incoming = v2CallObject(state: "incoming")
+        incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+        fixture.snapshotCalls = [incoming]
+        let uuid = UUID()
+        system.currentSystemCallUUID = uuid
+        let now = fixture.currentNow
+        let push = try IncomingVoIPCall(userInfo: [
+            "protocol_version": 2, "event": "incoming_call", "server_id": v2ID,
+            "client_installation_id": v2ID, "registration_id": v2OtherID, "module_id": v2ID,
+            "connection_epoch": v2OtherID, "agent_boot_id": v2ID, "backend_epoch": v2ID,
+            "call_id": v2OtherID, "call_uuid": uuid.uuidString,
+            "expires_at": V2Validation.timestamp(now.addingTimeInterval(25)), "number": "00000000001",
+        ], now: now)
+
+        let controller = try XCTUnwrap(fixture.model.systemCalls)
+        controller.callKitDidReceiveIncoming(push)
+        let answerTask = Task { try await controller.callKitAnswer(origin: .system) }
+        try await Task.sleep(for: .milliseconds(80))
+        let endTask = Task { try await controller.callKitEnd() }
+        try await Task.sleep(for: .milliseconds(80))
+        fixture.snapshotAge = 0
+
+        try await answerTask.value
+        try await endTask.value
+        let actions = fixture.commands.compactMap { $0["action"] as? String }
+        XCTAssertFalse(actions.contains("call.answer"), "Must not post call.answer after user already tapped Hangup")
+        XCTAssertEqual(actions, ["call.hangup"])
+    }
+
+    @MainActor func testBackgroundWithActiveSystemCallKeepsConnectionAndAllowsHangup() async throws {
+        let fixture = try V2PollFixture(pushController: nil)
+        addTeardownBlock { await fixture.close() }
+        fixture.commandHTTPStatus = 200
+        var incoming = v2CallObject(state: "incoming")
+        incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+        fixture.snapshotCalls = [incoming]
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4), endAssociationTimeout: .seconds(4))
+        await fixture.model.sceneChanged(.active)
+        try await v2SystemRinging(fixture)
+        let controller = try XCTUnwrap(fixture.model.systemCalls)
+        try await controller.callKitAnswer(origin: .system)
+        incoming["state"] = "active"; incoming["ownership"] = "managed"
+        fixture.snapshotCalls = [incoming]
+        try await v2PollWait { fixture.model.ownedControlReady }
+
+        await fixture.model.sceneChanged(.background)
+        XCTAssertTrue(fixture.model.connected)
+        try await controller.callKitEnd()
+        XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.hangup")
+        XCTAssertEqual((fixture.commands.last?["args"] as? [String: String])?["call_id"], v2OtherID)
+    }
+
+    @MainActor func testPreStartCallKitMuteSurvivesMediaStartAndResetsForNextCall() async throws {
+        let peer1 = V2TestPeer(), peer2 = V2TestPeer(), audio = V2TestAudio()
+        let media = v2Media(audio: audio, peers: [peer1, peer2])
+        media.useCallKitAudioSession()
+        // User taps Mute in CallKit before WebRTC media starts for the call.
+        media.setMuted(true)
+        XCTAssertTrue(media.muted)
+
+        let call1 = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        media.start(context: call1, validate: { true })
+        try await v2PollWait { media.state == .paired }
+        XCTAssertTrue(media.muted, "Pre-start CallKit mute must not be silently cleared when media starts")
+        XCTAssertEqual(peer1.mutes, [true])
+
+        await media.stop()
+        media.resetCallPreferences()
+        XCTAssertFalse(media.muted)
+
+        let call2 = V2CallContext(binding: v2Binding(), callID: v2ID, generation: v2OtherID)
+        media.start(context: call2, validate: { true })
+        try await v2PollWait { media.state == .paired }
+        XCTAssertFalse(media.muted, "Subsequent call must start unmuted after preferences reset")
+        XCTAssertEqual(peer2.mutes, [false])
+        await media.stop()
+    }
+
+    @MainActor func testExternalRouteChangeOverridesStaleInAppChosenRouteAcrossReconnect() async throws {
+        let peer1 = V2TestPeer(), peer2 = V2TestPeer(), audio = V2TestAudio()
+        let media = v2Media(audio: audio, peers: [peer1, peer2])
+        let call = V2CallContext(binding: v2Binding(), callID: v2OtherID, generation: v2ID)
+        media.start(context: call, validate: { true })
+        try await v2PollWait { media.state == .paired }
+
+        // User turns on speaker in-app, then switches back to receiver directly from System CallKit UI.
+        media.setSpeaker(true)
+        XCTAssertTrue(media.speaker)
+        audio.selected = .receiver
+        media.handleRouteChange(reason: .override)
+        XCTAssertFalse(media.speaker)
+
+        // When WebRTC reconnects, it must respect the CallKit receiver choice instead of reverting to speaker.
+        await media.stop()
+        media.start(context: call, validate: { true })
+        try await v2PollWait { media.state == .paired }
+        XCTAssertEqual(audio.currentRoute, .receiver)
+        XCTAssertFalse(media.speaker)
+        await media.stop()
+    }
+
+    @MainActor func testCallKitDTMFSanitizesDigitsAndRefreshesStaleSnapshot() async throws {
+        let fixture = try V2PollFixture(pushController: nil)
+        addTeardownBlock { await fixture.close() }
+        fixture.commandHTTPStatus = 200
+        var incoming = v2CallObject(state: "incoming")
+        incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+        fixture.snapshotCalls = [incoming]
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4), endAssociationTimeout: .seconds(4))
+        await fixture.model.sceneChanged(.active)
+        try await v2SystemRinging(fixture)
+        let controller = try XCTUnwrap(fixture.model.systemCalls)
+        try await controller.callKitAnswer(origin: .system)
+        incoming["state"] = "active"; incoming["ownership"] = "managed"
+        fixture.snapshotCalls = [incoming]
+        try await v2PollWait { fixture.model.ownedControlReady }
+        await fixture.model.sceneChanged(.background)
+
+        // Pause-only system DTMF should be ignored cleanly without POSTing.
+        try await controller.callKitPlayDTMF(",;")
+        XCTAssertEqual(fixture.writes, 1)
+
+        // Stale snapshot + lowercase/pause characters should refresh and send sanitized tones.
+        fixture.snapshotAge = 15
+        try await v2PollWait { fixture.model.freshBinding == nil }
+        let dtmfTask = Task { try await controller.callKitPlayDTMF("1a,2#") }
+        try await Task.sleep(for: .milliseconds(120))
+        fixture.snapshotAge = 0
+        try await dtmfTask.value
+        XCTAssertEqual(fixture.commands.last?["action"] as? String, "call.dtmf")
+        XCTAssertEqual((fixture.commands.last?["args"] as? [String: String])?["tones"], "1A2#")
+    }
+
+    @MainActor func testLateAudioActivationIsIgnoredWhileCallKitEndIsInProgress() async throws {
+        let audio = V2TestAudio(), peer = V2TestPeer()
+        let media = v2Media(audio: audio, peers: [peer])
+        let fixture = try V2PollFixture(media: media, pushController: nil)
+        addTeardownBlock { await fixture.close() }
+        fixture.commandHTTPStatus = 200
+        var incoming = v2CallObject(state: "incoming")
+        incoming["direction"] = "incoming"; incoming["ownership"] = "incoming"
+        fixture.snapshotCalls = [incoming]
+        let system = TestSystemCalls()
+        fixture.model.activateSystemIntegration(calls: system, associationTimeout: .seconds(4), endAssociationTimeout: .seconds(4))
+        await fixture.model.sceneChanged(.active)
+        try await v2SystemRinging(fixture)
+        let controller = try XCTUnwrap(fixture.model.systemCalls)
+        try await controller.callKitAnswer(origin: .system)
+        incoming["state"] = "active"; incoming["ownership"] = "managed"
+        fixture.snapshotCalls = [incoming]
+        try await v2PollWait { fixture.model.ownedControlReady }
+
+        // Hangup starts while snapshot is transiently stale; a late didActivate must not start media.
+        fixture.snapshotAge = 15
+        try await v2PollWait { fixture.model.freshBinding == nil }
+        let endTask = Task { try await controller.callKitEnd() }
+        try await Task.sleep(for: .milliseconds(80))
+        await controller.callKitAudioSessionDidActivate()
+        XCTAssertFalse(fixture.model.systemAudioActive)
+        XCTAssertFalse(media.active)
+        fixture.snapshotAge = 0
+        try await endTask.value
+    }
+
+    func testNormalizedV2DialNumberStripsFormattingAndRejectsInvalidNumbers() {
+        XCTAssertEqual(AppModel.normalizedV2DialNumber(" 138-0013 8000 "), "13800138000")
+        XCTAssertEqual(AppModel.normalizedV2DialNumber("\u{202A}+86 (138) 0013-8000\u{202C}"), "+8613800138000")
+        XCTAssertEqual(AppModel.normalizedV2DialNumber("100860"), "100860")
+        XCTAssertEqual(AppModel.normalizedV2DialNumber("123"), "")
+        XCTAssertEqual(AppModel.normalizedV2DialNumber("abc"), "")
+    }
 }

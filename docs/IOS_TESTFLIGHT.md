@@ -163,3 +163,21 @@ Apple 测试员页面已报告用户的 iPhone Duo / iOS 27.2 安装 `0.9.6 (82)
 - Release 归档、补入 UUID 完全匹配的 WebRTC 155.0.0 iOS arm64 dSYM（`4C4C44F0-5555-3144-A190-21F9C2A35CDA`）、App Store Connect 分发导出及三项 Target（`AirSIM.app`、`AirSIMLiveActivityExtension.appex`、`AirSIMWatchApp.app`）严格签名校验通过；主 App 与 Watch 为 production APNs（`get-task-allow=false`），`AirSIMV2PairingOrigin=https://airsim.eric3u.cc`，相机/麦克风说明及四项 `PrivacyInfo.xcprivacy`（含 `WebRTC.framework`）保留。
 - 分发产物保存在已忽略目录 `iOS/build/testflight-20261124-build90/`，导出 IPA SHA-256 为 `2353a532609029ac6880b33d2fa058b49117e253e93a863a4df6796aaec499a2`。
 - 北京时间 22:17:10，`xcodebuild -exportArchive`（`destination=upload`）返回 `Uploaded package is processing`、`Upload succeeded` 与 `** EXPORT SUCCEEDED **`，无上传警告。本轮未修改 ECS 或 EG25 Rust Engine `2.0.0-rs.3`；Apple 处理完成、TestFlight 内部测试群组分配及真机锁屏/后台 CallKit 接听待验收。
+
+## 2026-11-25：系统 CallKit 挂断与全链路可靠性修复（Build 91，已上传待处理）
+
+针对 Build 90 真实通话中系统 CallKit 接听正常、但锁屏状态下点击 CallKit 挂断无法触发后端挂断的问题（ECS 实盘日志确认 `15:51:46 UTC` `call.answer` 成功，`15:52:23 UTC` 客户端主动关闭媒体 `media_session_closed reason=client_closed` 却未发出 `call.hangup`，17 秒后解锁回 App 挂断才成功），同时完成全量 CallKit 审查并一次性修复后递增至 `0.9.6 (91)`：
+
+1. `V2Commands.swift`：`V2FilePendingStore` 从 `.completeFileProtection` 改为 `.completeFileProtectionUntilFirstUserAuthentication`（并在 `load()` 时升级历史文件属性），消除锁屏 >10s 回收 Class A 密钥后写入 `pending.json` 抛出 `V2Error.persistence` 中断 `call.hangup`/`call.answer` 的根因。
+2. `V2SystemCalls.swift` / `CloudV2Model.swift`：`callKitEnd()` 与 `callKitPlayDTMF()` 新增就绪等待、陈旧快照主动刷新（`refreshForSystemCallControl()`）与通话中 `connection_epoch` 重连改绑；`callKitEnd()` 入口第一时间置位 `endingUUID` 并让 `callKitAnswer()` 在接听提交前中止竞态；`perform("call.hangup")` 按 `ownedCall?.callID == args["call_id"]` 区分当前通话与残留旧上下文，并先校验 `V2Command` 再停媒体；`sceneChanged(.background)` 在存在活跃系统通话时不切断连接并等待 `adoptionTask`；`finishResolvedCommand()` 获得 `ownedCall` 后立即触发 `updateMediaEligibility()` 缩短起音延迟。
+3. `CallKitController.swift`：`CXEndCallAction`、`CXSetMutedCallAction` 与 `CXPlayDTMFCallAction` 在主线程同步 `MainActor.assumeIsolated` 校验并 `fulfill`（v2 DTMF 走串行 FIFO 队列避免连按冲突），为后台 `callKitAnswer` / `callKitEnd` / `callKitStart` / `callKitPlayDTMF` 申请 `UIApplication.beginBackgroundTask` 保活；补齐 `provider(_:timedOutPerforming:)`、防重入 `endingActionUUID`、`didActivate` 在挂断途中不再拉起音频，并支持联系人显示名同步。
+4. `V2PushController.swift` / `VoIPPushController.swift`：`pushRegistry(_:didReceiveIncomingPushWith:for:completion:)` 在主线程通过 `MainActor.assumeIsolated` 同步上报 `reportNewIncomingCall`（符合 iOS 13+ PushKit 要求）并附带本机通讯录联系人名；`IncomingVoIPCall` 兼容带小数秒的 RFC3339 时间戳。
+5. `V2MediaCoordinator.swift`：保留接通前在 CallKit 切换的静音状态直到媒体启动，通话结束时通过 `resetCallPreferences()` 复位；监听系统外部音频路由变更（`.override` / `.newDeviceAvailable` / `.oldDeviceUnavailable`）同步 `chosenRoute`，避免 WebRTC 重连把系统 CallKit 已改好的路由覆写回旧扬声器；`stop()` 提前置空 `peer` 防止并发重复关闭。
+6. `Info.plist` / `RootView.swift` / `AppModel.swift`：声明 `NSUserActivityTypes`（`INStartCallIntent`、`INStartAudioCallIntent`）并在 `RootView` 接入 `.onContinueUserActivity` 支持 iPhone“最近通话”回拨；新增 `normalizedV2DialNumber` 清洗空格/短横线/双向控制符后再拉起 CallKit 呼出；`toggleMute()` 在系统通话尚未完成上报时优雅回退本地静音。
+
+验证与上传记录：
+- 单元测试：`AirSIMTests` 181/181 通过（含新增 10 项 CallKit 挂断、锁屏保护、静音、路由、DTMF、晚到 `didActivate` 及号码清洗回归测试）。
+- 继续使用 SkySIM / `com.eric3u.airsim2` / Team `2VQ94C2355` / App Store Connect `6829440499`。
+- Release 归档、补入 UUID 完全匹配的 WebRTC 155.0.0 iOS arm64 dSYM（`4C4C44F0-5555-3144-A190-21F9C2A35CDA`）、App Store Connect 分发导出及三项 Target 严格签名校验通过；主 App 与 Watch 为 production APNs（`get-task-allow=false`），`AirSIMV2PairingOrigin=https://airsim.eric3u.cc`，`NSUserActivityTypes`、`NSCameraUsageDescription`、`NSMicrophoneUsageDescription` 及四项 `PrivacyInfo.xcprivacy` 保留。
+- 分发产物保存在已忽略目录 `iOS/build/testflight-20261125-build91/`，导出 IPA SHA-256 为 `86335230d30a55e01958087c90b089b0f5eae80f907eb82ec71d5b0d871bdf77`。
+- 北京时间 10:27:05，`xcodebuild -exportArchive`（`destination=upload`）返回 `Uploaded package is processing`、`Upload succeeded` 与 `** EXPORT SUCCEEDED **`，无上传警告。本轮未修改 ECS 或 EG25 Rust Engine `2.0.0-rs.3`；Apple 处理完成、TestFlight 内部测试群组分配及真机 CallKit 全功能验收待确认。
